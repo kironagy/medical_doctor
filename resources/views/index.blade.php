@@ -5,10 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Patient Files | أرشفة المرضى</title>
     @php
-        $mobileApiUrl = rtrim(config('mobile.api_url'), '/');
-        $mobileApiHost = parse_url($mobileApiUrl, PHP_URL_HOST) ?? null;
-        $mobileApiPath = parse_url($mobileApiUrl, PHP_URL_PATH) ?: '/api';
-        $mobileApiMeta = $mobileApiHost === request()->getHost() ? rtrim($mobileApiPath, '/') . '/v1' : $mobileApiUrl . '/v1';
+        $mobileApiMeta = '/api/v1';
     @endphp
     <meta name="mobile-api-url" content="{{ $mobileApiMeta }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">

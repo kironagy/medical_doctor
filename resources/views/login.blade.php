@@ -5,10 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>تسجيل دخول - نظام أرشفة المرضى</title>
     @php
-        $mobileApiUrl = rtrim(config('mobile.api_url'), '/');
-        $mobileApiHost = parse_url($mobileApiUrl, PHP_URL_HOST) ?? null;
-        $mobileApiPath = parse_url($mobileApiUrl, PHP_URL_PATH) ?: '/api';
-        $mobileApiMeta = $mobileApiHost === request()->getHost() ? rtrim($mobileApiPath, '/') . '/v1' : $mobileApiUrl . '/v1';
+        $mobileApiMeta = '/api/v1';
     @endphp
     <meta name="mobile-api-url" content="{{ $mobileApiMeta }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">

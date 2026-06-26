@@ -59,12 +59,16 @@ class AuthController extends Controller
         if ($result['success']) {
             $request->session()->regenerate();
 
+            // Generate a local token for the frontend to use
+            $user = Auth::user();
+            $localToken = $user->createToken('web_session')->plainTextToken;
+
             return response()->json([
                 'success' => true,
                 'redirect' => url('/'),
                 'mode' => $result['mode'],
                 'token_type' => 'Bearer',
-                'access_token' => $result['access_token'] ?? null,
+                'access_token' => $localToken,
                 'user' => $result['user'],
             ]);
         }
