@@ -129,9 +129,6 @@
             <button class="nav-btn" id="btn_doctors" onclick="switchTab('doctors')">
                 <i class="fa-solid fa-user-doctor"></i> <span data-i18n="doctors">الأطباء</span>
             </button>
-            <button class="nav-btn" id="btn_categories" onclick="switchTab('categories')">
-                <i class="fa-solid fa-layer-group"></i> <span data-i18n="categories">أقسام الملفات</span>
-            </button>
         </div>
 
         <div class="sidebar-footer">
@@ -211,14 +208,6 @@
             </div>
         </div>
 
-        <!-- Categories Tab -->
-        <div class="tab-content" id="tab_categories">
-            <h1 class="page-title" data-i18n="categoriesManagement">إدارة أقسام الملفات</h1>
-            <div class="action-panel">
-                <div class="panel-header">
-                    <h2 class="panel-title" data-i18n="categoriesList">الأقسام الحالية المتاحة للطبيب</h2>
-                    <button class="btn btn-primary" style="background:#8B5CF6;" onclick="openCategoryModal()"><i class="fa-solid fa-plus"></i> <span data-i18n="addCategory">إضافة قسم جديد</span></button>
-                </div>
 
                 <div class="list-grid">
                     @foreach($categories as $category)
@@ -317,7 +306,7 @@
         // Translations
         const i18n = {
             ar: {
-                adminPanel: "لوحة الإدارة", stats: "الإحصائيات", doctors: "الأطباء", categories: "أقسام الملفات",
+                adminPanel: "لوحة الإدارة", stats: "الإحصائيات", doctors: "الأطباء",
                 logout: "خروج", langName: "English", statsOverview: "نظرة عامة على الإحصائيات", totalDocs: "إجمالي الأطباء", totalPatients: "إجمالي المرضى",
                 totalProfits: "إجمالي الأرباح", doctorsManagement: "إدارة الأطباء", doctorsList: "قائمة الأطباء المسجلين", addDoctor: "إضافة طبيب",
                 edit: "تعديل", delete: "مسح", categoriesManagement: "إدارة أقسام الملفات", categoriesList: "الأقسام المتاحة حالياً", addCategory: "إضافة قسم",
@@ -326,7 +315,7 @@
                 editDoctorTitle: "تعديل بيانات طبيب", editCategoryTitle: "تعديل بيانات القسم"
             },
             en: {
-                adminPanel: "Admin Panel", stats: "Dashboard", doctors: "Doctors", categories: "Categories",
+                adminPanel: "Admin Panel", stats: "Dashboard", doctors: "Doctors",
                 logout: "Logout", langName: "عربي", statsOverview: "Stats Overview", totalDocs: "Total Doctors", totalPatients: "Total Patients",
                 totalProfits: "Total Profits", doctorsManagement: "Doctors Management", doctorsList: "Registered Doctors", addDoctor: "Add Doctor",
                 edit: "Edit", delete: "Delete", categoriesManagement: "Categories Management", categoriesList: "Available Categories", addCategory: "Add Category",
