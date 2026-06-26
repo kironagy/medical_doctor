@@ -7,6 +7,7 @@ use App\Models\Patient;
 use App\Models\PatientVisit;
 use App\Models\FileCategory;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 
 class AdminController extends Controller
 {
@@ -35,7 +36,7 @@ class AdminController extends Controller
         User::create([
             'name' => $request->name,
             'email' => $request->email,
-            'password' => bcrypt($request->password),
+            'password' => Hash::make($request->password),
             'role' => 'doctor',
             'phone' => $request->phone,
             'specialization' => $request->specialization,
@@ -63,7 +64,7 @@ class AdminController extends Controller
         ];
 
         if ($request->filled('password')) {
-            $data['password'] = bcrypt($request->password);
+            $data['password'] = Hash::make($request->password);
         }
 
         $user->update($data);

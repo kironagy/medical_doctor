@@ -36,7 +36,7 @@ class OfflineSyncEngine
         }
 
         $database = config('database.connections.sqlite.database');
-        if ($database && $database !== ':memory:' && ! file_exists($database)) {
+        if ($database && $database !== ':memory:' && !file_exists($database)) {
             touch($database);
             Artisan::call('migrate', ['--force' => true]);
         }
@@ -79,7 +79,7 @@ class OfflineSyncEngine
     public function flushQueue(string $token, int $limit = 100): int
     {
         $items = SyncQueueItem::where('status', 'pending')
-            ->where(fn ($query) => $query->whereNull('available_at')->orWhere('available_at', '<=', now()))
+            ->where(fn($query) => $query->whereNull('available_at')->orWhere('available_at', '<=', now()))
             ->orderBy('id')
             ->limit($limit)
             ->get();
@@ -88,7 +88,7 @@ class OfflineSyncEngine
             return 0;
         }
 
-        $operations = $items->map(fn (SyncQueueItem $item) => [
+        $operations = $items->map(fn(SyncQueueItem $item) => [
             'uuid' => $item->record_uuid,
             'table' => $item->table_name,
             'operation' => $item->operation,
@@ -131,7 +131,7 @@ class OfflineSyncEngine
         $count = 0;
 
         foreach ($tables as $table => $records) {
-            if (! isset(self::MODELS[$table])) {
+            if (!isset(self::MODELS[$table])) {
                 continue;
             }
 
@@ -140,7 +140,7 @@ class OfflineSyncEngine
 
             foreach ($records as $record) {
                 $uuid = $record['uuid'] ?? null;
-                if (! $uuid) {
+                if (!$uuid) {
                     continue;
                 }
 
@@ -151,8 +151,8 @@ class OfflineSyncEngine
 
                 $model = $query->where('uuid', $uuid)->first();
 
-                if (! empty($record['deleted_at'])) {
-                    if ($model && (! method_exists($model, 'trashed') || ! $model->trashed())) {
+                if (!empty($record['deleted_at'])) {
+                    if ($model && (!method_exists($model, 'trashed') || !$model->trashed())) {
                         $model->delete();
                     }
                     $count++;
