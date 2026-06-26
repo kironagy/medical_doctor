@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title data-i18n="title">نظام أرشفة المرضى</title>
+    <meta name="mobile-api-url" content="{{ rtrim(config('mobile.api_url'), '/') }}/v1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="{{ asset('assets/css/style.css') }}">
     <style>
@@ -185,6 +186,11 @@
 
     <script src="{{ asset('assets/js/script.js') }}"></script>
     <script>
+        window.MOBILE_API_BASE = document.querySelector('meta[name="mobile-api-url"]')?.content || '/api/v1';
+        window.apiUrl = window.apiUrl || function(path) {
+            return `${window.MOBILE_API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+        };
+
         // Hide loader once DOM + first paint complete
         window.addEventListener('load', () => {
             const loader = document.getElementById('page-loader');

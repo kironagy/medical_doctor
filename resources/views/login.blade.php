@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>تسجيل دخول - نظام أرشفة المرضى</title>
+    <meta name="mobile-api-url" content="{{ rtrim(config('mobile.api_url'), '/') }}/v1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
@@ -295,6 +296,9 @@
                 const data = await res.json();
 
                 if (data.success) {
+                    if (data.access_token) {
+                        localStorage.setItem('api_token', data.access_token);
+                    }
                     btn.innerHTML = '<i class="fa-solid fa-circle-check"></i>';
                     setTimeout(() => {
                         window.location.href = data.redirect || "{{ url('/') }}";

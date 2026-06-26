@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Patient Files | أرشفة المرضى</title>
+    <meta name="mobile-api-url" content="{{ rtrim(config('mobile.api_url'), '/') }}/v1">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1230,7 +1231,14 @@
         let patientFiles = [];
         let currentPage = 1;
         const perPage = 15;
-        const API_BASE = '/api';
+        const API_BASE = document.querySelector('meta[name="mobile-api-url"]')?.content || '/api/v1';
+        function apiHeaders(extra = {}) {
+            const token = localStorage.getItem('api_token');
+            return token ? { ...extra, 'Authorization': `Bearer ${token}` } : extra;
+        }
+        function apiUrl(path) {
+            return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+        }
 
         // Load limits per section to avoid lag
         const displayLimit = 4;
@@ -1253,9 +1261,9 @@
 
         async function fetchPatients() {
             try {
-                const res = await fetch(`${API_BASE}/patients`);
+                const res = await fetch(apiUrl('/patients'), { headers: apiHeaders({ 'Accept': 'application/json' }) });
                 const data = await res.json();
-                patients = data.patients || [];
+                patients = data.data || data.patients || [];
                 handleSearch();
                 setTimeout(restoreState, 100);
             } catch(e) { console.error(e); }
@@ -1312,9 +1320,10 @@
             sectionsConfig.forEach(s => sectionLimits[s.category] = displayLimit);
 
             try {
-                const res = await fetch(`${API_BASE}/patients/${p.id}`);
+                const res = await fetch(apiUrl(`/patients/${p.id}`), { headers: apiHeaders({ 'Accept': 'application/json' }) });
                 const data = await res.json();
-                patientFiles = data.files || [];
+                const patient = data.data || data;
+                patientFiles = patient.files || [];
                 renderFiles();
             } catch(e) { console.error(e); }
             saveState();
@@ -1351,15 +1360,15 @@
                 diagnosis: document.getElementById('p_diagnosis').value,
             };
 
-            const url = id ? `${API_BASE}/patients/${id}` : `${API_BASE}/patients`;
+            const url = id ? apiUrl(`/patients/${id}`) : apiUrl('/patients');
             try {
-                const res = await fetch(url, { method: id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) });
+                const res = await fetch(url, { method: id ? 'PUT' : 'POST', headers: apiHeaders({ 'Content-Type': 'application/json', 'Accept': 'application/json' }), body: JSON.stringify(payload) });
                 if (res.ok) {
                     closeModal('patientModal');
                     showToast(id ? 'Patient updated successfully' : 'Patient added successfully', 'success');
                     await fetchPatients();
                     if (id && currentPatient && currentPatient.id == id) selectPatient(patients.find(x => x.id == id));
-                    else if (!id) { const saved = await res.json(); selectPatient(patients.find(x => x.id == saved.id) || saved); }
+                    else if (!id) { const saved = await res.json(); const savedPatient = saved.data || saved; selectPatient(patients.find(x => x.id == savedPatient.id) || savedPatient); }
                 }
             } catch(e) {}
         }
@@ -1699,9 +1708,10 @@
             btn.textContent = i18n[lang].saving;
 
             try {
-                const res = await fetch(`${API_BASE}/patients/${currentPatient.id}/files`, { method: 'POST', headers: { 'Accept': 'application/json' }, body: formData });
+                const res = await fetch(apiUrl(`/patients/${currentPatient.id}/files`), { method: 'POST', headers: apiHeaders({ 'Accept': 'application/json' }), body: formData });
                 if (res.ok) {
-                    const savedFile = await res.json();
+                    const response = await res.json();
+                    const savedFile = response.data || response;
                     patientFiles.unshift(savedFile);
                     renderFiles();
                     showToast('Item saved successfully', 'success');
@@ -1733,7 +1743,7 @@
                 const id = currentPatient.id;
                 closeModal('confirmModal');
                 try {
-                    const res = await fetch(`${API_BASE}/patients/${id}`, { method: 'DELETE' });
+                    const res = await fetch(apiUrl(`/patients/${id}`), { method: 'DELETE', headers: apiHeaders({ 'Accept': 'application/json' }) });
                     if (res.ok) { 
                         patients = patients.filter(p => p.id !== id);
                         currentPatient = null;
@@ -1755,7 +1765,7 @@
             const id = itemToDelete;
             closeModal('confirmModal');
             try {
-                const res = await fetch(`${API_BASE}/patients/${currentPatient.id}/files/${id}`, { method: 'DELETE' });
+                const res = await fetch(apiUrl(`/patients/${currentPatient.id}/files/${id}`), { method: 'DELETE', headers: apiHeaders({ 'Accept': 'application/json' }) });
                 if (res.ok) { patientFiles = patientFiles.filter(f => f.id !== id); renderFiles(); showToast('Item deleted', 'success'); }
             } catch(e) {}
             itemToDelete = null;

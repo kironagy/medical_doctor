@@ -2,14 +2,21 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasSyncIdentity;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PatientFile extends Model
 {
-    use HasFactory;
+    use HasFactory, HasSyncIdentity, SoftDeletes;
 
-    protected $fillable = ['patient_id', 'title', 'desc', 'type', 'category', 'date', 'file_name', 'file_path', 'data'];
+    protected $fillable = ['uuid', 'patient_id', 'title', 'desc', 'type', 'category', 'date', 'file_name', 'file_path', 'data', 'client_updated_at'];
+
+    protected $casts = [
+        'date' => 'date:Y-m-d',
+        'client_updated_at' => 'datetime',
+    ];
 
     public function patient()
     {

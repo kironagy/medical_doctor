@@ -178,13 +178,22 @@ let currentLang = localStorage.getItem('lang') || 'ar';
 let patientsData = [];
 let filesData = [];
 let dashboardStats = { totalPatients: 0, totalFiles: 0, recentPatients: 0 };
-const API_BASE = '/api';
+const API_BASE = window.MOBILE_API_BASE || '/api/v1';
+
+function apiHeaders(extra = {}) {
+    const token = localStorage.getItem('api_token');
+    return token ? { ...extra, 'Authorization': `Bearer ${token}` } : extra;
+}
+
+function apiUrl(path) {
+    return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+}
 
 async function fetchPatients() {
     try {
-        const response = await fetch(`${API_BASE}/patients`);
+        const response = await fetch(apiUrl('/patients'), { headers: apiHeaders({ 'Accept': 'application/json' }) });
         const data = await response.json();
-        patientsData = data.patients;
+        patientsData = data.data || data.patients || [];
         dashboardStats = data.stats;
         filteredPatients = [...patientsData];
         renderPatients();

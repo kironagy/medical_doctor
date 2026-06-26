@@ -2,11 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasSyncIdentity;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PatientVisit extends Model
 {
+    use HasSyncIdentity, SoftDeletes;
+
     protected $fillable = [
+        'uuid',
         'patient_id',
         'visit_type',
         'visit_type_custom',
@@ -19,12 +24,14 @@ class PatientVisit extends Model
         'prescription',
         'next_visit_date',
         'cost',
+        'client_updated_at',
     ];
 
     protected $casts = [
         'session_details' => 'array',
         'visit_date'      => 'date:Y-m-d',
         'next_visit_date' => 'date:Y-m-d',
+        'client_updated_at' => 'datetime',
     ];
 
     public function patient()
