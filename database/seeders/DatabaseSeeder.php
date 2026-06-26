@@ -16,17 +16,19 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // Admin user
-        User::create([
-            'name' => 'System Admin',
+        User::updateOrCreate([
             'email' => 'admin@gmail.com',
+        ], [
+            'name' => 'System Admin',
             'password' => bcrypt('admin'),
             'role' => 'admin',
         ]);
 
         // Default doctor
-        User::create([
-            'name' => 'Doctor',
+        User::updateOrCreate([
             'email' => 'doctor@gmail.com',
+        ], [
+            'name' => 'Doctor',
             'password' => bcrypt('doctor'),
             'role' => 'doctor',
             'specialization' => 'General',
@@ -45,7 +47,9 @@ class DatabaseSeeder extends Seeder
         ];
 
         foreach ($categories as $cat) {
-            \App\Models\FileCategory::create($cat);
+            \App\Models\FileCategory::updateOrCreate([
+                'name' => $cat['name'],
+            ], $cat);
         }
     }
 }

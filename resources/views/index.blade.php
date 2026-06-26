@@ -1370,7 +1370,10 @@
                     if (id && currentPatient && currentPatient.id == id) selectPatient(patients.find(x => x.id == id));
                     else if (!id) { const saved = await res.json(); const savedPatient = saved.data || saved; selectPatient(patients.find(x => x.id == savedPatient.id) || savedPatient); }
                 }
-            } catch(e) {}
+            } catch(e) {
+                console.error('[patients] save failed', e);
+                showToast('Error saving patient', 'error');
+            }
         }
 
         function buildSections() {
@@ -1717,7 +1720,10 @@
                     showToast('Item saved successfully', 'success');
                     closeModal('itemModal');
                 } else showToast('Error saving', 'error');
-            } catch(err) {} 
+            } catch(err) {
+                console.error('[patient-files] save failed', err);
+                showToast('Error saving', 'error');
+            } 
             finally { btn.disabled = false; btn.textContent = i18n[lang].save; }
         }
 
@@ -1767,7 +1773,10 @@
             try {
                 const res = await fetch(apiUrl(`/patients/${currentPatient.id}/files/${id}`), { method: 'DELETE', headers: apiHeaders({ 'Accept': 'application/json' }) });
                 if (res.ok) { patientFiles = patientFiles.filter(f => f.id !== id); renderFiles(); showToast('Item deleted', 'success'); }
-            } catch(e) {}
+            } catch(e) {
+                console.error('[patient-files] delete failed', e);
+                showToast('Error deleting item', 'error');
+            }
             itemToDelete = null;
         };
 
