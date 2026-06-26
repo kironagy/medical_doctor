@@ -1248,6 +1248,15 @@
         function apiUrl(path) {
             return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
         }
+        function apiFetch(path, options = {}) {
+            const { headers = {}, ...rest } = options;
+            const url = path.startsWith('http') ? path : apiUrl(path);
+            return fetch(url, {
+                credentials: 'include',
+                headers: apiHeaders(headers),
+                ...rest,
+            });
+        }
 
         // Load limits per section to avoid lag
         const displayLimit = 4;
@@ -1269,7 +1278,7 @@
 
         async function fetchPatients() {
             try {
-                const res = await fetch(apiUrl('/patients'), { headers: apiHeaders({ 'Accept': 'application/json' }) });
+                const res = await apiFetch('/patients', { headers: { 'Accept': 'application/json' } });
                 const data = await res.json();
                 patients = data.data || data.patients || [];
                 handleSearch();
@@ -1328,7 +1337,7 @@
             sectionsConfig.forEach(s => sectionLimits[s.category] = displayLimit);
 
             try {
-                const res = await fetch(apiUrl(`/patients/${p.id}`), { headers: apiHeaders({ 'Accept': 'application/json' }) });
+                const res = await apiFetch(`/patients/${p.id}`, { headers: { 'Accept': 'application/json' } });
                 const data = await res.json();
                 const patient = data.data || data;
                 patientFiles = patient.files || [];
@@ -1370,13 +1379,15 @@
 
             const url = id ? apiUrl(`/patients/${id}`) : apiUrl('/patients');
             try {
-                const res = await fetch(url, {
+                const res = await apiFetch(url, {
                     method: id ? 'PUT' : 'POST',
-                    headers: apiHeaders({ 'Content-Type': 'application/json', 'Accept': 'application/json' }),
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify(payload)
                 });
 
-                const responseData = await res.json().catch(() => null);
+                const text = await res.text();
+                let responseData = null;
+                try { responseData = JSON.parse(text); } catch {};
                 if (res.ok) {
                     closeModal('patientModal');
                     showToast(id ? 'Patient updated successfully' : 'Patient added successfully', 'success');
@@ -1386,9 +1397,12 @@
                     return;
                 }
 
-                let errorMessage = responseData?.message || 'Error saving patient';
+                let errorMessage = responseData?.message || text || `Error saving patient (${res.status})`;
                 if (responseData?.errors) {
                     errorMessage = Object.values(responseData.errors).flat().join(' ');
+                }
+                if (!errorMessage) {
+                    errorMessage = `Error saving patient (${res.status})`;
                 }
                 showToast(errorMessage, 'error');
             } catch(e) {
