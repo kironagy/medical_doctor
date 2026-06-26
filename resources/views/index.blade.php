@@ -1263,7 +1263,19 @@
             return token ? { ...extra, 'Authorization': `Bearer ${token}` } : extra;
         }
         function apiUrl(path) {
-            return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+            if (path.startsWith('http://') || path.startsWith('https://')) return path;
+
+            const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+            const basePath = API_BASE.replace(/https?:\/\/[\w\-\.]+(?::\d+)?/, '');
+
+            if (normalizedPath.startsWith(basePath)) {
+                return normalizedPath;
+            }
+
+            if (API_BASE.endsWith('/') && normalizedPath.startsWith('/')) {
+                return `${API_BASE}${normalizedPath.slice(1)}`;
+            }
+            return `${API_BASE}${normalizedPath}`;
         }
         function apiFetch(path, options = {}) {
             const { headers = {}, ...rest } = options;

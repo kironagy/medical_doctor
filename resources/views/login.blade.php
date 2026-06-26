@@ -203,7 +203,7 @@
             <div class="login-icon">
                 <i class="fa-solid fa-notes-medical"></i>
             </div>
-            
+
             <div class="login-header">
                 <h1>مرحباً بك 👋</h1>
                 <p>سجّل دخولك لنظام الملفات الطبية</p>
@@ -258,7 +258,7 @@
             document.documentElement.dir = 'ltr';
             document.body.dir = 'ltr';
             document.documentElement.lang = 'en';
-            
+
             document.querySelector('.login-header h1').textContent = 'Welcome Back 👋';
             document.querySelector('.login-header p').textContent = 'Login to the Medical System';
             document.querySelectorAll('label')[0].textContent = 'Email Address';
