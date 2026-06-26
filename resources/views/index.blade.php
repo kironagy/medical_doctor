@@ -1240,7 +1240,24 @@
         let patientFiles = [];
         let currentPage = 1;
         const perPage = 15;
-        const API_BASE = document.querySelector('meta[name="mobile-api-url"]')?.content || '/api/v1';
+        const API_BASE = normalizeApiBase(document.querySelector('meta[name="mobile-api-url"]')?.content || '/api/v1');
+        function normalizeApiBase(base) {
+            const trimmed = (base || '').trim().replace(/\/+$/, '');
+            if (!trimmed) return '/api/v1';
+            try {
+                const url = new URL(trimmed, window.location.origin);
+                if (url.host === window.location.host) {
+                    return url.pathname.replace(/\/+$/, '') || '/api/v1';
+                }
+                if (window.location.protocol === 'https:' && url.protocol === 'http:' && url.host === window.location.host) {
+                    url.protocol = 'https:';
+                    return url.toString().replace(/\/+$/, '');
+                }
+                return url.toString();
+            } catch (err) {
+                return trimmed;
+            }
+        }
         function apiHeaders(extra = {}) {
             const token = localStorage.getItem('api_token');
             return token ? { ...extra, 'Authorization': `Bearer ${token}` } : extra;

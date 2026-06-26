@@ -276,8 +276,27 @@
             const remember = document.getElementById('remember').checked;
             const errorEl  = document.getElementById('loginError');
             const btn      = document.getElementById('loginBtn');
-            const apiBase  = document.querySelector('meta[name="mobile-api-url"]')?.content || '';
+            const rawApiBase = document.querySelector('meta[name="mobile-api-url"]')?.content || '';
+            const apiBase = normalizeApiBase(rawApiBase);
             const loginUrl = "{{ route('login.post') }}";
+
+            function normalizeApiBase(base) {
+                const trimmed = (base || '').trim().replace(/\/+$/, '');
+                if (!trimmed) return '';
+                try {
+                    const url = new URL(trimmed, window.location.origin);
+                    if (url.host === window.location.host) {
+                        return url.pathname.replace(/\/+$/, '') || '';
+                    }
+                    if (window.location.protocol === 'https:' && url.protocol === 'http:' && url.host === window.location.host) {
+                        url.protocol = 'https:';
+                        return url.toString();
+                    }
+                    return url.toString();
+                } catch (err) {
+                    return trimmed;
+                }
+            }
 
             // Show loading state
             errorEl.style.display = 'none';
