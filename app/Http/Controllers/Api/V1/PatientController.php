@@ -19,7 +19,7 @@ class PatientController extends Controller
         $sortColumn = ltrim($sort, '-');
         $sortDirection = str_starts_with($sort, '-') ? 'desc' : 'asc';
 
-        if (! in_array($sortColumn, ['id', 'code', 'name', 'phone', 'created_at', 'updated_at'], true)) {
+        if (!in_array($sortColumn, ['id', 'code', 'name', 'phone', 'created_at', 'updated_at'], true)) {
             $sortColumn = 'id';
         }
 
@@ -83,7 +83,7 @@ class PatientController extends Controller
     {
         return $request->validate([
             'uuid' => ['nullable', 'uuid'],
-            'code' => ['nullable', 'string', 'size:6', 'unique:patients,code,'.($patient?->id ?? 'NULL')],
+            'code' => ['nullable', 'string', 'size:6', 'unique:patients,code,' . ($patient?->id ?? 'NULL')],
             'name' => ['required', 'string', 'max:255'],
             'phone' => ['required', 'string', 'max:255'],
             'address' => ['nullable', 'string', 'max:255'],
