@@ -264,6 +264,15 @@
         /* ════════════════════════════════════════════════════════
            MAIN CONTENT
         ════════════════════════════════════════════════════════ */
+        html, body {
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+
+        .sidebar, .main-content, .section-block, .items-grid, .type-selection-cards, .modal-content {
+            min-width: 0;
+        }
+
         .main-content {
             flex: 1;
             padding: 1.2rem;
@@ -1355,20 +1364,33 @@
             const payload = {
                 name: document.getElementById('p_name').value,
                 phone: document.getElementById('p_phone').value,
-                address: document.getElementById('p_address').value,
-                diagnosis: document.getElementById('p_diagnosis').value,
+                address: document.getElementById('p_address').value || null,
+                diagnosis: document.getElementById('p_diagnosis').value || null,
             };
 
             const url = id ? apiUrl(`/patients/${id}`) : apiUrl('/patients');
             try {
-                const res = await fetch(url, { method: id ? 'PUT' : 'POST', headers: apiHeaders({ 'Content-Type': 'application/json', 'Accept': 'application/json' }), body: JSON.stringify(payload) });
+                const res = await fetch(url, {
+                    method: id ? 'PUT' : 'POST',
+                    headers: apiHeaders({ 'Content-Type': 'application/json', 'Accept': 'application/json' }),
+                    body: JSON.stringify(payload)
+                });
+
+                const responseData = await res.json().catch(() => null);
                 if (res.ok) {
                     closeModal('patientModal');
                     showToast(id ? 'Patient updated successfully' : 'Patient added successfully', 'success');
                     await fetchPatients();
                     if (id && currentPatient && currentPatient.id == id) selectPatient(patients.find(x => x.id == id));
-                    else if (!id) { const saved = await res.json(); const savedPatient = saved.data || saved; selectPatient(patients.find(x => x.id == savedPatient.id) || savedPatient); }
+                    else if (!id && responseData) { const savedPatient = responseData.data || responseData; selectPatient(patients.find(x => x.id == savedPatient.id) || savedPatient); }
+                    return;
                 }
+
+                let errorMessage = responseData?.message || 'Error saving patient';
+                if (responseData?.errors) {
+                    errorMessage = Object.values(responseData.errors).flat().join(' ');
+                }
+                showToast(errorMessage, 'error');
             } catch(e) {
                 console.error('[patients] save failed', e);
                 showToast('Error saving patient', 'error');

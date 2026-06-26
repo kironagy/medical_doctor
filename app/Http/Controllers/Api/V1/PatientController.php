@@ -86,7 +86,7 @@ class PatientController extends Controller
             'code' => ['nullable', 'string', 'size:6', 'unique:patients,code,'.($patient?->id ?? 'NULL')],
             'name' => ['required', 'string', 'max:255'],
             'phone' => ['required', 'string', 'max:255'],
-            'address' => ['required', 'string', 'max:255'],
+            'address' => ['nullable', 'string', 'max:255'],
             'diagnosis' => ['nullable', 'string'],
             'client_updated_at' => ['nullable', 'date'],
         ]);
