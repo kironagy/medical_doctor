@@ -108,7 +108,7 @@ class AdminController extends Controller
     public function updateCategory(Request $request, $id)
     {
         $cat = FileCategory::findOrFail($id);
-        
+
         $request->validate([
             'name' => 'required|string',
             'icon' => 'nullable|image|max:2048',

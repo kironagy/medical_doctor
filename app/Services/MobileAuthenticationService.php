@@ -63,12 +63,7 @@ class MobileAuthenticationService
                     'status' => $status,
                 ]);
 
-                return [
-                    'success' => false,
-                    'mode' => 'online',
-                    'message' => 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
-                    'status' => $status,
-                ];
+                return $this->offlineLogin($email, $password, $remember, $exception);
             }
 
             return $this->offlineLogin($email, $password, $remember, $exception);
@@ -83,7 +78,7 @@ class MobileAuthenticationService
     {
         $email = $userData['email'] ?? null;
 
-        if (! $email) {
+        if (!$email) {
             throw new \RuntimeException('Remote login response did not include a user email.');
         }
 
@@ -96,7 +91,7 @@ class MobileAuthenticationService
             'client_updated_at' => now(),
         ];
 
-        if (! empty($userData['uuid'])) {
+        if (!empty($userData['uuid'])) {
             $attributes['uuid'] = $userData['uuid'];
         }
 
@@ -113,7 +108,7 @@ class MobileAuthenticationService
 
         $user = User::where('email', $email)->first();
 
-        if (! $user || ! Hash::check($password, $user->password)) {
+        if (!$user || !Hash::check($password, $user->password)) {
             Log::warning('mobile_auth.offline_login_failed', [
                 'email' => $email,
                 'user_found' => (bool) $user,
