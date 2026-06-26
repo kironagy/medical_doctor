@@ -1135,7 +1135,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function loadOverview() {
     try {
-        const res = await fetch(`/api/patients/${patientId}/overview`);
+        const res = await fetch(apiUrl(`/patients/${patientId}/overview`), { headers: apiHeaders({ 'Accept': 'application/json' }) });
         if (!res.ok) { window.location.href = '/'; return; }
         overviewData = await res.json();
         renderBanner(overviewData.patient);
@@ -1404,7 +1404,7 @@ async function loadCategoryViewData(category, page) {
     grid.innerHTML = `<div class="section-loader" style="grid-column:1/-1;"><i class="fa-solid fa-circle-notch fa-spin"></i><p>جاري التحميل...</p></div>`;
 
     try {
-        let url = `/api/patients/${patientId}/files/paginated?page=${page}&per_page=12`;
+        let url = apiUrl(`/patients/${patientId}/files/paginated?page=${page}&per_page=12`);
         if (category && category !== 'all') {
             url += `&category=${encodeURIComponent(category)}`;
         }
@@ -1412,7 +1412,7 @@ async function loadCategoryViewData(category, page) {
             url += `&q=${encodeURIComponent(searchQuery)}`;
         }
 
-        const res = await fetch(url);
+        const res = await fetch(url, { headers: apiHeaders({ 'Accept': 'application/json' }) });
         const data = await res.json();
         const files = data.data || [];
         categoryPagination = {
@@ -1493,7 +1493,7 @@ async function loadDedicatedVisits(page) {
     tbody.innerHTML = `<tr><td colspan="8" class="section-loader"><i class="fa-solid fa-circle-notch fa-spin"></i><p>جاري التحميل...</p></td></tr>`;
 
     try {
-        const res = await fetch(`/api/patients/${patientId}/visits/paginated?page=${page}&per_page=10`);
+        const res = await fetch(apiUrl(`/patients/${patientId}/visits/paginated?page=${page}&per_page=10`), { headers: apiHeaders({ 'Accept': 'application/json' }) });
         const data = await res.json();
         allVisits = data.data || [];
         visitsPagination = {
@@ -1567,7 +1567,7 @@ async function loadDedicatedFiles(page) {
     grid.innerHTML = `<div class="section-loader" style="grid-column:1/-1;"><i class="fa-solid fa-circle-notch fa-spin"></i><p>جاري التحميل...</p></div>`;
 
     try {
-        const res = await fetch(`/api/patients/${patientId}/files/paginated?page=${page}&per_page=12`);
+        const res = await fetch(apiUrl(`/patients/${patientId}/files/paginated?page=${page}&per_page=12`), { headers: apiHeaders({ 'Accept': 'application/json' }) });
         const data = await res.json();
         allFiles = data.data || [];
         filesPagination = {
@@ -1643,7 +1643,7 @@ async function loadCategoryViewData(category, page) {
     grid.innerHTML = `<div class="section-loader" style="grid-column:1/-1;"><i class="fa-solid fa-circle-notch fa-spin"></i><p>جاري التحميل...</p></div>`;
 
     try {
-        let url = `/api/patients/${patientId}/files/paginated?page=${page}&per_page=12`;
+        let url = apiUrl(`/patients/${patientId}/files/paginated?page=${page}&per_page=12`);
         if (category && category !== 'all') {
             url += `&category=${encodeURIComponent(category)}`;
         }
@@ -1651,7 +1651,7 @@ async function loadCategoryViewData(category, page) {
             url += `&q=${encodeURIComponent(searchQuery)}`;
         }
 
-        const res = await fetch(url);
+        const res = await fetch(url, { headers: apiHeaders({ 'Accept': 'application/json' }) });
         const data = await res.json();
         const files = data.data || [];
         categoryPagination = {
@@ -1810,8 +1810,9 @@ function visitTypeBadge(label) {
 // Fetch all visits (for modals) + initial load
 async function fetchVisits() {
     try {
-        const res = await fetch(`/api/patients/${patientId}/visits`);
-        visitsData = await res.json();
+        const res = await fetch(apiUrl(`/patients/${patientId}/visits?per_page=100`), { headers: apiHeaders({ 'Accept': 'application/json' }) });
+        const response = await res.json();
+        visitsData = response.data || response;
     } catch(e) { console.error(e); }
 }
 
@@ -1897,15 +1898,16 @@ async function handleSaveVisit(e) {
     btn.querySelector('.btn-text').textContent = 'جاري الحفظ...';
 
     try {
-        const url    = visitId ? `/api/patients/${patientId}/visits/${visitId}` : `/api/patients/${patientId}/visits`;
+        const url    = visitId ? apiUrl(`/patients/${patientId}/visits/${visitId}`) : apiUrl(`/patients/${patientId}/visits`);
         const method = visitId ? 'PUT' : 'POST';
         const res    = await fetch(url, {
             method,
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            headers: apiHeaders({ 'Content-Type': 'application/json', 'Accept': 'application/json' }),
             body: JSON.stringify(payload),
         });
         if (res.ok) {
-            const saved = await res.json();
+            const response = await res.json();
+            const saved = response.data || response;
             if (visitId) {
                 visitsData = visitsData.map(x => x.id == visitId ? saved : x);
                 allVisits = allVisits.map(x => x.id == visitId ? saved : x);
@@ -1941,7 +1943,7 @@ function closeDeleteVisitModal() {
 async function confirmDeleteVisit() {
     const id = document.getElementById('deleteVisitId').value;
     try {
-        const res = await fetch(`/api/patients/${patientId}/visits/${id}`, { method: 'DELETE' });
+        const res = await fetch(apiUrl(`/patients/${patientId}/visits/${id}`), { method: 'DELETE', headers: apiHeaders({ 'Accept': 'application/json' }) });
         if (res.ok) {
             visitsData = visitsData.filter(v => v.id != id);
             allVisits = allVisits.filter(v => v.id != id);
@@ -2015,7 +2017,7 @@ function closeDeletePatientModal() {
 }
 async function confirmDeletePatient() {
     try {
-        const res = await fetch(`/api/patients/${patientId}`, { method: 'DELETE' });
+        const res = await fetch(apiUrl(`/patients/${patientId}`), { method: 'DELETE', headers: apiHeaders({ 'Accept': 'application/json' }) });
         if (res.ok) {
             window.location.href = '/';
         } else {

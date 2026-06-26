@@ -426,9 +426,9 @@ async function handleAddPatient(e) {
     const diagnosis = document.getElementById('patientDiagnosis') ? document.getElementById('patientDiagnosis').value : '';
     
     try {
-        const res = await fetch(`${API_BASE}/patients`, {
+        const res = await fetch(apiUrl('/patients'), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            headers: apiHeaders({ 'Content-Type': 'application/json', 'Accept': 'application/json' }),
             body: JSON.stringify({ name, phone, address, diagnosis })
         });
         if(res.ok) {
@@ -449,12 +449,13 @@ async function fetchPatientDetails() {
     if (!patientId) return;
     
     try {
-        const res = await fetch(`${API_BASE}/patients/${patientId}`);
+        const res = await fetch(apiUrl(`/patients/${patientId}`), { headers: apiHeaders({ 'Accept': 'application/json' }) });
         if(!res.ok) {
             window.location.href = '/';
             return;
         }
-        const patient = await res.json();
+        const response = await res.json();
+        const patient = response.data || response;
         
         const profileSection = document.getElementById('patientProfile');
         if (profileSection) {
@@ -727,8 +728,10 @@ function handleUploadFile(e) {
     }
     
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API_BASE}/patients/${patientId}/files`, true);
+    xhr.open('POST', apiUrl(`/patients/${patientId}/files`), true);
     xhr.setRequestHeader('Accept', 'application/json');
+    const token = localStorage.getItem('api_token');
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     
     xhr.upload.onprogress = function(event) {
         if (event.lengthComputable && progressContainer) {
@@ -744,7 +747,8 @@ function handleUploadFile(e) {
         spinner.style.display = 'none';
         
         if (xhr.status === 201 || xhr.status === 200) {
-            const newFile = JSON.parse(xhr.responseText);
+            const response = JSON.parse(xhr.responseText);
+            const newFile = response.data || response;
             filesData.unshift(newFile);
             renderPatientFiles(patientId);
             closeUploadModal();
@@ -818,7 +822,7 @@ function closeViewerModal() {
 async function deleteFile(fileId, patientId) {
     if (!confirm('هل أنت متأكد من حذف هذا الملف؟')) return;
     try {
-        const res = await fetch(`${API_BASE}/patients/${patientId}/files/${fileId}`, { method: 'DELETE' });
+        const res = await fetch(apiUrl(`/patients/${patientId}/files/${fileId}`), { method: 'DELETE', headers: apiHeaders({ 'Accept': 'application/json' }) });
         if (res.ok) {
             filesData = filesData.filter(f => f.id !== fileId);
             renderPatientFiles(patientId);
@@ -867,7 +871,7 @@ function closeDeleteModal() {
 async function confirmDeletePatient() {
     const id = parseInt(document.getElementById('deletePatientId').value);
     try {
-        const res = await fetch(`${API_BASE}/patients/${id}`, { method: 'DELETE' });
+        const res = await fetch(apiUrl(`/patients/${id}`), { method: 'DELETE', headers: apiHeaders({ 'Accept': 'application/json' }) });
         if(res.ok) {
             closeDeleteModal();
             fetchPatients();
@@ -901,9 +905,9 @@ async function handleEditPatient(e) {
     const diagnosis = document.getElementById('editPatientDiagnosis') ? document.getElementById('editPatientDiagnosis').value.trim() : '';
     
     try {
-        const res = await fetch(`${API_BASE}/patients/${id}`, {
+        const res = await fetch(apiUrl(`/patients/${id}`), {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            headers: apiHeaders({ 'Content-Type': 'application/json', 'Accept': 'application/json' }),
             body: JSON.stringify({ name, phone, address, diagnosis })
         });
         if(res.ok) {

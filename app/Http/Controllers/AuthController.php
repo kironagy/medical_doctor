@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\MobileAuthenticationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -42,33 +43,37 @@ class AuthController extends Controller
         return view('login');
     }
 
-    public function login(Request $request)
+    public function login(Request $request, MobileAuthenticationService $auth)
     {
         $request->validate([
             'email'    => 'required|email',
             'password' => 'required|string|min:1',
         ]);
 
-        $credentials = $request->only('email', 'password');
-        $remember    = $request->boolean('remember');
+        $result = $auth->login(
+            $request->string('email')->toString(),
+            $request->string('password')->toString(),
+            $request->boolean('remember'),
+        );
 
-        if (Auth::attempt($credentials, $remember)) {
+        if ($result['success']) {
             $request->session()->regenerate();
-            $user = Auth::user();
 
             return response()->json([
                 'success' => true,
                 'redirect' => url('/'),
+                'mode' => $result['mode'],
                 'token_type' => 'Bearer',
-                'access_token' => $user->createToken('web')->plainTextToken,
-                'user' => $user,
+                'access_token' => $result['access_token'] ?? null,
+                'user' => $result['user'],
             ]);
         }
 
         return response()->json([
             'success' => false,
-            'message' => 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
-        ], 401);
+            'mode' => $result['mode'] ?? 'online',
+            'message' => $result['message'] ?? 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
+        ], $result['status'] ?? 401);
     }
 
     public function logout(Request $request)

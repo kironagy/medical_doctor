@@ -276,6 +276,8 @@
             const remember = document.getElementById('remember').checked;
             const errorEl  = document.getElementById('loginError');
             const btn      = document.getElementById('loginBtn');
+            const apiBase  = document.querySelector('meta[name="mobile-api-url"]')?.content || '';
+            const loginUrl = "{{ route('login.post') }}";
 
             // Show loading state
             errorEl.style.display = 'none';
@@ -283,7 +285,16 @@
             btn.disabled  = true;
 
             try {
-                const res = await fetch("{{ route('login.post') }}", {
+                console.info('[mobile-login] submit', {
+                    localUrl: loginUrl,
+                    configuredApiBase: apiBase,
+                    remoteLoginUrl: `${apiBase}/auth/login`,
+                    online: navigator.onLine,
+                    email,
+                });
+
+                const startedAt = performance.now();
+                const res = await fetch(loginUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -294,6 +305,14 @@
                 });
 
                 const data = await res.json();
+                console.info('[mobile-login] response', {
+                    status: res.status,
+                    ok: res.ok,
+                    durationMs: Math.round(performance.now() - startedAt),
+                    mode: data.mode,
+                    success: data.success,
+                    message: data.message,
+                });
 
                 if (data.success) {
                     if (data.access_token) {
@@ -317,7 +336,12 @@
                     btn.disabled  = false;
                 }
             } catch (err) {
-                console.error(err);
+                console.error('[mobile-login] exception', {
+                    message: err?.message || String(err),
+                    stack: err?.stack,
+                    online: navigator.onLine,
+                    configuredApiBase: apiBase,
+                });
                 errorEl.querySelector('span').textContent = lang === 'ar' ? 'حدث خطأ في الاتصال. حاول مرة أخرى.' : 'Connection error. Try again.';
                 errorEl.style.display = 'flex';
                 btn.innerHTML = `<i class="fa-solid fa-right-to-bracket"></i> <span>${lang === 'ar' ? 'تسجيل الدخول' : 'Login'}</span>`;

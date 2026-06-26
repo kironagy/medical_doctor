@@ -187,6 +187,10 @@
     <script src="{{ asset('assets/js/script.js') }}"></script>
     <script>
         window.MOBILE_API_BASE = document.querySelector('meta[name="mobile-api-url"]')?.content || '/api/v1';
+        window.apiHeaders = window.apiHeaders || function(extra = {}) {
+            const token = localStorage.getItem('api_token');
+            return token ? { ...extra, 'Authorization': `Bearer ${token}` } : extra;
+        };
         window.apiUrl = window.apiUrl || function(path) {
             return `${window.MOBILE_API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
         };

@@ -6,9 +6,11 @@ use App\Models\FileCategory;
 use App\Models\Patient;
 use App\Models\PatientFile;
 use App\Models\PatientVisit;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 
 class SyncService
@@ -18,6 +20,7 @@ class SyncService
         'patient_files' => PatientFile::class,
         'patient_visits' => PatientVisit::class,
         'file_categories' => FileCategory::class,
+        'users' => User::class,
     ];
 
     public function initialSeed(): array
@@ -25,7 +28,7 @@ class SyncService
         return [
             'server_time' => now()->toISOString(),
             'tables' => collect(array_keys(self::MODELS))->mapWithKeys(fn ($table) => [
-                $table => $this->queryFor($table)->orderBy('id')->get(),
+                $table => $this->serializeRecords($table, $this->queryFor($table)->orderBy('id')->get()),
             ]),
         ];
     }
@@ -37,15 +40,17 @@ class SyncService
         return [
             'server_time' => now()->toISOString(),
             'tables' => collect(array_keys(self::MODELS))->mapWithKeys(fn ($table) => [
-                $table => $this->queryFor($table)
-                    ->withTrashed()
-                    ->where(function ($query) use ($sinceDate): void {
+                $table => $this->serializeRecords($table, $this->queryFor($table, true)
+                    ->where(function ($query) use ($sinceDate, $table): void {
                         $query->where('updated_at', '>', $sinceDate)
-                            ->orWhere('client_updated_at', '>', $sinceDate)
-                            ->orWhere('deleted_at', '>', $sinceDate);
+                            ->orWhere('client_updated_at', '>', $sinceDate);
+
+                        if (Schema::hasColumn($table, 'deleted_at')) {
+                            $query->orWhere('deleted_at', '>', $sinceDate);
+                        }
                     })
                     ->orderBy('updated_at')
-                    ->get(),
+                    ->get()),
             ]),
         ];
     }
@@ -84,10 +89,10 @@ class SyncService
 
         /** @var class-string<Model> $modelClass */
         $modelClass = self::MODELS[$table];
-        $model = $modelClass::withTrashed()->where('uuid', $uuid)->first();
+        $model = $this->queryFor($table, true)->where('uuid', $uuid)->first();
 
         if ($action === 'delete') {
-            if ($model && ! $model->trashed()) {
+            if ($model && (! method_exists($model, 'trashed') || ! $model->trashed())) {
                 $model->delete();
             }
 
@@ -98,7 +103,7 @@ class SyncService
         $payload['uuid'] = $uuid;
         $payload['client_updated_at'] = $payload['client_updated_at'] ?? now();
 
-        if ($model && $model->trashed()) {
+        if ($model && method_exists($model, 'trashed') && $model->trashed()) {
             $model->restore();
         }
 
@@ -118,11 +123,26 @@ class SyncService
         return ['uuid' => $uuid, 'table' => $table, 'status' => 'applied', 'id' => $model->id];
     }
 
-    private function queryFor(string $table)
+    private function queryFor(string $table, bool $withDeleted = false)
     {
         /** @var class-string<Model> $modelClass */
         $modelClass = self::MODELS[$table];
 
-        return $modelClass::query();
+        $query = $modelClass::query();
+
+        return $withDeleted && Schema::hasColumn($table, 'deleted_at')
+            ? $query->withTrashed()
+            : $query;
+    }
+
+    private function serializeRecords(string $table, $records): array
+    {
+        return $records->map(function ($record) use ($table): array {
+            $data = $record->makeVisible($table === 'users' ? ['password'] : [])->toArray();
+
+            unset($data['remember_token']);
+
+            return $data;
+        })->all();
     }
 }
