@@ -1247,7 +1247,6 @@
         const sectionsConfig = [
             { id: 'history', i18nKey: 'history', category: 'التاريخ الطبي (Medical history)' },
             { id: 'pre_rad', i18nKey: 'preOp', category: 'أشعة قبل العملية (Pre-op Radiology)' },
-            { id: 'investigations', i18nKey: 'investigations', category: 'تحاليل (Investigations)' },
             { id: 'post_rad', i18nKey: 'postOp', category: 'أشعة بعد العملية (Post-op Radiology)' },
             { id: 'op_sheet', i18nKey: 'opSheet', category: 'تفاصيل العملية (Operation sheet)' },
             { id: 'meds', i18nKey: 'meds', category: 'أدوية المتابعة (Follow-up medications)' },
