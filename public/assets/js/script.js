@@ -186,7 +186,17 @@ function apiHeaders(extra = {}) {
 }
 
 function apiUrl(path) {
-    return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    const normalizedBase = API_BASE.replace(/\/+$/, '');
+    if (normalizedPath.startsWith(normalizedBase)) return normalizedPath;
+    try {
+        const baseUrl = new URL(normalizedBase, window.location.origin);
+        if (baseUrl.pathname && normalizedPath.startsWith(baseUrl.pathname)) return normalizedPath;
+    } catch (err) {
+        // ignore invalid base
+    }
+    return `${normalizedBase}${normalizedPath}`;
 }
 
 async function fetchPatients() {

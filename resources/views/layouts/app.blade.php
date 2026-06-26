@@ -4,7 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title data-i18n="title">نظام أرشفة المرضى</title>
-    <meta name="mobile-api-url" content="{{ rtrim(config('mobile.api_url'), '/') }}/v1">
+    @php
+        $mobileApiUrl = rtrim(config('mobile.api_url'), '/');
+        $mobileApiHost = parse_url($mobileApiUrl, PHP_URL_HOST) ?? null;
+        $mobileApiPath = parse_url($mobileApiUrl, PHP_URL_PATH) ?: '/api';
+        $mobileApiMeta = $mobileApiHost === request()->getHost() ? rtrim($mobileApiPath, '/') . '/v1' : $mobileApiUrl . '/v1';
+    @endphp
+    <meta name="mobile-api-url" content="{{ $mobileApiMeta }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="{{ asset('assets/css/style.css') }}">
     <style>
@@ -192,7 +198,17 @@
             return token ? { ...extra, 'Authorization': `Bearer ${token}` } : extra;
         };
         window.apiUrl = window.apiUrl || function(path) {
-            return `${window.MOBILE_API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+            if (path.startsWith('http://') || path.startsWith('https://')) return path;
+            const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+            const normalizedBase = window.MOBILE_API_BASE.replace(/\/+$|\/$/, '');
+            if (normalizedPath.startsWith(normalizedBase)) return normalizedPath;
+            try {
+                const baseUrl = new URL(normalizedBase, window.location.origin);
+                if (baseUrl.pathname && normalizedPath.startsWith(baseUrl.pathname)) return normalizedPath;
+            } catch (err) {
+                // ignore invalid base
+            }
+            return `${normalizedBase}${normalizedPath}`;
         };
 
         // Hide loader once DOM + first paint complete

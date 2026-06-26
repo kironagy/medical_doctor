@@ -4,7 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Patient Files | أرشفة المرضى</title>
-    <meta name="mobile-api-url" content="{{ rtrim(config('mobile.api_url'), '/') }}/v1">
+    @php
+        $mobileApiUrl = rtrim(config('mobile.api_url'), '/');
+        $mobileApiHost = parse_url($mobileApiUrl, PHP_URL_HOST) ?? null;
+        $mobileApiPath = parse_url($mobileApiUrl, PHP_URL_PATH) ?: '/api';
+        $mobileApiMeta = $mobileApiHost === request()->getHost() ? rtrim($mobileApiPath, '/') . '/v1' : $mobileApiUrl . '/v1';
+    @endphp
+    <meta name="mobile-api-url" content="{{ $mobileApiMeta }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1264,18 +1270,16 @@
         }
         function apiUrl(path) {
             if (path.startsWith('http://') || path.startsWith('https://')) return path;
-
             const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-            const basePath = API_BASE.replace(/https?:\/\/[\w\-\.]+(?::\d+)?/, '');
-
-            if (normalizedPath.startsWith(basePath)) {
-                return normalizedPath;
+            const normalizedBase = API_BASE.replace(/\/+$/, '');
+            if (normalizedPath.startsWith(normalizedBase)) return normalizedPath;
+            try {
+                const baseUrl = new URL(normalizedBase, window.location.origin);
+                if (baseUrl.pathname && normalizedPath.startsWith(baseUrl.pathname)) return normalizedPath;
+            } catch (err) {
+                // ignore invalid base
             }
-
-            if (API_BASE.endsWith('/') && normalizedPath.startsWith('/')) {
-                return `${API_BASE}${normalizedPath.slice(1)}`;
-            }
-            return `${API_BASE}${normalizedPath}`;
+            return `${normalizedBase}${normalizedPath}`;
         }
         function apiFetch(path, options = {}) {
             const { headers = {}, ...rest } = options;
@@ -1775,7 +1779,7 @@
             btn.textContent = i18n[lang].saving;
 
             try {
-                const res = await fetch(apiUrl(`/patients/${currentPatient.id}/files`), { method: 'POST', headers: apiHeaders({ 'Accept': 'application/json' }), body: formData });
+                const res = await apiFetch(`/patients/${currentPatient.id}/files`, { method: 'POST', headers: { 'Accept': 'application/json' }, body: formData });
                 if (res.ok) {
                     const response = await res.json();
                     const savedFile = response.data || response;
@@ -1813,7 +1817,7 @@
                 const id = currentPatient.id;
                 closeModal('confirmModal');
                 try {
-                    const res = await fetch(apiUrl(`/patients/${id}`), { method: 'DELETE', headers: apiHeaders({ 'Accept': 'application/json' }) });
+                    const res = await apiFetch(`/patients/${id}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
                     if (res.ok) {
                         patients = patients.filter(p => p.id !== id);
                         currentPatient = null;
@@ -1835,7 +1839,7 @@
             const id = itemToDelete;
             closeModal('confirmModal');
             try {
-                const res = await fetch(apiUrl(`/patients/${currentPatient.id}/files/${id}`), { method: 'DELETE', headers: apiHeaders({ 'Accept': 'application/json' }) });
+                const res = await apiFetch(`/patients/${currentPatient.id}/files/${id}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
                 if (res.ok) { patientFiles = patientFiles.filter(f => f.id !== id); renderFiles(); showToast('Item deleted', 'success'); }
             } catch(e) {
                 console.error('[patient-files] delete failed', e);
