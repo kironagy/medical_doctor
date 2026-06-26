@@ -18,18 +18,18 @@
         }
         * { box-sizing: border-box; }
         body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: direction 0.3s; }
-        
+
         /* Layout */
         .sidebar { width: 350px; background: var(--surface); display: flex; flex-direction: column; z-index: 10; box-shadow: 0 0 15px rgba(0,0,0,0.05); }
         [dir="rtl"] .sidebar { border-left: 2px solid var(--border); }
         [dir="ltr"] .sidebar { border-right: 2px solid var(--border); }
-        
+
         .main-content { flex: 1; padding: 2.5rem; overflow-y: auto; background: var(--bg); }
-        
+
         /* Sidebar Items */
         .brand { padding: 2rem; border-bottom: 2px solid var(--border); text-align: center; font-size: 1.8rem; font-weight: bold; color: var(--primary); display: flex; flex-direction: column; gap: 0.5rem; }
         .brand i { font-size: 3rem; margin-bottom: 0.5rem; color: var(--primary); }
-        
+
         .nav-menu { flex: 1; display: flex; flex-direction: column; padding: 1rem 0; gap: 0.5rem; }
         .nav-btn { padding: 1.5rem; border: none; background: transparent; text-align: start; font-size: 1.4rem; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 1rem; color: var(--text); }
         .nav-btn:hover { background: #F8FAFC; color: var(--primary); }
@@ -60,14 +60,14 @@
         .action-panel { background: var(--surface); border: 2px solid var(--border); border-radius: 16px; padding: 2rem; margin-bottom: 2rem; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
         .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
         .panel-title { font-size: 1.8rem; font-weight: bold; color: var(--primary); margin: 0; }
-        
+
         .btn { padding: 1rem 1.5rem; border: none; border-radius: 8px; font-size: 1.2rem; font-weight: bold; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; transition: 0.2s; }
         .btn-primary { background: var(--primary); color: white; }
         .btn-primary:hover { background: #1D4ED8; }
         .btn-success { background: var(--success); color: white; }
         .btn-outline { background: transparent; border: 2px solid var(--border); color: var(--text); }
         .btn-outline:hover { background: var(--bg); }
-        
+
         /* Lists */
         .list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
         .list-item { background: var(--bg); border: 2px solid var(--border); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
@@ -80,12 +80,12 @@
         .modal.active { display: flex; }
         .modal-content { background: var(--surface); padding: 2.5rem; border-radius: 16px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
         .modal-header { font-size: 2rem; font-weight: bold; margin-bottom: 2rem; color: var(--primary); border-bottom: 2px solid var(--border); padding-bottom: 1rem; display: flex; justify-content: space-between; }
-        
+
         .form-group { margin-bottom: 1.5rem; }
         .form-group label { display: block; margin-bottom: 0.8rem; font-size: 1.3rem; font-weight: bold; color: var(--text); }
         .form-control { width: 100%; padding: 1.2rem; font-size: 1.2rem; border: 2px solid var(--border); border-radius: 8px; box-sizing: border-box; }
         .modal-actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem; }
-        
+
         .alert { padding: 1.5rem; border-radius: 12px; margin-bottom: 2rem; font-size: 1.4rem; font-weight: bold; }
         .alert-success { background: #D1FAE5; color: #065F46; border: 2px solid #34D399; }
         .alert-danger { background: #FEE2E2; color: #991B1B; border: 2px solid #F87171; }
@@ -121,7 +121,7 @@
             <i class="fa-solid fa-shield-halved"></i>
             <span data-i18n="adminPanel">لوحة الإدارة</span>
         </div>
-        
+
         <div class="nav-menu">
             <button class="nav-btn active" id="btn_dashboard" onclick="switchTab('dashboard')">
                 <i class="fa-solid fa-chart-pie"></i> <span data-i18n="stats">الإحصائيات</span>
@@ -132,9 +132,6 @@
             <button class="nav-btn" id="btn_categories" onclick="switchTab('categories')">
                 <i class="fa-solid fa-layer-group"></i> <span data-i18n="categories">أقسام الملفات</span>
             </button>
-            <a href="/" class="nav-btn" style="text-decoration:none;">
-                <i class="fa-solid fa-house-medical"></i> <span data-i18n="patientSystem">نظام المرضى</span>
-            </a>
         </div>
 
         <div class="sidebar-footer">
@@ -195,7 +192,7 @@
                     <h2 class="panel-title" data-i18n="doctorsList">قائمة الأطباء المسجلين</h2>
                     <button class="btn btn-primary" onclick="openDoctorModal()"><i class="fa-solid fa-plus"></i> <span data-i18n="addDoctor">إضافة طبيب جديد</span></button>
                 </div>
-                
+
                 <div class="list-grid">
                     @foreach($doctors as $doctor)
                     <div class="list-item">
@@ -222,7 +219,7 @@
                     <h2 class="panel-title" data-i18n="categoriesList">الأقسام الحالية المتاحة للطبيب</h2>
                     <button class="btn btn-primary" style="background:#8B5CF6;" onclick="openCategoryModal()"><i class="fa-solid fa-plus"></i> <span data-i18n="addCategory">إضافة قسم جديد</span></button>
                 </div>
-                
+
                 <div class="list-grid">
                     @foreach($categories as $category)
                     <div class="list-item">
@@ -261,7 +258,7 @@
             <form id="doctorForm" method="POST" action="{{ url('admin/doctors') }}">
                 @csrf
                 <input type="hidden" name="_method" id="docMethod" value="POST">
-                
+
                 <div class="form-group"><label data-i18n="name">الاسم</label><input type="text" id="docName" name="name" class="form-control" required></div>
                 <div class="form-group"><label data-i18n="email">البريد الإلكتروني</label><input type="email" id="docEmail" name="email" class="form-control" required></div>
                 <div class="form-group">
@@ -270,7 +267,7 @@
                 </div>
                 <div class="form-group"><label data-i18n="specialization">التخصص</label><input type="text" id="docSpec" name="specialization" class="form-control"></div>
                 <div class="form-group"><label data-i18n="phone">التليفون</label><input type="text" id="docPhone" name="phone" class="form-control"></div>
-                
+
                 <div class="modal-actions">
                     <button type="button" class="btn btn-outline" onclick="closeModal('doctorModal')" data-i18n="cancel">إلغاء</button>
                     <button type="submit" class="btn btn-primary" data-i18n="save">حفظ البيانات</button>
@@ -289,11 +286,11 @@
             <form id="categoryForm" method="POST" action="{{ url('admin/categories') }}" enctype="multipart/form-data">
                 @csrf
                 <input type="hidden" name="_method" id="catMethod" value="POST">
-                
+
                 <div class="form-group"><label data-i18n="categoryName">اسم القسم</label><input type="text" id="catName" name="name" class="form-control" required></div>
                 <div class="form-group"><label data-i18n="categoryIcon">الأيقونة (اختياري)</label><input type="file" name="icon" class="form-control" accept="image/*" style="padding:0.8rem;"></div>
                 <div class="form-group"><label data-i18n="categoryColor">لون القسم (اختياري)</label><input type="color" id="catColor" name="color" class="form-control" value="#8B5CF6" style="height:60px; padding:0.5rem;"></div>
-                
+
                 <div class="modal-actions">
                     <button type="button" class="btn btn-outline" onclick="closeModal('categoryModal')" data-i18n="cancel">إلغاء</button>
                     <button type="submit" class="btn btn-primary" style="background:#8B5CF6;" data-i18n="save">حفظ القسم</button>
@@ -320,7 +317,7 @@
         // Translations
         const i18n = {
             ar: {
-                adminPanel: "لوحة الإدارة", stats: "الإحصائيات", doctors: "الأطباء", categories: "أقسام الملفات", patientSystem: "نظام المرضى",
+                adminPanel: "لوحة الإدارة", stats: "الإحصائيات", doctors: "الأطباء", categories: "أقسام الملفات",
                 logout: "خروج", langName: "English", statsOverview: "نظرة عامة على الإحصائيات", totalDocs: "إجمالي الأطباء", totalPatients: "إجمالي المرضى",
                 totalProfits: "إجمالي الأرباح", doctorsManagement: "إدارة الأطباء", doctorsList: "قائمة الأطباء المسجلين", addDoctor: "إضافة طبيب",
                 edit: "تعديل", delete: "مسح", categoriesManagement: "إدارة أقسام الملفات", categoriesList: "الأقسام المتاحة حالياً", addCategory: "إضافة قسم",
@@ -329,7 +326,7 @@
                 editDoctorTitle: "تعديل بيانات طبيب", editCategoryTitle: "تعديل بيانات القسم"
             },
             en: {
-                adminPanel: "Admin Panel", stats: "Dashboard", doctors: "Doctors", categories: "Categories", patientSystem: "Patient System",
+                adminPanel: "Admin Panel", stats: "Dashboard", doctors: "Doctors", categories: "Categories",
                 logout: "Logout", langName: "عربي", statsOverview: "Stats Overview", totalDocs: "Total Doctors", totalPatients: "Total Patients",
                 totalProfits: "Total Profits", doctorsManagement: "Doctors Management", doctorsList: "Registered Doctors", addDoctor: "Add Doctor",
                 edit: "Edit", delete: "Delete", categoriesManagement: "Categories Management", categoriesList: "Available Categories", addCategory: "Add Category",
@@ -340,7 +337,7 @@
         };
 
         let lang = localStorage.getItem('lang') || 'ar';
-        
+
         function setLang(l) {
             lang = l;
             localStorage.setItem('lang', l);
@@ -365,11 +362,11 @@
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
-            
+
             document.getElementById('tab_' + tabId).classList.add('active');
             const btn = document.getElementById('btn_' + tabId);
             if(btn) btn.classList.add('active');
-            
+
             localStorage.setItem('adminActiveTab', tabId);
         }
 
@@ -377,7 +374,7 @@
             document.getElementById('doctorForm').reset();
             const actionUrl = doc ? `/admin/doctors/${doc.id}` : `/admin/doctors`;
             document.getElementById('doctorForm').action = actionUrl;
-            
+
             if (doc) {
                 document.getElementById('doctorModalTitle').textContent = i18n[lang].editDoctorTitle;
                 document.getElementById('docMethod').value = 'PUT';
@@ -400,7 +397,7 @@
             document.getElementById('categoryForm').reset();
             const actionUrl = cat ? `/admin/categories/${cat.id}` : `/admin/categories`;
             document.getElementById('categoryForm').action = actionUrl;
-            
+
             if (cat) {
                 document.getElementById('catModalTitle').textContent = i18n[lang].editCategoryTitle;
                 document.getElementById('catMethod').value = 'PUT';
