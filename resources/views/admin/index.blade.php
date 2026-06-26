@@ -207,33 +207,6 @@
                 </div>
             </div>
         </div>
-
-
-                <div class="list-grid">
-                    @foreach($categories as $category)
-                    <div class="list-item">
-                        <div style="display:flex; align-items:center; gap: 1rem; margin-bottom: 1rem;">
-                            <div style="width:60px; height:60px; border-radius:12px; background:{{ $category->color }}20; display:flex; justify-content:center; align-items:center;">
-                                @if($category->icon && file_exists(public_path($category->icon)))
-                                    <img src="{{ asset($category->icon) }}" style="width:40px; height:40px; object-fit:contain;">
-                                @else
-                                    <i class="fa-solid fa-folder" style="font-size:2rem; color:{{ $category->color ?? '#8B5CF6' }};"></i>
-                                @endif
-                            </div>
-                            <h3 class="item-title">{{ $category->name }}</h3>
-                        </div>
-                        <div class="item-actions">
-                            <button class="btn btn-outline" style="flex:1; color:#3B82F6;" onclick='openCategoryModal(@json($category))'><i class="fa-solid fa-pen"></i> <span data-i18n="edit">تعديل</span></button>
-                            <form id="del_cat_{{ $category->id }}" action="{{ url('admin/categories/'.$category->id) }}" method="POST" style="flex:1; display:flex;">
-                                @csrf @method('DELETE')
-                                <button type="button" onclick="confirmAdminDelete('del_cat_{{ $category->id }}', 'تأكيد مسح القسم؟')" class="btn btn-outline" style="width:100%; color:#EF4444;"><i class="fa-solid fa-trash"></i> <span data-i18n="delete">مسح</span></button>
-                            </form>
-                        </div>
-                    </div>
-                    @endforeach
-                </div>
-            </div>
-        </div>
     </div>
 
     <!-- Modals -->

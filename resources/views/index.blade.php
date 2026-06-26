@@ -1174,7 +1174,7 @@
         const i18n = {
             ar: {
                 newPatient: "مريض جديد", searchPlaceholder: "بحث بالاسم / التليفون...", name: "الاسم", phone: "التليفون", address: "العنوان", diagnosis: "التشخيص",
-                editPatient: "تعديل", history: "التاريخ الطبي (Medical History)", preOp: "أشعة قبل العملية (Pre-op Radiology)", investigations: "تحاليل (Investigations)",
+                editPatient: "تعديل", history: "التاريخ الطبي (Medical History)", preOp: "أشعة قبل العملية (Pre-op Radiology)",
                 postOp: "أشعة بعد العملية (Post-op Radiology)", opSheet: "تفاصيل العملية (Operation Sheet)", meds: "الروشتة والأدوية (Medications)",
                 notes: "ملاحظات أخرى (Other Notes)", addEntry: "إضافة (Add)", typeText: "كتابة نص",
                 typeFile: "إرفاق ملف", textDetails: "التفاصيل أو الملاحظات:", fileSelectHint: "اضغط لاختيار صورة، PDF، أو فيديو",
@@ -1184,7 +1184,7 @@
             },
             en: {
                 newPatient: "New Patient", searchPlaceholder: "Search name / phone / code...", name: "Name", phone: "Phone", address: "Address", diagnosis: "Diagnosis",
-                editPatient: "Edit", history: "Medical History", preOp: "Pre-op Radiology", investigations: "Investigations",
+                editPatient: "Edit", history: "Medical History", preOp: "Pre-op Radiology",
                 postOp: "Post-op Radiology", opSheet: "Operation Sheet", meds: "Medications",
                 notes: "Other Notes", addEntry: "Add Entry", typeText: "Text Note",
                 typeFile: "Attach File", textDetails: "Details or Notes:", fileSelectHint: "Click to select Image, PDF, or Video",
