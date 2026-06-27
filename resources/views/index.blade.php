@@ -758,7 +758,7 @@
             /* Add Patient Button - FAB on Mobile */
             .add-btn {
                 position: fixed;
-                bottom: calc(1.5rem + env(safe-area-inset-bottom));
+                bottom: calc(3.5rem + env(safe-area-inset-bottom)); /* Raised higher */
                 left: 1.5rem; /* left for RTL */
                 border-radius: 50%;
                 width: 64px;
@@ -916,12 +916,13 @@
             /* Modals - Full Screen App Style */
             .modal {
                 align-items: flex-start; /* move popup up */
-                padding-top: calc(3rem + env(safe-area-inset-top));
+                padding-top: calc(2rem + env(safe-area-inset-top));
+                padding-bottom: calc(4rem + env(safe-area-inset-bottom));
             }
             .modal-content {
                 padding: 1.25rem;
                 margin: 0.5rem;
-                max-height: 85vh;
+                max-height: 80vh;
                 width: calc(100% - 1rem);
                 border-radius: var(--radius);
             }
@@ -1433,6 +1434,31 @@
             renderPatients();
         }
 
+        // Handle hardware back button on mobile
+        window.addEventListener('popstate', (e) => {
+            if (window.innerWidth <= 768) {
+                if (e.state && e.state.page === 'patient') {
+                    // Do nothing, we are on patient page
+                } else {
+                    document.querySelector('.sidebar').classList.remove('mobile-hidden');
+                    document.getElementById('mainContent').style.display = 'none';
+                    currentPatient = null;
+                }
+            }
+        });
+
+        function backToList() {
+            if (window.innerWidth <= 768) {
+                if (history.state && history.state.page === 'patient') {
+                    history.back(); // Triggers popstate
+                } else {
+                    document.querySelector('.sidebar').classList.remove('mobile-hidden');
+                    document.getElementById('mainContent').style.display = 'none';
+                    currentPatient = null;
+                }
+            }
+        }
+
         function renderPatients() {
             const list = document.getElementById('patientList');
             list.innerHTML = '';
@@ -1464,7 +1490,10 @@
 
             document.getElementById('placeholderContent').style.display = 'none';
             document.getElementById('mainContent').style.display = 'block';
-            document.querySelector('.sidebar').classList.add('mobile-hidden');
+            if (window.innerWidth <= 768) {
+                document.querySelector('.sidebar').classList.add('mobile-hidden');
+                history.pushState({ page: 'patient', id: p.id }, '', `#patient-${p.id}`);
+            }
             window.scrollTo(0, 0);
 
             document.querySelector('#lbl_name .val').textContent = p.name;
@@ -1534,6 +1563,9 @@
                     await fetchPatients();
                     if (id && currentPatient && currentPatient.id == id) selectPatient(patients.find(x => x.id == id));
                     else if (!id && responseData) { const savedPatient = responseData.data || responseData; selectPatient(patients.find(x => x.id == savedPatient.id) || savedPatient); }
+                    
+                    // Trigger sync immediately in background
+                    syncNow();
                     return;
                 }
 
@@ -1894,6 +1926,9 @@
                     renderFiles();
                     showToast('Item saved successfully', 'success');
                     closeModal('itemModal');
+                    
+                    // Trigger sync immediately in background
+                    syncNow();
                 } else {
                     const errData = await res.json();
                     let errMsg = errData.message || 'Error saving file';
