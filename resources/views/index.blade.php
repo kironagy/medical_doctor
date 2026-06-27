@@ -758,7 +758,7 @@
             /* Add Patient Button - FAB on Mobile */
             .add-btn {
                 position: fixed;
-                bottom: calc(6.5rem + env(safe-area-inset-bottom)); /* Raised higher */
+                bottom: calc(8.5rem + env(safe-area-inset-bottom)); /* Raised higher */
                 left: 1.5rem; /* left for RTL */
                 border-radius: 50%;
                 width: 64px;
