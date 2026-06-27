@@ -23,35 +23,61 @@ class SyncService
         'users' => User::class,
     ];
 
-    public function initialSeed(): array
+    public function initialSeed(int $page = 1, int $limit = 100): array
     {
+        $hasMore = false;
+        $tables = [];
+
+        foreach (self::MODELS as $table => $modelClass) {
+            $paginator = $this->queryFor($table)->orderBy('id')->paginate($limit, ['*'], 'page', $page);
+            if ($paginator->hasMorePages()) {
+                $hasMore = true;
+            }
+            $tables[$table] = [
+                'records' => $this->serializeRecords($table, $paginator->getCollection()),
+                'has_more' => $paginator->hasMorePages(),
+            ];
+        }
+
         return [
             'server_time' => now()->toISOString(),
-            'tables' => collect(array_keys(self::MODELS))->mapWithKeys(fn ($table) => [
-                $table => $this->serializeRecords($table, $this->queryFor($table)->orderBy('id')->get()),
-            ]),
+            'has_more' => $hasMore,
+            'tables' => $tables,
         ];
     }
 
-    public function changes(?string $since): array
+    public function changes(?string $since, int $page = 1, int $limit = 100): array
     {
         $sinceDate = $since ? Carbon::parse($since) : Carbon::createFromTimestamp(0);
+        $hasMore = false;
+        $tables = [];
+
+        foreach (self::MODELS as $table => $modelClass) {
+            $paginator = $this->queryFor($table, true)
+                ->where(function ($query) use ($sinceDate, $table): void {
+                    $query->where('updated_at', '>', $sinceDate)
+                        ->orWhere('client_updated_at', '>', $sinceDate);
+
+                    if (Schema::hasColumn($table, 'deleted_at')) {
+                        $query->orWhere('deleted_at', '>', $sinceDate);
+                    }
+                })
+                ->orderBy('updated_at')
+                ->paginate($limit, ['*'], 'page', $page);
+
+            if ($paginator->hasMorePages()) {
+                $hasMore = true;
+            }
+            $tables[$table] = [
+                'records' => $this->serializeRecords($table, $paginator->getCollection()),
+                'has_more' => $paginator->hasMorePages(),
+            ];
+        }
 
         return [
             'server_time' => now()->toISOString(),
-            'tables' => collect(array_keys(self::MODELS))->mapWithKeys(fn ($table) => [
-                $table => $this->serializeRecords($table, $this->queryFor($table, true)
-                    ->where(function ($query) use ($sinceDate, $table): void {
-                        $query->where('updated_at', '>', $sinceDate)
-                            ->orWhere('client_updated_at', '>', $sinceDate);
-
-                        if (Schema::hasColumn($table, 'deleted_at')) {
-                            $query->orWhere('deleted_at', '>', $sinceDate);
-                        }
-                    })
-                    ->orderBy('updated_at')
-                    ->get()),
-            ]),
+            'has_more' => $hasMore,
+            'tables' => $tables,
         ];
     }
 

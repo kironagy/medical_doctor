@@ -40,16 +40,59 @@ class PatientFileController extends Controller
             'type' => ['required', 'string', 'max:50'],
             'category' => ['nullable', 'string', 'max:255'],
             'date' => ['required', 'date'],
-            'file' => ['nullable', 'file', 'max:51200'],
+            'file' => ['nullable', 'file'], // Removed max rule to allow chunks
             'file_name' => ['nullable', 'string', 'max:255'],
             'file_path' => ['nullable', 'string', 'max:500'],
             'data' => ['nullable', 'string'],
             'client_updated_at' => ['nullable', 'date'],
+            'chunk_index' => ['nullable', 'integer'],
+            'total_chunks' => ['nullable', 'integer'],
         ]);
 
         $data['patient_id'] = $patient->id;
 
-        if ($request->hasFile('file')) {
+        if ($request->has('chunk_index') && $request->hasFile('file')) {
+            $chunkIndex = $request->integer('chunk_index');
+            $totalChunks = $request->integer('total_chunks');
+            $uuid = $request->input('uuid') ?: \Illuminate\Support\Str::uuid()->toString();
+            $data['uuid'] = $uuid;
+
+            if (empty($data['file_name'])) {
+                $data['file_name'] = $request->file('file')->getClientOriginalName();
+            }
+
+            $tempDir = 'chunks/' . $uuid;
+            \Illuminate\Support\Facades\Storage::disk('local')->putFileAs($tempDir, $request->file('file'), $chunkIndex . '.part');
+
+            if ($chunkIndex == $totalChunks - 1) {
+                $extension = pathinfo($data['file_name'], PATHINFO_EXTENSION);
+                if (empty($extension)) $extension = 'bin';
+                
+                $finalName = \Illuminate\Support\Str::random(40) . '.' . $extension;
+                $finalPath = storage_path('app/public/patient_files/' . $finalName);
+                
+                if (!file_exists(storage_path('app/public/patient_files'))) {
+                    mkdir(storage_path('app/public/patient_files'), 0777, true);
+                }
+
+                $finalFile = fopen($finalPath, 'ab');
+                for ($i = 0; $i < $totalChunks; $i++) {
+                    $partPath = storage_path('app/' . $tempDir . '/' . $i . '.part');
+                    if (file_exists($partPath)) {
+                        $chunkFile = fopen($partPath, 'rb');
+                        stream_copy_to_stream($chunkFile, $finalFile);
+                        fclose($chunkFile);
+                    }
+                }
+                fclose($finalFile);
+                \Illuminate\Support\Facades\Storage::disk('local')->deleteDirectory($tempDir);
+
+                $data['file_path'] = '/storage/patient_files/' . $finalName;
+                $data['data'] = null;
+            } else {
+                return response()->json(['message' => 'Chunk received', 'uuid' => $uuid], 200);
+            }
+        } elseif ($request->hasFile('file')) {
             $uploadedFile = $request->file('file');
             $data['file_name'] = $uploadedFile->getClientOriginalName();
             $data['file_path'] = '/storage/'.$uploadedFile->store('patient_files', 'public');

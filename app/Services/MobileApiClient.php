@@ -20,14 +20,14 @@ class MobileApiClient
         ]);
     }
 
-    public function seed(string $token): array
+    public function seed(string $token, int $page = 1, int $limit = 100): array
     {
-        return $this->get('/sync/seed', [], $token);
+        return $this->get('/sync/seed', ['page' => $page, 'limit' => $limit], $token);
     }
 
-    public function changes(string $token, ?string $since): array
+    public function changes(string $token, ?string $since, int $page = 1, int $limit = 100): array
     {
-        return $this->get('/sync/changes', ['since' => $since], $token);
+        return $this->get('/sync/changes', ['since' => $since, 'page' => $page, 'limit' => $limit], $token);
     }
 
     public function push(string $token, array $operations): array

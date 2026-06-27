@@ -48,13 +48,28 @@ class OfflineSyncEngine
             return;
         }
 
-        $payload = $this->api->seed($token);
+        $page = 1;
+        $limit = 100;
+        $hasMore = true;
+        $serverTime = null;
 
-        DB::transaction(function () use ($payload): void {
-            $this->applyTables($payload['tables'] ?? []);
-            $this->setState('last_sync_at', $payload['server_time'] ?? now()->toISOString());
-            $this->setState('initialized', true);
-        });
+        while ($hasMore) {
+            $payload = $this->api->seed($token, $page, $limit);
+            
+            if ($serverTime === null) {
+                $serverTime = $payload['server_time'] ?? now()->toISOString();
+            }
+
+            DB::transaction(function () use ($payload): void {
+                $this->applyTables($payload['tables'] ?? []);
+            });
+
+            $hasMore = $payload['has_more'] ?? false;
+            $page++;
+        }
+
+        $this->setState('last_sync_at', $serverTime);
+        $this->setState('initialized', true);
     }
 
     public function queue(string $table, string $operation, array $payload, ?string $recordUuid = null): SyncQueueItem
@@ -116,24 +131,47 @@ class OfflineSyncEngine
 
     public function pullChanges(string $token): int
     {
-        $payload = $this->api->changes($token, $this->state('last_sync_at'));
+        $since = $this->state('last_sync_at');
+        $page = 1;
+        $limit = 100;
+        $hasMore = true;
+        $totalCount = 0;
+        $serverTime = null;
 
-        return DB::transaction(function () use ($payload): int {
-            $count = $this->applyTables($payload['tables'] ?? []);
-            $this->setState('last_sync_at', $payload['server_time'] ?? now()->toISOString());
+        while ($hasMore) {
+            $payload = $this->api->changes($token, $since, $page, $limit);
+            
+            if ($serverTime === null) {
+                $serverTime = $payload['server_time'] ?? now()->toISOString();
+            }
 
-            return $count;
-        });
+            $count = DB::transaction(function () use ($payload): int {
+                return $this->applyTables($payload['tables'] ?? []);
+            });
+
+            $totalCount += $count;
+            $hasMore = $payload['has_more'] ?? false;
+            $page++;
+        }
+
+        if ($serverTime !== null) {
+            $this->setState('last_sync_at', $serverTime);
+        }
+
+        return $totalCount;
     }
 
     private function applyTables(array $tables): int
     {
         $count = 0;
 
-        foreach ($tables as $table => $records) {
+        foreach ($tables as $table => $tableData) {
             if (!isset(self::MODELS[$table])) {
                 continue;
             }
+
+            // Compatibility: support both ['records' => [...]] and direct arrays
+            $records = isset($tableData['records']) ? $tableData['records'] : $tableData;
 
             /** @var class-string<Model> $modelClass */
             $modelClass = self::MODELS[$table];

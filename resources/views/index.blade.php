@@ -1400,10 +1400,10 @@
             </div>
             <h2 style="font-size: 1.5rem; margin-bottom: 2rem;" data-i18n="settings">الإعدادات</h2>
             <div style="display:flex; flex-direction:column; gap:1rem; padding: 0 1rem 1rem;">
-                <button class="btn" style="justify-content:center; gap:0.5rem; background: var(--surface); border: 1px solid var(--border);" onclick="toggleTheme();">
+                <button class="btn" style="justify-content:center; gap:0.5rem; background: var(--surface); color: var(--text); border: 1px solid var(--border);" onclick="toggleTheme();">
                     <i class="fa-solid fa-circle-half-stroke"></i> <span data-i18n="toggleTheme">تغيير المظهر</span>
                 </button>
-                <button class="btn" style="justify-content:center; gap:0.5rem; background: var(--surface); border: 1px solid var(--border);" onclick="toggleLang();">
+                <button class="btn" style="justify-content:center; gap:0.5rem; background: var(--surface); color: var(--text); border: 1px solid var(--border);" onclick="toggleLang();">
                     <i class="fa-solid fa-language"></i> <span>English / عربي</span>
                 </button>
                 <button class="btn" style="background:var(--danger); color:white; justify-content:center; gap:0.5rem;" onclick="closeModal('settingsModal'); openLogoutModal()">
@@ -2388,28 +2388,68 @@
                     else if (f.type.includes('pdf')) ft = 'pdf';
                     else if (f.type.includes('video')) ft = 'video';
 
-                    const formData = new FormData();
-                    formData.append('title', category);
-                    formData.append('desc', textDesc);
-                    formData.append('category', category);
-                    formData.append('date', new Date().toISOString().split('T')[0]);
-                    formData.append('file', f);
-                    formData.append('type', ft);
-                    fetchOptions.body = formData;
-                } else {
-                    fetchOptions.headers['Content-Type'] = 'application/json';
-                    fetchOptions.body = JSON.stringify({
-                        title: category,
-                        desc: textDesc,
-                        category: category,
-                        date: new Date().toISOString().split('T')[0],
-                        type: 'text'
-                    });
-                }
+                    const chunkSize = 2 * 1024 * 1024; // 2MB
+                    const totalChunks = Math.ceil(f.size / chunkSize);
+                    const fileUuid = crypto.randomUUID ? crypto.randomUUID() : 'uuid-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+                    
+                    if (btn) { btn.disabled = true; btn.textContent = 'جاري الرفع... 0%'; }
 
-                const res = await apiFetch(`/patients/${currentPatient.id}/files`, fetchOptions);
-                if (res.ok) {
-                    const response = await res.json();
+                    let finalResponse = null;
+
+                    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+                        const start = chunkIndex * chunkSize;
+                        const end = Math.min(start + chunkSize, f.size);
+                        const chunk = f.slice(start, end);
+
+                        const formData = new FormData();
+                        formData.append('title', category);
+                        formData.append('desc', textDesc);
+                        formData.append('category', category);
+                        formData.append('date', new Date().toISOString().split('T')[0]);
+                        formData.append('type', ft);
+                        formData.append('file_name', f.name);
+                        formData.append('file', chunk, f.name);
+                        formData.append('chunk_index', chunkIndex);
+                        formData.append('total_chunks', totalChunks);
+                        formData.append('uuid', fileUuid);
+
+                        fetchOptions.body = formData;
+
+                        let retries = 3;
+                        let res = null;
+                        let lastError = null;
+                        
+                        while (retries > 0) {
+                            try {
+                                res = await apiFetch(`/patients/${currentPatient.id}/files`, fetchOptions);
+                                if (res.ok) break;
+                                
+                                let errData = {};
+                                try { errData = await res.json(); } catch {}
+                                lastError = errData.message || 'Error saving chunk';
+                                if (errData.errors) lastError = Object.values(errData.errors).flat().join(' ');
+                            } catch (e) {
+                                lastError = 'خطأ في الاتصال';
+                            }
+                            retries--;
+                            if (retries > 0) await new Promise(r => setTimeout(r, 1000));
+                        }
+
+                        if (!res || !res.ok) {
+                            throw new Error(lastError || 'Chunk upload failed');
+                        }
+
+                        if (chunkIndex === totalChunks - 1) {
+                            finalResponse = res;
+                        }
+
+                        if (btn) {
+                            const percent = Math.round(((chunkIndex + 1) / totalChunks) * 100);
+                            btn.textContent = `جاري الرفع... ${percent}%`;
+                        }
+                    }
+
+                    const response = await finalResponse.json();
                     const savedFile = response.data || response;
                     patientFiles.unshift(savedFile);
                     renderFiles();
@@ -2419,12 +2459,35 @@
                     syncNow();
                     return;
                 } else {
-                    let errData = {};
-                    try { errData = await res.json(); } catch {}
-                    let errMsg = errData.message || 'Error saving';
-                    if (errData.errors) errMsg = Object.values(errData.errors).flat().join(' ');
-                    showToast(errMsg, 'error');
+                    fetchOptions.headers['Content-Type'] = 'application/json';
+                    fetchOptions.body = JSON.stringify({
+                        title: category,
+                        desc: textDesc,
+                        category: category,
+                        date: new Date().toISOString().split('T')[0],
+                        type: 'text'
+                    });
+
+                    const res = await apiFetch(`/patients/${currentPatient.id}/files`, fetchOptions);
+                    if (res.ok) {
+                        const response = await res.json();
+                        const savedFile = response.data || response;
+                        patientFiles.unshift(savedFile);
+                        renderFiles();
+                        showToast('تم الحفظ بنجاح', 'success');
+                        if (mobile) closeSlidePage('itemSlidePage');
+                        else closeModal('itemModal');
+                        syncNow();
+                        return;
+                    } else {
+                        let errData = {};
+                        try { errData = await res.json(); } catch {}
+                        let errMsg = errData.message || 'Error saving';
+                        if (errData.errors) errMsg = Object.values(errData.errors).flat().join(' ');
+                        showToast(errMsg, 'error');
+                    }
                 }
+
             } catch(err) {
                 console.error('[patient-files] save failed', err);
                 showToast('خطأ في الاتصال', 'error');

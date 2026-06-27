@@ -8,18 +8,26 @@ use Illuminate\Http\Request;
 
 class SyncController extends Controller
 {
-    public function seed(SyncService $sync)
+    public function seed(Request $request, SyncService $sync)
     {
-        return response()->json($sync->initialSeed());
+        $page = (int) $request->query('page', 1);
+        $limit = min(max((int) $request->query('limit', 100), 1), 500);
+
+        return response()->json($sync->initialSeed($page, $limit));
     }
 
     public function changes(Request $request, SyncService $sync)
     {
         $request->validate([
             'since' => ['nullable', 'date'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:500'],
         ]);
 
-        return response()->json($sync->changes($request->query('since')));
+        $page = (int) $request->query('page', 1);
+        $limit = (int) $request->query('limit', 100);
+
+        return response()->json($sync->changes($request->query('since'), $page, $limit));
     }
 
     public function push(Request $request, SyncService $sync)
