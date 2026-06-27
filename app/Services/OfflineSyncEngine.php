@@ -103,12 +103,25 @@ class OfflineSyncEngine
             return 0;
         }
 
-        $operations = $items->map(fn(SyncQueueItem $item) => [
-            'uuid' => $item->record_uuid,
-            'table' => $item->table_name,
-            'operation' => $item->operation,
-            'payload' => $item->payload ?? [],
-        ])->all();
+        $operations = $items->map(function(SyncQueueItem $item) {
+            $payload = $item->payload ?? [];
+
+            if ($item->table_name === 'patient_files' && $item->operation !== 'delete' && !empty($payload['file_path'])) {
+                $relativePath = preg_replace('#^/storage/#', '', $payload['file_path']);
+                $localPath = storage_path('app/public/' . $relativePath);
+
+                if (file_exists($localPath)) {
+                    $payload['data'] = base64_encode(file_get_contents($localPath));
+                }
+            }
+
+            return [
+                'uuid' => $item->record_uuid,
+                'table' => $item->table_name,
+                'operation' => $item->operation,
+                'payload' => $payload,
+            ];
+        })->all();
 
         try {
             $this->api->push($token, $operations);
@@ -176,31 +189,33 @@ class OfflineSyncEngine
             /** @var class-string<Model> $modelClass */
             $modelClass = self::MODELS[$table];
 
-            foreach ($records as $record) {
-                $uuid = $record['uuid'] ?? null;
-                if (!$uuid) {
-                    continue;
-                }
-
-                $query = $modelClass::query();
-                if (Schema::hasColumn($table, 'deleted_at')) {
-                    $query->withTrashed();
-                }
-
-                $model = $query->where('uuid', $uuid)->first();
-
-                if (!empty($record['deleted_at'])) {
-                    if ($model && (!method_exists($model, 'trashed') || !$model->trashed())) {
-                        $model->delete();
+            $modelClass::withoutEvents(function () use ($records, $table, $modelClass, &$count) {
+                foreach ($records as $record) {
+                    $uuid = $record['uuid'] ?? null;
+                    if (!$uuid) {
+                        continue;
                     }
-                    $count++;
-                    continue;
-                }
 
-                unset($record['deleted_at']);
-                $model ? $model->update($record) : $modelClass::create($record);
-                $count++;
-            }
+                    $query = $modelClass::query();
+                    if (\Illuminate\Support\Facades\Schema::hasColumn($table, 'deleted_at')) {
+                        $query->withTrashed();
+                    }
+
+                    $model = $query->where('uuid', $uuid)->first();
+
+                    if (!empty($record['deleted_at'])) {
+                        if ($model && (!method_exists($model, 'trashed') || !$model->trashed())) {
+                            $model->delete();
+                        }
+                        $count++;
+                        continue;
+                    }
+
+                    unset($record['deleted_at']);
+                    $model ? $model->update($record) : $modelClass::create($record);
+                    $count++;
+                }
+            });
         }
 
         return $count;

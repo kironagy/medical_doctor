@@ -1714,8 +1714,8 @@
                     }
                     showSyncIndicator('synced', 'تمت المزامنة');
                 } else {
-                    // Silently fail to avoid annoying user with toast errors on mobile
                     console.warn('Sync failed: backend error');
+                    showSyncIndicator('error', 'خطأ في المزامنة');
                 }
             } catch (e) {
                 console.warn('Sync failed:', e.message);
@@ -2490,7 +2490,7 @@
 
             } catch(err) {
                 console.error('[patient-files] save failed', err);
-                showToast('خطأ في الاتصال', 'error');
+                showToast(err.message || 'خطأ في الاتصال', 'error');
             } finally {
                 if (btn) { btn.disabled = false; btn.textContent = i18n[lang].save; }
             }

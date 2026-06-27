@@ -129,6 +129,21 @@ class SyncService
         $payload['uuid'] = $uuid;
         $payload['client_updated_at'] = $payload['client_updated_at'] ?? now();
 
+        if ($table === 'patient_files' && !empty($payload['data'])) {
+            $fileData = base64_decode($payload['data']);
+            $extension = pathinfo($payload['file_name'] ?? 'file.bin', PATHINFO_EXTENSION) ?: 'bin';
+            $finalName = \Illuminate\Support\Str::random(40) . '.' . $extension;
+            $finalPath = storage_path('app/public/patient_files/' . $finalName);
+
+            if (!file_exists(dirname($finalPath))) {
+                mkdir(dirname($finalPath), 0777, true);
+            }
+
+            file_put_contents($finalPath, $fileData);
+            $payload['file_path'] = '/storage/patient_files/' . $finalName;
+            $payload['data'] = null;
+        }
+
         if ($model && method_exists($model, 'trashed') && $model->trashed()) {
             $model->restore();
         }

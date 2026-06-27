@@ -67,17 +67,17 @@ class PatientFileController extends Controller
             if ($chunkIndex == $totalChunks - 1) {
                 $extension = pathinfo($data['file_name'], PATHINFO_EXTENSION);
                 if (empty($extension)) $extension = 'bin';
-                
+
                 $finalName = \Illuminate\Support\Str::random(40) . '.' . $extension;
                 $finalPath = storage_path('app/public/patient_files/' . $finalName);
-                
+
                 if (!file_exists(storage_path('app/public/patient_files'))) {
                     mkdir(storage_path('app/public/patient_files'), 0777, true);
                 }
 
                 $finalFile = fopen($finalPath, 'ab');
                 for ($i = 0; $i < $totalChunks; $i++) {
-                    $partPath = storage_path('app/' . $tempDir . '/' . $i . '.part');
+                    $partPath = \Illuminate\Support\Facades\Storage::disk('local')->path($tempDir . '/' . $i . '.part');
                     if (file_exists($partPath)) {
                         $chunkFile = fopen($partPath, 'rb');
                         stream_copy_to_stream($chunkFile, $finalFile);
