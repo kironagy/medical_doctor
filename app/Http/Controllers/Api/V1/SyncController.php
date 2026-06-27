@@ -5,9 +5,13 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessSyncJob;
 use App\Models\SyncJob;
+use App\Models\SyncQueueItem;
 use App\Models\SyncState;
+use App\Services\OfflineSyncEngine;
 use App\Services\SyncService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class SyncController extends Controller
 {
@@ -42,7 +46,7 @@ class SyncController extends Controller
         );
     }
 
-    // ─── Push (upload from mobile client) ─────────────────────────────────────
+    // ─── Push (upload from mobile client to server) ────────────────────────────
 
     public function push(Request $request, SyncService $sync)
     {
@@ -61,16 +65,33 @@ class SyncController extends Controller
         ]);
     }
 
-    // ─── Trigger Async Sync (mobile → dispatch queue job) ────────────────────
+    // ─── Trigger Sync — Context-Aware ─────────────────────────────────────────
 
     /**
-     * Accepts a sync request and immediately dispatches a background job.
-     * Returns 202 Accepted with the job UUID for polling via /sync/status/{uuid}.
+     * Trigger a synchronization cycle.
+     *
+     * TWO EXECUTION PATHS depending on the database driver:
+     *
+     * ┌─ MOBILE (SQLite) ──────────────────────────────────────────────────────┐
+     * │ NativePHP Mobile has NO background queue workers.                      │
+     * │ Dispatching to the database queue would write a job to SQLite that      │
+     * │ is NEVER picked up — causing the UI to hang forever.                   │
+     * │                                                                         │
+     * │ Fix: Run the sync job INLINE via dispatchSync().                        │
+     * │ The HTTP request blocks until sync completes (local loopback — fast).  │
+     * │ Response returns HTTP 200 with status='completed'.                     │
+     * │ The JS receives the final result directly — no polling needed.         │
+     * └────────────────────────────────────────────────────────────────────────┘
+     *
+     * ┌─ SERVER (MySQL + Supervisor) ──────────────────────────────────────────┐
+     * │ Supervisor keeps queue workers alive permanently.                       │
+     * │ Dispatching to the queue is safe — workers will pick up the job.       │
+     * │ Returns HTTP 202 Accepted immediately.                                  │
+     * │ Mobile polls /sync/status/{uuid} for progress.                         │
+     * └────────────────────────────────────────────────────────────────────────┘
      */
-    public function triggerNow(Request $request)
+    public function triggerNow(Request $request, OfflineSyncEngine $engine)
     {
-        // Token is read from SyncState on the mobile (SQLite) side only.
-        // On the server side this endpoint is auth-guarded via Sanctum.
         $token = SyncState::where('key', 'api_token')->first()?->value['data'];
 
         if (!$token) {
@@ -85,22 +106,100 @@ class SyncController extends Controller
             'direction' => 'both',
         ]);
 
+        $isMobile = config('database.default') === 'sqlite';
+
+        if ($isMobile) {
+            // ── MOBILE PATH: Run inline (no background workers available) ─────
+            return $this->runSyncInline($engine, $syncJob, $token);
+        }
+
+        // ── SERVER PATH: Dispatch to queue, return 202 immediately ───────────
         ProcessSyncJob::dispatch($syncJob->uuid, $token)
             ->onQueue('sync');
 
+        Log::info('sync.trigger: dispatched to queue.', ['sync_job_uuid' => $syncJob->uuid]);
+
         return response()->json([
-            'success'      => true,
-            'sync_job_id'  => $syncJob->uuid,
-            'status'       => 'pending',
-            'message'      => 'Synchronization job queued successfully.',
+            'success'     => true,
+            'sync_job_id' => $syncJob->uuid,
+            'status'      => 'pending',
+            'inline'      => false,
+            'message'     => 'Synchronization job queued.',
         ], 202);
     }
 
-    // ─── Status Check (mobile polls this) ─────────────────────────────────────
+    /**
+     * Run the sync inline (mobile path).
+     *
+     * Executes the full sync cycle within the current HTTP request.
+     * Uses the same OfflineSyncEngine and chunking logic as the queue job —
+     * the only difference is execution context (inline vs. background worker).
+     *
+     * The response includes the final result so the JS needs NO polling.
+     */
+    private function runSyncInline(OfflineSyncEngine $engine, SyncJob $syncJob, string $token)
+    {
+        Log::info('sync.trigger: running inline (mobile/SQLite context).', [
+            'sync_job_uuid' => $syncJob->uuid,
+        ]);
+
+        try {
+            $result = $engine->sync($token, $syncJob);
+
+            $uploaded   = $result['uploaded']   ?? 0;
+            $downloaded = $result['downloaded']  ?? 0;
+            $failed     = SyncQueueItem::where('status', 'failed')->count();
+            $skipped    = SyncQueueItem::where('status', 'skipped')->count();
+
+            $syncJob->markCompleted($uploaded, $downloaded, $failed, $skipped);
+
+            Log::info('sync.trigger: inline sync completed.', [
+                'sync_job_uuid' => $syncJob->uuid,
+                'uploaded'      => $uploaded,
+                'downloaded'    => $downloaded,
+                'failed'        => $failed,
+                'skipped'       => $skipped,
+            ]);
+
+            return response()->json([
+                'success'         => true,
+                'sync_job_id'     => $syncJob->uuid,
+                'status'          => 'completed',
+                'inline'          => true,
+                'uploaded'        => $uploaded,
+                'downloaded'      => $downloaded,
+                'failed'          => $failed,
+                'skipped'         => $skipped,
+                'progress'        => 100,
+                'processed_items' => $uploaded + $downloaded,
+                'failed_items'    => $failed,
+                'skipped_items'   => $skipped,
+            ], 200);
+
+        } catch (Throwable $throwable) {
+            $syncJob->markFailed($throwable->getMessage());
+
+            Log::error('sync.trigger: inline sync failed.', [
+                'sync_job_uuid' => $syncJob->uuid,
+                'message'       => $throwable->getMessage(),
+                'trace'         => $throwable->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success'     => false,
+                'sync_job_id' => $syncJob->uuid,
+                'status'      => 'failed',
+                'inline'      => true,
+                'error'       => $throwable->getMessage(),
+            ], 500);
+        }
+    }
+
+    // ─── Status Check (for server-side polling) ────────────────────────────────
 
     /**
      * Returns the current status of a sync job.
-     * The mobile app polls this every 3-5 seconds after receiving a 202.
+     * Used by the mobile app when syncing against the server queue (non-inline path).
      */
     public function status(string $uuid)
     {

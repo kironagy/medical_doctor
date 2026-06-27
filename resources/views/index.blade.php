@@ -1738,30 +1738,59 @@
             showSyncIndicator('preparing', 'Preparing...');
 
             try {
-                // Step 1: Trigger the sync — server returns 202 immediately
+                // Trigger the sync. The server returns either:
+                //   HTTP 200  { status:'completed', inline:true }   — Mobile (runs inline, no queue worker)
+                //   HTTP 202  { status:'pending',   inline:false }   — Server  (background queue job)
                 const triggerRes = await apiFetch('/sync/now', { method: 'POST' });
                 const triggerData = await triggerRes.json();
 
                 if (!triggerRes.ok || !triggerData.success) {
+                    const errMsg = triggerData.error ?? 'Sync request rejected by server.';
+                    console.warn('Sync trigger failed:', errMsg);
                     showSyncIndicator('error', 'Failed');
                     return;
                 }
 
+                // ── INLINE PATH (mobile): sync already finished ───────────────
+                if (triggerData.inline === true || triggerData.status === 'completed') {
+                    showSyncIndicator('syncing', 'Applying Changes...');
+                    const downloaded = triggerData.downloaded ?? triggerData.processed_items ?? 0;
+                    if (downloaded > 0) {
+                        await fetchPatients();
+                        if (currentPatient) {
+                            const refreshed = patients.find(p => p.id === currentPatient.id);
+                            if (refreshed) await selectPatient(refreshed);
+                        }
+                    }
+                    const failedCount = triggerData.failed ?? triggerData.failed_items ?? 0;
+                    if (failedCount > 0) {
+                        showSyncIndicator('synced', `Completed (${failedCount} failed)`);
+                    } else {
+                        showSyncIndicator('synced', 'Completed');
+                    }
+                    return; // done — no polling needed
+                }
+
+                // ── ASYNC PATH (server): poll for completion ──────────────────
                 const syncJobId = triggerData.sync_job_id;
                 showSyncIndicator('syncing', 'Uploading / Downloading...');
 
-                // Step 2: Poll /sync/status/:id until the job completes
-                let completed = false;
-                let attempts = 0;
-                const maxAttempts = 120; // 120 × 5s = 10 minutes max
+                const POLL_INTERVAL_MS = 2000;   // 2 seconds between polls
+                const MAX_POLL_ATTEMPTS = 60;    // 60 × 2s = 2 minutes hard timeout
 
-                while (!completed && attempts < maxAttempts) {
-                    await new Promise(r => setTimeout(r, 5000));
+                let completed = false;
+                let attempts  = 0;
+
+                while (!completed && attempts < MAX_POLL_ATTEMPTS) {
+                    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
                     attempts++;
 
                     try {
-                        const statusRes = await apiFetch(`/sync/status/${syncJobId}`);
-                        if (!statusRes.ok) break;
+                        const statusRes  = await apiFetch(`/sync/status/${syncJobId}`);
+                        if (!statusRes.ok) {
+                            console.warn(`Sync status poll returned ${statusRes.status}`);
+                            break;
+                        }
 
                         const statusData = await statusRes.json();
                         const jobStatus  = statusData.status;
@@ -1769,39 +1798,54 @@
 
                         if (jobStatus === 'processing') {
                             showSyncIndicator('syncing', `Syncing... ${progress}%`);
+
                         } else if (jobStatus === 'completed') {
                             showSyncIndicator('syncing', 'Applying Changes...');
-                            // Refresh patient list if any records were downloaded
-                            if ((statusData.processed_items ?? 0) > 0) {
+                            const downloaded = statusData.processed_items ?? 0;
+                            if (downloaded > 0) {
                                 await fetchPatients();
                                 if (currentPatient) {
                                     const refreshed = patients.find(p => p.id === currentPatient.id);
                                     if (refreshed) await selectPatient(refreshed);
                                 }
                             }
-                            showSyncIndicator('synced', 'Completed');
+                            const failedCount = statusData.failed_items ?? 0;
+                            if (failedCount > 0) {
+                                showSyncIndicator('synced', `Completed (${failedCount} failed)`);
+                            } else {
+                                showSyncIndicator('synced', 'Completed');
+                            }
                             completed = true;
+
                         } else if (jobStatus === 'failed') {
+                            const errMsg = statusData.error ?? 'Sync failed on server.';
+                            console.warn('Sync job failed:', errMsg);
                             showSyncIndicator('error', 'Failed');
                             completed = true;
                         }
+                        // 'pending' → keep polling
+
                     } catch (pollErr) {
-                        console.warn('Sync status poll failed:', pollErr.message);
+                        console.warn('Sync status poll error:', pollErr.message);
+                        // do not break — network blip, retry next interval
                     }
                 }
 
                 if (!completed) {
+                    console.warn(`Sync polling timed out after ${attempts} attempts.`);
                     showSyncIndicator('error', 'Timed out');
                 }
 
             } catch (e) {
-                console.warn('Sync failed:', e.message);
+                console.error('syncNow unexpected error:', e.message, e);
                 showSyncIndicator('error', 'Failed');
             } finally {
+                // ALWAYS clean up — no matter what branch was taken
                 isSyncing = false;
                 setTimeout(() => {
-                    document.getElementById('syncIndicator').style.display = 'none';
-                }, 3000);
+                    const indicator = document.getElementById('syncIndicator');
+                    if (indicator) indicator.style.display = 'none';
+                }, 4000);
             }
         }
 
