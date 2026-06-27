@@ -1736,31 +1736,72 @@
             if (!navigator.onLine) return;
             isSyncing = true;
             showSyncIndicator('preparing', 'Preparing...');
+
             try {
-                setTimeout(() => { if (isSyncing) showSyncIndicator('syncing', 'Uploading / Downloading...'); }, 500);
-                const res = await apiFetch('/sync/now', { method: 'POST' });
-                if (res.ok) {
-                    const result = await res.json();
-                    showSyncIndicator('syncing', 'Applying Changes...');
-                    const downloaded = result?.data?.downloaded ?? 0;
-                    if (downloaded > 0) {
-                        await fetchPatients();
-                        if (currentPatient) {
-                            const refreshed = patients.find(p => p.id === currentPatient.id);
-                            if (refreshed) await selectPatient(refreshed);
-                        }
-                    }
-                    showSyncIndicator('synced', 'Completed');
-                } else {
-                    console.warn('Sync failed: backend error');
+                // Step 1: Trigger the sync — server returns 202 immediately
+                const triggerRes = await apiFetch('/sync/now', { method: 'POST' });
+                const triggerData = await triggerRes.json();
+
+                if (!triggerRes.ok || !triggerData.success) {
                     showSyncIndicator('error', 'Failed');
+                    return;
                 }
+
+                const syncJobId = triggerData.sync_job_id;
+                showSyncIndicator('syncing', 'Uploading / Downloading...');
+
+                // Step 2: Poll /sync/status/:id until the job completes
+                let completed = false;
+                let attempts = 0;
+                const maxAttempts = 120; // 120 × 5s = 10 minutes max
+
+                while (!completed && attempts < maxAttempts) {
+                    await new Promise(r => setTimeout(r, 5000));
+                    attempts++;
+
+                    try {
+                        const statusRes = await apiFetch(`/sync/status/${syncJobId}`);
+                        if (!statusRes.ok) break;
+
+                        const statusData = await statusRes.json();
+                        const jobStatus  = statusData.status;
+                        const progress   = statusData.progress ?? 0;
+
+                        if (jobStatus === 'processing') {
+                            showSyncIndicator('syncing', `Syncing... ${progress}%`);
+                        } else if (jobStatus === 'completed') {
+                            showSyncIndicator('syncing', 'Applying Changes...');
+                            // Refresh patient list if any records were downloaded
+                            if ((statusData.processed_items ?? 0) > 0) {
+                                await fetchPatients();
+                                if (currentPatient) {
+                                    const refreshed = patients.find(p => p.id === currentPatient.id);
+                                    if (refreshed) await selectPatient(refreshed);
+                                }
+                            }
+                            showSyncIndicator('synced', 'Completed');
+                            completed = true;
+                        } else if (jobStatus === 'failed') {
+                            showSyncIndicator('error', 'Failed');
+                            completed = true;
+                        }
+                    } catch (pollErr) {
+                        console.warn('Sync status poll failed:', pollErr.message);
+                    }
+                }
+
+                if (!completed) {
+                    showSyncIndicator('error', 'Timed out');
+                }
+
             } catch (e) {
                 console.warn('Sync failed:', e.message);
                 showSyncIndicator('error', 'Failed');
             } finally {
                 isSyncing = false;
-                setTimeout(() => { showSyncIndicator('idle', 'Idle'); document.getElementById('syncIndicator').style.display = 'none'; }, 3000);
+                setTimeout(() => {
+                    document.getElementById('syncIndicator').style.display = 'none';
+                }, 3000);
             }
         }
 

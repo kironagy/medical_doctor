@@ -6,40 +6,42 @@ use App\Models\FileCategory;
 use App\Models\Patient;
 use App\Models\PatientFile;
 use App\Models\PatientVisit;
+use App\Models\SyncJob;
 use App\Models\SyncQueueItem;
 use App\Models\SyncState;
 use App\Models\User;
+use App\Models\Concerns\HasSyncIdentity;
 use App\Sync\SyncHandlerRegistry;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class OfflineSyncEngine
 {
     private const MODELS = [
-        'patients' => Patient::class,
-        'patient_files' => PatientFile::class,
-        'patient_visits' => PatientVisit::class,
         'file_categories' => FileCategory::class,
-        'users' => User::class,
+        'users'           => User::class,
+        'patients'        => Patient::class,
+        'patient_visits'  => PatientVisit::class,
+        'patient_files'   => PatientFile::class,
     ];
 
     private const TABLE_SYNC_ORDER = [
         'file_categories' => 1,
-        'patients' => 2,
-        'patient_visits' => 3,
-        'patient_files' => 4,
-        'users' => 5,
+        'users'           => 2,
+        'patients'        => 3,
+        'patient_visits'  => 4,
+        'patient_files'   => 5,
     ];
 
     public function __construct(
-        private readonly MobileApiClient $api,
+        private readonly MobileApiClient    $api,
         private readonly SyncHandlerRegistry $registry
     ) {
     }
+
+    // ─── Local Database Initialization ────────────────────────────────────────
 
     public function initializeLocalDatabase(): void
     {
@@ -54,20 +56,22 @@ class OfflineSyncEngine
         }
     }
 
+    // ─── Initial Seed ─────────────────────────────────────────────────────────
+
     public function initialSeed(string $token): void
     {
         if ($this->state('initialized')) {
             return;
         }
 
-        $page = 1;
-        $limit = 100;
-        $hasMore = true;
+        $page       = 1;
+        $limit      = 100;
+        $hasMore    = true;
         $serverTime = null;
 
         while ($hasMore) {
             $payload = $this->api->seed($token, $page, $limit);
-            
+
             if ($serverTime === null) {
                 $serverTime = $payload['server_time'] ?? now()->toISOString();
             }
@@ -82,243 +86,299 @@ class OfflineSyncEngine
         $this->setState('initialized', true);
     }
 
+    // ─── Queue New Offline Operation ──────────────────────────────────────────
+
     public function queue(string $table, string $operation, array $payload, ?string $recordUuid = null): SyncQueueItem
     {
         return SyncQueueItem::create([
-            'table_name' => $table,
+            'table_name'  => $table,
             'record_uuid' => $recordUuid ?? ($payload['uuid'] ?? null),
-            'operation' => $operation,
-            'payload' => $payload,
-            'status' => 'pending',
+            'operation'   => $operation,
+            'payload'     => $payload,
+            'status'      => 'pending',
+            // entity, priority auto-set by SyncQueueItem::booted()
         ]);
     }
 
-    public function sync(string $token): array
+    // ─── Main Sync Entry (Called by ProcessSyncJob) ────────────────────────────
+
+    /**
+     * Execute a full sync cycle: upload pending queue → download changes.
+     * Updates the provided SyncJob with live progress.
+     *
+     * @param string  $token   Bearer token for the remote API.
+     * @param SyncJob $syncJob The job record tracking this run.
+     */
+    public function sync(string $token, SyncJob $syncJob): array
     {
-        $uploaded = $this->flushQueue($token);
+        $syncJob->markProcessing();
+
+        // Count total pending items before we start
+        $totalPending = SyncQueueItem::pendingAndDue()->count();
+        $syncJob->update(['total_items' => $totalPending]);
+
+        $uploaded  = $this->flushQueue($token, $syncJob);
         $downloaded = $this->pullChanges($token);
 
         return compact('uploaded', 'downloaded');
     }
 
-    /**
-     * Push pending local operations to the remote server.
-     * Updates each queue item status individually based on remote application results.
-     */
-    public function flushQueue(string $token, int $limit = 100): int
-    {
-        $items = SyncQueueItem::whereIn('status', ['pending', 'retrying'])
-            ->where(fn($query) => $query->whereNull('available_at')->orWhere('available_at', '<=', now()))
-            ->orderByRaw("CASE operation WHEN 'create' THEN 1 WHEN 'update' THEN 2 WHEN 'delete' THEN 3 ELSE 4 END")
-            ->orderBy('id')
-            ->limit($limit)
-            ->get();
+    // ─── Upload Queue (Chunk-based) ────────────────────────────────────────────
 
-        if ($items->isEmpty()) {
+    /**
+     * Process all pending offline operations one-by-one in ordered chunks.
+     *
+     * Key properties:
+     * - chunkById(50): Never loads more than 50 items into memory.
+     * - One HTTP request per item: Isolates failures at the record level.
+     * - Ordering: priority ASC → create → update → delete → id ASC.
+     * - Exceptions per item are caught and never abort the chunk loop.
+     */
+    public function flushQueue(string $token, ?SyncJob $syncJob = null, int $chunkSize = 50): int
+    {
+        $successCount = 0;
+        $index        = 0;
+
+        $totalPending = SyncQueueItem::pendingAndDue()->count();
+
+        if ($totalPending === 0) {
+            Log::info('sync.flush_queue: no pending items.');
             return 0;
         }
 
-        $successCount = 0;
-        $totalItems = $items->count();
+        Log::info("sync.flush_queue: starting. Total pending items: {$totalPending}.");
 
-        Log::info("Starting offline queue sync. Found {$totalItems} pending operations.");
+        SyncQueueItem::pendingAndDue()
+            ->orderedByPriority()
+            ->chunkById($chunkSize, function ($chunk) use (
+                $token, $syncJob, &$successCount, &$index, $totalPending
+            ) {
+                foreach ($chunk as $item) {
+                    $remaining = $totalPending - $index - 1;
+                    $result    = $this->processSingleItem($item, $token);
 
-        foreach ($items as $index => $item) {
-            $item->update(['status' => 'running']);
-            $payload = $item->payload ?? [];
-            $remaining = $totalItems - $index - 1;
-
-            if ($item->table_name === 'patient_files' && $item->operation !== 'delete' && !empty($payload['file_path'])) {
-                $relativePath = preg_replace('#^/storage/#', '', $payload['file_path']);
-                $localPath = storage_path('app/public/' . $relativePath);
-
-                if (file_exists($localPath)) {
-                    $payload['data'] = base64_encode(file_get_contents($localPath));
-                }
-            }
-
-            $operation = [
-                'uuid' => $item->record_uuid,
-                'table' => $item->table_name,
-                'operation' => $item->operation,
-                'payload' => $payload,
-            ];
-
-            $startedAt = microtime(true);
-
-            try {
-                // Send one-by-one to avoid bulk timeouts and isolated failures
-                $response = $this->api->push($token, [$operation]);
-                $res = $response['results'][0] ?? null;
-
-                $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
-
-                if ($res) {
-                    $status = $res['status'] ?? 'failed';
-                    $error = $res['error'] ?? null;
-
-                    if ($status === 'applied' || $status === 'deleted' || $status === 'conflict_server_won') {
-                        $item->update([
-                            'status' => 'completed',
-                            'last_error' => null,
-                        ]);
+                    if (in_array($result['status'] ?? '', ['completed', 'skipped'])) {
                         $successCount++;
-                    } elseif ($status === 'skipped') {
-                        $item->update([
-                            'status' => 'skipped',
-                            'last_error' => $error ?? 'Skipped by server sync handler.',
-                        ]);
-                        $successCount++;
+                        $syncJob?->incrementProcessed();
                     } else {
-                        $retry = $item->retry_count + 1;
-                        $newStatus = $retry >= 10 ? 'failed' : 'retrying';
-                        $item->update([
-                            'status' => $newStatus,
-                            'retry_count' => $retry,
-                            'last_error' => $error ?? 'Server execution failed.',
-                            'available_at' => now()->addSeconds(min(3600, 2 ** min($retry, 10))),
-                        ]);
+                        $syncJob?->incrementFailed();
                     }
 
-                    Log::info("Sync queue item processed.", [
-                        'queue_id' => $item->id,
-                        'table' => $item->table_name,
-                        'uuid' => $item->record_uuid,
-                        'operation' => $item->operation,
-                        'status' => $status,
-                        'duration_ms' => $durationMs,
-                        'retry_count' => $item->retry_count,
+                    Log::info('sync.item.processed', [
+                        'queue_id'        => $item->id,
+                        'entity'          => $item->entity,
+                        'uuid'            => $item->record_uuid,
+                        'operation'       => $item->operation,
+                        'status'          => $result['status'] ?? 'unknown',
+                        'duration_ms'     => $result['duration_ms'] ?? null,
+                        'retry_count'     => $item->retry_count,
                         'remaining_items' => $remaining,
-                        'error' => $error
-                    ]);
-                } else {
-                    $retry = $item->retry_count + 1;
-                    $newStatus = $retry >= 10 ? 'failed' : 'retrying';
-                    $item->update([
-                        'status' => $newStatus,
-                        'retry_count' => $retry,
-                        'last_error' => 'No response status returned from remote server.',
-                        'available_at' => now()->addSeconds(min(3600, 2 ** min($retry, 10))),
+                        'error'           => $result['error'] ?? null,
                     ]);
 
-                    Log::warning("Sync queue item failed (No response status).", [
-                        'queue_id' => $item->id,
-                        'table' => $item->table_name,
-                        'uuid' => $item->record_uuid,
-                        'operation' => $item->operation,
-                        'remaining_items' => $remaining,
-                    ]);
+                    $index++;
                 }
-            } catch (Throwable $throwable) {
-                $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
-                $retry = $item->retry_count + 1;
-                $newStatus = $retry >= 10 ? 'failed' : 'retrying';
-                
-                $item->update([
-                    'status' => $newStatus,
-                    'retry_count' => $retry,
-                    'last_error' => $throwable->getMessage(),
-                    'available_at' => now()->addSeconds(min(3600, 2 ** min($retry, 10))),
-                ]);
+            });
 
-                Log::error("Sync queue item network error.", [
-                    'queue_id' => $item->id,
-                    'table' => $item->table_name,
-                    'uuid' => $item->record_uuid,
-                    'operation' => $item->operation,
-                    'duration_ms' => $durationMs,
-                    'retry_count' => $retry,
-                    'remaining_items' => $remaining,
-                    'message' => $throwable->getMessage(),
-                    'exception' => get_class($throwable)
-                ]);
-            }
-        }
+        Log::info("sync.flush_queue: finished. Uploaded: {$successCount} / {$totalPending}.");
 
         return $successCount;
     }
 
+    /**
+     * Process a single SyncQueueItem: build the payload, push to server, update status.
+     */
+    private function processSingleItem(SyncQueueItem $item, string $token): array
+    {
+        $item->markRunning();
+
+        $payload = $item->payload ?? [];
+
+        // Encode binary files as base64 for transport
+        if (
+            $item->table_name === 'patient_files'
+            && $item->operation !== 'delete'
+            && !empty($payload['file_path'])
+        ) {
+            $relativePath = preg_replace('#^/storage/#', '', $payload['file_path']);
+            $localPath    = storage_path('app/public/' . $relativePath);
+
+            if (file_exists($localPath)) {
+                $payload['data'] = base64_encode(file_get_contents($localPath));
+            }
+        }
+
+        $operation = [
+            'uuid'      => $item->record_uuid,
+            'table'     => $item->table_name,
+            'operation' => $item->operation,
+            'payload'   => $payload,
+        ];
+
+        $startedAt = microtime(true);
+
+        try {
+            $response   = $this->api->push($token, [$operation]);
+            $res        = $response['results'][0] ?? null;
+            $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
+
+            if (!$res) {
+                $item->markFailed('No result status returned from server.');
+                return ['status' => 'failed', 'error' => 'No result status.', 'duration_ms' => $durationMs];
+            }
+
+            $status = $res['status'] ?? 'failed';
+            $error  = $res['error'] ?? null;
+
+            if (in_array($status, ['applied', 'deleted', 'conflict_server_won'])) {
+                $item->markCompleted();
+                return ['status' => 'completed', 'error' => null, 'duration_ms' => $durationMs];
+            }
+
+            if ($status === 'skipped') {
+                $item->markSkipped($error ?? 'Skipped by server sync handler.');
+                return ['status' => 'skipped', 'error' => $error, 'duration_ms' => $durationMs];
+            }
+
+            // Server returned failed
+            $item->markFailed($error ?? 'Server execution failed.');
+            return ['status' => 'retrying', 'error' => $error, 'duration_ms' => $durationMs];
+
+        } catch (Throwable $throwable) {
+            $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
+            $item->markFailed($throwable->getMessage());
+
+            Log::error('sync.item.network_error', [
+                'queue_id'    => $item->id,
+                'entity'      => $item->entity,
+                'uuid'        => $item->record_uuid,
+                'operation'   => $item->operation,
+                'duration_ms' => $durationMs,
+                'message'     => $throwable->getMessage(),
+                'exception'   => get_class($throwable),
+            ]);
+
+            return ['status' => 'failed', 'error' => $throwable->getMessage(), 'duration_ms' => $durationMs];
+        }
+    }
+
+    // ─── Download Changes (Cursor-based) ──────────────────────────────────────
+
+    /**
+     * Pull delta changes from the remote server using cursor-based pagination.
+     *
+     * Cursor pagination avoids COUNT(*) queries and efficiently handles
+     * millions of records without pagination drift or memory overload.
+     */
     public function pullChanges(string $token): int
     {
-        $since = $this->state('last_sync_at');
-        $page = 1;
-        $limit = 100;
-        $hasMore = true;
+        $since      = $this->state('last_sync_at');
+        $cursor     = null;
+        $hasMore    = true;
         $totalCount = 0;
         $serverTime = null;
+        $page       = 0;
+
+        Log::info('sync.pull_changes: starting.', ['since' => $since]);
 
         while ($hasMore) {
-            $payload = $this->api->changes($token, $since, $page, $limit);
-            
+            $payload = $this->api->changes($token, $since, $cursor);
+
             if ($serverTime === null) {
                 $serverTime = $payload['server_time'] ?? now()->toISOString();
             }
 
             $count = $this->applyTables($payload['tables'] ?? []);
-
             $totalCount += $count;
+
             $hasMore = $payload['has_more'] ?? false;
+            $cursor  = $payload['next_cursor'] ?? null;
             $page++;
+
+            Log::info("sync.pull_changes: page {$page} applied {$count} records.", [
+                'has_more'    => $hasMore,
+                'next_cursor' => $cursor ? '[present]' : null,
+            ]);
+
+            // Safety: if server says has_more but gives no cursor, stop
+            if ($hasMore && !$cursor) {
+                Log::warning('sync.pull_changes: has_more=true but no cursor returned. Stopping.');
+                break;
+            }
         }
 
         if ($serverTime !== null) {
             $this->setState('last_sync_at', $serverTime);
         }
 
+        Log::info("sync.pull_changes: finished. Total downloaded: {$totalCount}.");
+
         return $totalCount;
     }
 
+    // ─── Apply Remote Tables Locally ──────────────────────────────────────────
+
     /**
-     * Apply remote seed/changes locally.
-     * Enforces relation table ordering and routes payloads through specific sync handlers.
+     * Apply a batch of records from the server into the local SQLite database.
+     *
+     * Uses HasSyncIdentity::$applyingRemoteChanges = true to prevent
+     * downloaded records from being re-enqueued into the upload queue.
      */
     private function applyTables(array $tables): int
     {
         $count = 0;
 
-        // Sort tables based on model relations to avoid foreign key violations
+        // Sort by foreign key dependency order
         uksort($tables, function ($a, $b) {
             $orderA = self::TABLE_SYNC_ORDER[$a] ?? 99;
             $orderB = self::TABLE_SYNC_ORDER[$b] ?? 99;
             return $orderA <=> $orderB;
         });
 
-        foreach ($tables as $table => $tableData) {
-            if (!isset(self::MODELS[$table])) {
-                continue;
-            }
+        // Suppress upload-queue events while applying remote data
+        HasSyncIdentity::$applyingRemoteChanges = true;
 
-            $records = isset($tableData['records']) ? $tableData['records'] : $tableData;
-
-            /** @var class-string<Model> $modelClass */
-            $modelClass = self::MODELS[$table];
-            $handler = $this->registry->getHandler($table);
-
-            $modelClass::withoutEvents(function () use ($records, $table, $handler, &$count) {
-                foreach ($records as $record) {
-                    $uuid = $record['uuid'] ?? null;
-                    if (!$uuid) {
-                        continue;
-                    }
-
-                    $operation = !empty($record['deleted_at']) ? 'delete' : 'update';
-                    
-                    // Call apply on specific sync handler (isolated transaction)
-                    $result = $handler->apply($operation, $record, $uuid);
-
-                    if ($result['status'] === 'applied' || $result['status'] === 'deleted' || $result['status'] === 'conflict_server_won') {
-                        $count++;
-                    } elseif ($result['status'] === 'skipped') {
-                        Log::info("Pull sync skipped a record for [{$table}] (uuid: {$uuid}): " . ($result['error'] ?? ''));
-                    } else {
-                        Log::warning("Pull sync failed to apply record for [{$table}] (uuid: {$uuid}): " . ($result['error'] ?? 'Unknown error'));
-                    }
+        try {
+            foreach ($tables as $table => $tableData) {
+                if (!isset(self::MODELS[$table])) {
+                    continue;
                 }
-            });
+
+                $records = $tableData['records'] ?? $tableData;
+
+                /** @var class-string<Model> $modelClass */
+                $modelClass = self::MODELS[$table];
+                $handler    = $this->registry->getHandler($table);
+
+                $modelClass::withoutEvents(function () use ($records, $table, $handler, &$count) {
+                    foreach ($records as $record) {
+                        $uuid = $record['uuid'] ?? null;
+                        if (!$uuid) {
+                            continue;
+                        }
+
+                        $operation = !empty($record['deleted_at']) ? 'delete' : 'update';
+                        $result    = $handler->apply($operation, $record, $uuid);
+
+                        if (in_array($result['status'], ['applied', 'deleted', 'conflict_server_won'])) {
+                            $count++;
+                        } elseif ($result['status'] === 'skipped') {
+                            Log::info("sync.pull: skipped [{$table}] uuid={$uuid}: " . ($result['error'] ?? ''));
+                        } else {
+                            Log::warning("sync.pull: failed [{$table}] uuid={$uuid}: " . ($result['error'] ?? 'unknown'));
+                        }
+                    }
+                });
+            }
+        } finally {
+            // Always restore the flag — even if an exception occurred
+            HasSyncIdentity::$applyingRemoteChanges = false;
         }
 
         return $count;
     }
+
+    // ─── State Helpers ────────────────────────────────────────────────────────
 
     private function state(string $key): mixed
     {

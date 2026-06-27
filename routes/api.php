@@ -48,32 +48,21 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('/seed', [V1SyncController::class, 'seed'])->name('seed');
             Route::get('/changes', [V1SyncController::class, 'changes'])->name('changes');
             Route::post('/push', [V1SyncController::class, 'push'])->name('push');
-            
-            // Endpoint to serve local sync logs
+
+            // Trigger async sync — dispatches background job, returns 202 immediately
+            Route::post('/now', [V1SyncController::class, 'triggerNow'])->name('now');
+
+            // Mobile polls this to check sync job progress
+            Route::get('/status/{uuid}', [V1SyncController::class, 'status'])->name('status');
+
+            // Diagnostic: recent sync queue items (SQLite-only)
             Route::get('/logs', function () {
                 if (config('database.default') !== 'sqlite') {
                     return response()->json([]);
                 }
-                $logs = \App\Models\SyncQueueItem::orderByDesc('id')
-                    ->limit(50)
-                    ->get();
+                $logs = \App\Models\SyncQueueItem::orderByDesc('id')->limit(50)->get();
                 return response()->json($logs);
             })->name('logs');
-            
-            // Endpoint to trigger offline sync engine manually from the frontend
-            Route::post('/now', function (\App\Services\OfflineSyncEngine $engine) {
-                try {
-                    $token = \App\Models\SyncState::where('key', 'api_token')->first()?->value['data'];
-                    if (!$token) {
-                        return response()->json(['success' => false, 'error' => 'No API token found for sync'], 401);
-                    }
-                    $result = $engine->sync($token);
-                    return response()->json(['success' => true, 'data' => $result]);
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::error('Manual sync failed: ' . $e->getMessage());
-                    return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
-                }
-            })->name('now');
         });
     });
 });

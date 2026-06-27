@@ -6,6 +6,14 @@ use Illuminate\Support\Str;
 
 trait HasSyncIdentity
 {
+    /**
+     * When true, model events (created/updated/deleted) will NOT enqueue items
+     * into the offline sync queue. This flag is set by OfflineSyncEngine while
+     * it applies remote changes locally to prevent duplicating pull operations
+     * back into the upload queue.
+     */
+    public static bool $applyingRemoteChanges = false;
+
     protected static function bootHasSyncIdentity(): void
     {
         static::creating(function ($model): void {
@@ -25,6 +33,11 @@ trait HasSyncIdentity
         });
 
         static::created(function ($model): void {
+            // Do not re-queue records that were downloaded from the server
+            if (static::$applyingRemoteChanges) {
+                return;
+            }
+
             if (config('database.default') === 'sqlite') {
                 $payload = $model->toArray();
                 if (($model->getTable() === 'patient_visits' || $model->getTable() === 'patient_files') && $model->patient) {
@@ -35,6 +48,11 @@ trait HasSyncIdentity
         });
 
         static::updated(function ($model): void {
+            // Do not re-queue records that were downloaded from the server
+            if (static::$applyingRemoteChanges) {
+                return;
+            }
+
             if (config('database.default') === 'sqlite') {
                 $payload = $model->toArray();
                 if (($model->getTable() === 'patient_visits' || $model->getTable() === 'patient_files') && $model->patient) {
@@ -45,6 +63,11 @@ trait HasSyncIdentity
         });
 
         static::deleted(function ($model): void {
+            // Do not re-queue records that were downloaded from the server
+            if (static::$applyingRemoteChanges) {
+                return;
+            }
+
             if (config('database.default') === 'sqlite') {
                 $payload = ['id' => $model->id, 'uuid' => $model->uuid];
                 if ($model->getTable() === 'patient_visits' || $model->getTable() === 'patient_files') {

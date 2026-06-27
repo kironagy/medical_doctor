@@ -14,8 +14,8 @@ class MobileApiClient
     public function login(string $email, string $password, string $deviceName = 'nativephp-mobile'): array
     {
         return $this->post('/auth/login', [
-            'email' => $email,
-            'password' => $password,
+            'email'       => $email,
+            'password'    => $password,
             'device_name' => $deviceName,
         ]);
     }
@@ -25,15 +25,35 @@ class MobileApiClient
         return $this->get('/sync/seed', ['page' => $page, 'limit' => $limit], $token);
     }
 
-    public function changes(string $token, ?string $since, int $page = 1, int $limit = 100): array
+    /**
+     * Fetch delta changes from the remote server.
+     *
+     * @param string|null $cursor Opaque cursor token for cursor-based pagination.
+     *                            Replaces the legacy ?page= parameter.
+     */
+    public function changes(string $token, ?string $since, ?string $cursor = null, int $limit = 100): array
     {
-        return $this->get('/sync/changes', ['since' => $since, 'page' => $page, 'limit' => $limit], $token);
+        $params = ['limit' => $limit];
+
+        if ($since !== null) {
+            $params['since'] = $since;
+        }
+        if ($cursor !== null) {
+            $params['cursor'] = $cursor;
+        }
+
+        return $this->get('/sync/changes', $params, $token);
     }
 
+    /**
+     * Push one or more operations to the remote server.
+     */
     public function push(string $token, array $operations): array
     {
         return $this->post('/sync/push', ['operations' => $operations], $token);
     }
+
+    // ─── HTTP transport ───────────────────────────────────────────────────────
 
     private function get(string $path, array $query = [], ?string $token = null): array
     {
@@ -47,20 +67,20 @@ class MobileApiClient
 
     private function send(string $method, string $path, array $payload = [], ?string $token = null): array
     {
-        $url = config('mobile.api_url').'/v1'.$path;
+        $url       = config('mobile.api_url') . '/v1' . $path;
         $startedAt = microtime(true);
 
         $this->logRequest($method, $url, $payload, $token);
 
         try {
-            $request = \Illuminate\Support\Facades\Http::acceptJson()
+            $request = Http::acceptJson()
                 ->asJson()
                 ->withHeaders([
                     'Accept-Encoding' => 'gzip, deflate, br',
-                    'Connection' => 'keep-alive',
+                    'Connection'      => 'keep-alive',
                 ])
-                ->timeout((int) config('mobile.timeout', 20))
-                ->retry(3, 250);
+                ->timeout((int) config('mobile.timeout', 30))
+                ->retry(3, 500, throw: false);
 
             if ($token) {
                 $request = $request->withToken($token);
@@ -72,38 +92,40 @@ class MobileApiClient
                 : $request->post($url, $payload);
 
             Log::info('mobile_api.response', [
-                'method' => $method,
-                'url' => $url,
-                'status' => $response->status(),
+                'method'      => $method,
+                'url'         => $url,
+                'status'      => $response->status(),
                 'duration_ms' => (int) ((microtime(true) - $startedAt) * 1000),
-                'body' => $this->sanitize($response->json() ?? ['raw' => $response->body()]),
+                'body'        => $this->sanitize($response->json() ?? ['raw' => $response->body()]),
             ]);
 
             $response->throw();
 
             return $response->json() ?? [];
+
         } catch (ConnectionException|RequestException $exception) {
             Log::error('mobile_api.exception', [
-                'method' => $method,
-                'url' => $url,
-                'exception' => $exception::class,
-                'message' => $exception->getMessage(),
-                'status' => $exception instanceof RequestException ? $exception->response->status() : null,
-                'response' => $exception instanceof RequestException ? $this->sanitize($exception->response->json() ?? ['raw' => $exception->response->body()]) : null,
-                'duration_ms' => (int) ((microtime(true) - $startedAt) * 1000),
-                'timeout_seconds' => (int) config('mobile.timeout', 20),
+                'method'           => $method,
+                'url'              => $url,
+                'exception'        => $exception::class,
+                'message'          => $exception->getMessage(),
+                'status'           => $exception instanceof RequestException ? $exception->response->status() : null,
+                'response'         => $exception instanceof RequestException
+                    ? $this->sanitize($exception->response->json() ?? ['raw' => $exception->response->body()])
+                    : null,
+                'duration_ms'      => (int) ((microtime(true) - $startedAt) * 1000),
+                'timeout_seconds'  => (int) config('mobile.timeout', 30),
             ]);
-
             throw $exception;
+
         } catch (Throwable $exception) {
             Log::error('mobile_api.unexpected_exception', [
-                'method' => $method,
-                'url' => $url,
-                'exception' => $exception::class,
-                'message' => $exception->getMessage(),
+                'method'      => $method,
+                'url'         => $url,
+                'exception'   => $exception::class,
+                'message'     => $exception->getMessage(),
                 'duration_ms' => (int) ((microtime(true) - $startedAt) * 1000),
             ]);
-
             throw $exception;
         }
     }
@@ -111,19 +133,19 @@ class MobileApiClient
     private function logRequest(string $method, string $url, array $payload, ?string $token): void
     {
         Log::info('mobile_api.request', [
-            'method' => $method,
-            'url' => $url,
+            'method'  => $method,
+            'url'     => $url,
             'headers' => [
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
+                'Accept'        => 'application/json',
+                'Content-Type'  => 'application/json',
                 'Authorization' => $token ? 'Bearer [present]' : null,
             ],
-            'body' => $this->sanitize($payload),
-            'timeout_seconds' => (int) config('mobile.timeout', 20),
-            'connectivity' => [
-                'php_sapi' => PHP_SAPI,
-                'app_url' => config('app.url'),
-                'api_base' => config('mobile.api_url'),
+            'body'            => $this->sanitize($payload),
+            'timeout_seconds' => (int) config('mobile.timeout', 30),
+            'connectivity'    => [
+                'php_sapi'  => PHP_SAPI,
+                'app_url'   => config('app.url'),
+                'api_base'  => config('mobile.api_url'),
             ],
         ]);
     }
