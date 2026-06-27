@@ -53,8 +53,12 @@ class MobileApiClient
         $this->logRequest($method, $url, $payload, $token);
 
         try {
-            $request = Http::acceptJson()
+            $request = \Illuminate\Support\Facades\Http::acceptJson()
                 ->asJson()
+                ->withHeaders([
+                    'Accept-Encoding' => 'gzip, deflate, br',
+                    'Connection' => 'keep-alive',
+                ])
                 ->timeout((int) config('mobile.timeout', 20))
                 ->retry(3, 250);
 

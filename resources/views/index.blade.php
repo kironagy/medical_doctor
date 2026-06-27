@@ -13,6 +13,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        html { scroll-behavior: smooth; }
         /* ════════════════════════════════════════════════════════
            THEME SYSTEM - Light & Dark Mode
         ════════════════════════════════════════════════════════ */
@@ -1804,11 +1805,17 @@
             }
         }
 
+        let searchTimeout = null;
         function handleSearch() {
-            const search = document.getElementById('searchInput').value.toLowerCase();
-            filteredPatients = patients.filter(p => p.name.toLowerCase().includes(search) || (p.phone && p.phone.includes(search)) || (p.code && p.code.includes(search)));
-            currentPage = 1;
-            renderPatients();
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                requestAnimationFrame(() => {
+                    const search = document.getElementById('searchInput').value.toLowerCase();
+                    filteredPatients = patients.filter(p => p.name.toLowerCase().includes(search) || (p.phone && p.phone.includes(search)) || (p.code && p.code.includes(search)));
+                    currentPage = 1;
+                    renderPatients();
+                });
+            }, 300);
         }
 
 
