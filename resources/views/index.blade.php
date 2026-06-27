@@ -728,6 +728,10 @@
             font-family: monospace;
         }
 
+        .slide-page {
+            display: none;
+        }
+
         /* ════════════════════════════════════════════════════════
            RESPONSIVE
         ════════════════════════════════════════════════════════ */
@@ -1691,8 +1695,6 @@
             fetchPatients();
             initPullToRefresh();
             initSyncIndicator();
-            // Interval sync every 30 seconds when online
-            setInterval(() => { if (navigator.onLine) syncNow(); }, 10000);
         });
 
         // ═══════════════════════════════════════════════
@@ -1733,11 +1735,13 @@
             if (isSyncing) return;
             if (!navigator.onLine) return;
             isSyncing = true;
-            showSyncIndicator('syncing', 'جاري المزامنة...');
+            showSyncIndicator('preparing', 'Preparing...');
             try {
+                setTimeout(() => { if (isSyncing) showSyncIndicator('syncing', 'Uploading / Downloading...'); }, 500);
                 const res = await apiFetch('/sync/now', { method: 'POST' });
                 if (res.ok) {
                     const result = await res.json();
+                    showSyncIndicator('syncing', 'Applying Changes...');
                     const downloaded = result?.data?.downloaded ?? 0;
                     if (downloaded > 0) {
                         await fetchPatients();
@@ -1746,16 +1750,17 @@
                             if (refreshed) await selectPatient(refreshed);
                         }
                     }
-                    showSyncIndicator('synced', 'تمت المزامنة');
+                    showSyncIndicator('synced', 'Completed');
                 } else {
                     console.warn('Sync failed: backend error');
-                    showSyncIndicator('error', 'خطأ في المزامنة');
+                    showSyncIndicator('error', 'Failed');
                 }
             } catch (e) {
                 console.warn('Sync failed:', e.message);
-                showSyncIndicator('error', 'لا يوجد اتصال');
+                showSyncIndicator('error', 'Failed');
             } finally {
                 isSyncing = false;
+                setTimeout(() => { showSyncIndicator('idle', 'Idle'); document.getElementById('syncIndicator').style.display = 'none'; }, 3000);
             }
         }
 
@@ -1803,7 +1808,7 @@
                     ptr.style.opacity = '';
 
                     if (navigator.onLine) {
-                        await triggerSync();
+                        await syncNow();
                     } else {
                         await fetchPatients();
                     }

@@ -109,6 +109,7 @@ class OfflineSyncEngine
     {
         $items = SyncQueueItem::whereIn('status', ['pending', 'retrying'])
             ->where(fn($query) => $query->whereNull('available_at')->orWhere('available_at', '<=', now()))
+            ->orderByRaw("CASE operation WHEN 'create' THEN 1 WHEN 'update' THEN 2 WHEN 'delete' THEN 3 ELSE 4 END")
             ->orderBy('id')
             ->limit($limit)
             ->get();
@@ -117,13 +118,16 @@ class OfflineSyncEngine
             return 0;
         }
 
-        // Set status to running during execution
-        SyncQueueItem::whereIn('id', $items->pluck('id'))->update(['status' => 'running']);
+        $successCount = 0;
+        $totalItems = $items->count();
 
-        $operations = $items->map(function(SyncQueueItem $item) {
+        Log::info("Starting offline queue sync. Found {$totalItems} pending operations.");
+
+        foreach ($items as $index => $item) {
+            $item->update(['status' => 'running']);
             $payload = $item->payload ?? [];
+            $remaining = $totalItems - $index - 1;
 
-            // Handle Base64 file contents conversion for file entities
             if ($item->table_name === 'patient_files' && $item->operation !== 'delete' && !empty($payload['file_path'])) {
                 $relativePath = preg_replace('#^/storage/#', '', $payload['file_path']);
                 $localPath = storage_path('app/public/' . $relativePath);
@@ -133,31 +137,21 @@ class OfflineSyncEngine
                 }
             }
 
-            return [
+            $operation = [
                 'uuid' => $item->record_uuid,
                 'table' => $item->table_name,
                 'operation' => $item->operation,
                 'payload' => $payload,
             ];
-        })->all();
 
-        try {
-            $response = $this->api->push($token, $operations);
-            $results = $response['results'] ?? [];
+            $startedAt = microtime(true);
 
-            // Match results to locally queued items by UUID
-            $resultsByUuid = [];
-            foreach ($results as $result) {
-                if (isset($result['uuid'])) {
-                    $resultsByUuid[$result['uuid']] = $result;
-                }
-            }
+            try {
+                // Send one-by-one to avoid bulk timeouts and isolated failures
+                $response = $this->api->push($token, [$operation]);
+                $res = $response['results'][0] ?? null;
 
-            $successCount = 0;
-
-            foreach ($items as $item) {
-                $uuid = $item->record_uuid;
-                $res = $resultsByUuid[$uuid] ?? null;
+                $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
 
                 if ($res) {
                     $status = $res['status'] ?? 'failed';
@@ -176,7 +170,6 @@ class OfflineSyncEngine
                         ]);
                         $successCount++;
                     } else {
-                        // Operation failed on the server
                         $retry = $item->retry_count + 1;
                         $newStatus = $retry >= 10 ? 'failed' : 'retrying';
                         $item->update([
@@ -186,39 +179,63 @@ class OfflineSyncEngine
                             'available_at' => now()->addSeconds(min(3600, 2 ** min($retry, 10))),
                         ]);
                     }
+
+                    Log::info("Sync queue item processed.", [
+                        'queue_id' => $item->id,
+                        'table' => $item->table_name,
+                        'uuid' => $item->record_uuid,
+                        'operation' => $item->operation,
+                        'status' => $status,
+                        'duration_ms' => $durationMs,
+                        'retry_count' => $item->retry_count,
+                        'remaining_items' => $remaining,
+                        'error' => $error
+                    ]);
                 } else {
-                    // Server didn't return a status for this UUID
                     $retry = $item->retry_count + 1;
                     $newStatus = $retry >= 10 ? 'failed' : 'retrying';
                     $item->update([
                         'status' => $newStatus,
                         'retry_count' => $retry,
-                        'last_error' => 'No response status returned from remote server for this operation.',
+                        'last_error' => 'No response status returned from remote server.',
                         'available_at' => now()->addSeconds(min(3600, 2 ** min($retry, 10))),
                     ]);
-                }
-            }
 
-            return $successCount;
-        } catch (Throwable $throwable) {
-            // Revert status to retrying on general connection failures
-            foreach ($items as $item) {
+                    Log::warning("Sync queue item failed (No response status).", [
+                        'queue_id' => $item->id,
+                        'table' => $item->table_name,
+                        'uuid' => $item->record_uuid,
+                        'operation' => $item->operation,
+                        'remaining_items' => $remaining,
+                    ]);
+                }
+            } catch (Throwable $throwable) {
+                $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
                 $retry = $item->retry_count + 1;
                 $newStatus = $retry >= 10 ? 'failed' : 'retrying';
+                
                 $item->update([
                     'status' => $newStatus,
                     'retry_count' => $retry,
                     'last_error' => $throwable->getMessage(),
                     'available_at' => now()->addSeconds(min(3600, 2 ** min($retry, 10))),
                 ]);
+
+                Log::error("Sync queue item network error.", [
+                    'queue_id' => $item->id,
+                    'table' => $item->table_name,
+                    'uuid' => $item->record_uuid,
+                    'operation' => $item->operation,
+                    'duration_ms' => $durationMs,
+                    'retry_count' => $retry,
+                    'remaining_items' => $remaining,
+                    'message' => $throwable->getMessage(),
+                    'exception' => get_class($throwable)
+                ]);
             }
-
-            Log::warning("Sync push network or server error: " . $throwable->getMessage(), [
-                'exception' => get_class($throwable)
-            ]);
-
-            return 0;
         }
+
+        return $successCount;
     }
 
     public function pullChanges(string $token): int
