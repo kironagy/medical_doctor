@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Patient Files | أرشفة المرضى</title>
+    <title>Prof Hosam Fekry Ortho Team</title>
     @php
         $mobileApiMeta = '/api/v1';
     @endphp
@@ -642,9 +642,11 @@
         ════════════════════════════════════════════════════════ */
         #toastContainer {
             position: fixed;
-            top: 1rem;
-            left: 50%;
-            transform: translateX(-50%);
+            bottom: calc(1rem + env(safe-area-inset-bottom));
+            right: 1rem;
+            left: auto;
+            top: auto;
+            transform: none;
             z-index: 3000;
             display: flex;
             flex-direction: column;
@@ -653,31 +655,31 @@
         }
         .toast {
             background: var(--surface);
-            color: var(--text);
-            padding: 0.7rem 1.2rem;
-            border-radius: var(--radius-sm);
-            box-shadow: var(--shadow-lg);
+            color: var(--text-muted);
+            padding: 0.4rem 0.8rem;
+            border-radius: 20px;
+            box-shadow: var(--shadow-sm);
             border: 1px solid var(--border);
-            font-size: 0.85rem;
+            font-size: 0.75rem;
             font-weight: 600;
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 0.4rem;
             animation: toastIn 0.3s ease;
             pointer-events: auto;
-            min-width: 250px;
-            justify-content: center;
+            min-width: auto;
+            justify-content: flex-start;
         }
-        .toast.success { border-color: var(--success); color: var(--success); background: var(--success-bg); }
-        .toast.error { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
-        .toast.info { border-color: var(--info); color: var(--info); background: var(--info-bg); }
+        .toast.success { border-color: var(--success); color: var(--success); background: var(--surface); }
+        .toast.error { border-color: var(--danger); color: var(--danger); background: var(--surface); }
+        .toast.info { border-color: var(--info); color: var(--info); background: var(--surface); }
         @keyframes toastIn {
-            from { opacity: 0; transform: translateY(-20px); }
+            from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
         @keyframes toastOut {
             from { opacity: 1; transform: translateY(0); }
-            to { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 0; transform: translateY(20px); }
         }
 
         /* ════════════════════════════════════════════════════════
@@ -954,15 +956,15 @@
 
             /* Toast - Bottom Position for Mobile */
             #toastContainer {
-                top: auto;
-                bottom: 1rem;
-                left: 1rem;
+                bottom: calc(1rem + env(safe-area-inset-bottom));
                 right: 1rem;
+                left: auto;
+                top: auto;
                 transform: none;
             }
             .toast {
-                width: 100%;
-                justify-content: center;
+                width: auto;
+                justify-content: flex-start;
             }
 
             .mobile-back-btn { display: flex !important; }
@@ -1224,14 +1226,12 @@
             <button id="nextBtn" onclick="changePage(1)" disabled><span data-i18n="next">التالي</span> <i class="fa-solid fa-chevron-left"></i></button>
         </div>
         <div class="sidebar-footer">
-            <button class="theme-btn" onclick="toggleTheme()" title="Toggle Dark Mode">
-                <i class="fa-solid fa-moon" id="themeIcon"></i>
-            </button>
-            <button class="lang-btn" onclick="toggleLang()"><i class="fa-solid fa-language"></i> <span data-i18n="langName">English</span></button>
-            <form method="POST" action="/logout" id="logoutForm" style="margin:0; flex: 1; display:none;">
+            <form method="POST" action="/logout" id="logoutForm" style="margin:0; display:none;">
                 <input type="hidden" name="_token" value="{{ csrf_token() }}">
             </form>
-            <button type="button" class="logout-btn" style="width: 100%; flex: 1;" onclick="openLogoutModal()"><i class="fa-solid fa-arrow-right-from-bracket"></i> <span data-i18n="logout">خروج</span></button>
+            <button type="button" class="btn btn-primary" style="width: 100%; justify-content: center; gap: 0.5rem; background: var(--surface); color: var(--text); border: 1px solid var(--border);" onclick="openSettingsModal()">
+                <i class="fa-solid fa-gear"></i> <span data-i18n="settings">الإعدادات</span>
+            </button>
         </div>
     </div>
 
@@ -1353,7 +1353,7 @@
 
                 <div id="fileInputContainer" style="display:none;">
                     <div class="file-upload-area">
-                        <input type="file" id="itemFile" accept="image/*,video/*,application/pdf" onchange="updateFileName(this)">
+                        <input type="file" id="itemFile" accept="image/*,video/*,application/pdf" onclick="showToast('إذا لم تفتح ملفاتك، يرجى إعطاء صلاحية التخزين والكاميرا من إعدادات الهاتف', 'info')" onchange="updateFileName(this)">
                         <i class="fa-solid fa-cloud-arrow-up file-upload-icon"></i>
                         <div class="file-upload-text" id="fileNameDisplay" data-i18n="fileSelectHint">اضغط هنا لاختيار صورة أو ملف PDF أو فيديو</div>
                     </div>
@@ -1388,6 +1388,30 @@
             <div class="modal-actions" style="justify-content: center; gap: 1rem; margin-top: 0;">
                 <button class="btn btn-cancel" onclick="closeModal('confirmModal')" data-i18n="cancel">إلغاء</button>
                 <button class="btn" style="background: var(--danger); color: white; padding: 0.8rem 2rem;" id="confirmBtn" data-i18n="deleteBtn">مسح</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <div style="color: var(--primary); font-size: 3rem; margin-bottom: 1rem;">
+                <i class="fa-solid fa-gear"></i>
+            </div>
+            <h2 style="font-size: 1.5rem; margin-bottom: 2rem;" data-i18n="settings">الإعدادات</h2>
+            <div style="display:flex; flex-direction:column; gap:1rem; padding: 0 1rem 1rem;">
+                <button class="btn" style="justify-content:center; gap:0.5rem; background: var(--surface); border: 1px solid var(--border);" onclick="toggleTheme();">
+                    <i class="fa-solid fa-circle-half-stroke"></i> <span data-i18n="toggleTheme">تغيير المظهر</span>
+                </button>
+                <button class="btn" style="justify-content:center; gap:0.5rem; background: var(--surface); border: 1px solid var(--border);" onclick="toggleLang();">
+                    <i class="fa-solid fa-language"></i> <span>English / عربي</span>
+                </button>
+                <button class="btn" style="background:var(--danger); color:white; justify-content:center; gap:0.5rem;" onclick="closeModal('settingsModal'); openLogoutModal()">
+                    <i class="fa-solid fa-right-from-bracket"></i> <span data-i18n="logout">تسجيل خروج</span>
+                </button>
+            </div>
+            <div class="modal-actions" style="justify-content: center; margin-top: 0;">
+                <button class="btn btn-cancel" onclick="closeModal('settingsModal')" data-i18n="cancel">إلغاء</button>
             </div>
         </div>
     </div>
@@ -1477,12 +1501,12 @@
                         <label class="file-upload-btn">
                             <i class="fa-solid fa-camera"></i>
                             <span>التقاط صورة</span>
-                            <input type="file" id="slideItemFileCamera" accept="image/*" capture="environment" onchange="updateSlideFileName(this)">
+                            <input type="file" id="slideItemFileCamera" accept="image/*" capture="environment" onclick="showToast('إذا لم تفتح الكاميرا، يرجى إعطاء صلاحية الكاميرا من إعدادات الهاتف', 'info')" onchange="updateSlideFileName(this)">
                         </label>
                         <label class="file-upload-btn">
                             <i class="fa-solid fa-folder-open"></i>
                             <span>اختيار ملف</span>
-                            <input type="file" id="slideItemFile" accept="image/*,video/*,application/pdf" onchange="updateSlideFileName(this)">
+                            <input type="file" id="slideItemFile" accept="image/*,video/*,application/pdf" onclick="showToast('إذا لم تفتح ملفاتك، يرجى إعطاء صلاحية التخزين من إعدادات الهاتف', 'info')" onchange="updateSlideFileName(this)">
                         </label>
                     </div>
                     <div id="slideFileNameDisplay" style="text-align:center; font-size:0.9rem; color:var(--primary); font-weight:600; padding:0.5rem; background:var(--primary-bg); border-radius:var(--radius-sm); display:none;"></div>
@@ -1634,7 +1658,7 @@
             initPullToRefresh();
             initSyncIndicator();
             // Interval sync every 30 seconds when online
-            setInterval(() => { if (navigator.onLine) syncNow(); }, 30000);
+            setInterval(() => { if (navigator.onLine) syncNow(); }, 10000);
         });
 
         // ═══════════════════════════════════════════════
@@ -1690,7 +1714,8 @@
                     }
                     showSyncIndicator('synced', 'تمت المزامنة');
                 } else {
-                    showSyncIndicator('error', 'خطأ في المزامنة');
+                    // Silently fail to avoid annoying user with toast errors on mobile
+                    console.warn('Sync failed: backend error');
                 }
             } catch (e) {
                 console.warn('Sync failed:', e.message);
@@ -2465,6 +2490,10 @@
 
         function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
+        function openSettingsModal() {
+            document.getElementById('settingsModal').classList.add('active');
+        }
+
         // Logout Modal
         function openLogoutModal() {
             document.getElementById('logoutModal').classList.add('active');
@@ -2520,7 +2549,7 @@
             printWindow.document.write(`
                 <html>
                 <head>
-                    <title>طباعة سجل مريض</title>
+                    <title>Prof Hosam Fekry Ortho Team</title>
                     <style>
                         body { font-family: sans-serif; text-align: center; padding: 2rem; direction: rtl; }
                         .header { border-bottom: 2px solid #ccc; padding-bottom: 1rem; margin-bottom: 2rem; }
@@ -2732,7 +2761,7 @@
     <div id="splashScreen" class="splash-screen">
         <div class="splash-content">
             <i class="fas fa-clinic-medical splash-icon"></i>
-            <h1 class="splash-title">أداره المرضي</h1>
+            <h1 class="splash-title">Prof Hosam Fekry Ortho Team</h1>
             <div class="splash-loader"></div>
         </div>
     </div>
