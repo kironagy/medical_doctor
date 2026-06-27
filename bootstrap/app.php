@@ -18,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'logout',
             'api/*',
         ]);
+        $middleware->append(\App\Http\Middleware\ConvertBase64Files::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

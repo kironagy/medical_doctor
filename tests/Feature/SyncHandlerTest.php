@@ -246,4 +246,108 @@ class SyncHandlerTest extends TestCase
         $this->assertEquals('deleted', $results[0]['status']);
         $this->assertSoftDeleted('patients', ['uuid' => $patientUuid]);
     }
+
+    /**
+     * Test that Patient File upload API successfully stores a file chunk.
+     */
+    public function test_patient_file_upload_api_handles_chunk(): void
+    {
+        $user = User::create([
+            'uuid' => (string) Str::uuid(),
+            'name' => 'Doctor User',
+            'email' => 'doc@hospital.com',
+            'password' => 'secret',
+            'role' => 'doctor',
+        ]);
+
+        $patient = Patient::create([
+            'uuid' => (string) Str::uuid(),
+            'name' => 'Upload Patient',
+            'phone' => '12345678',
+            'address' => 'Cairo, Egypt',
+        ]);
+
+        $fileUuid = (string) Str::uuid();
+        $file = \Illuminate\Http\UploadedFile::fake()->create('chunk.part', 100);
+
+        $response = $this->actingAs($user, 'sanctum')->postJson("/api/v1/patients/{$patient->id}/files", [
+            'uuid' => $fileUuid,
+            'title' => 'Pre-op Radiology',
+            'desc' => 'Test file description',
+            'type' => 'image',
+            'category' => 'pre_rad',
+            'date' => '2026-06-27',
+            'file_name' => 'radiology.jpg',
+            'file' => $file,
+            'chunk_index' => 0,
+            'total_chunks' => 1,
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('patient_files', [
+            'uuid' => $fileUuid,
+            'patient_id' => $patient->id,
+            'title' => 'Pre-op Radiology',
+        ]);
+    }
+
+    /**
+     * Test that JSON request containing a base64-encoded file is successfully converted to an UploadedFile by the middleware.
+     */
+    public function test_json_base64_file_is_converted_to_uploaded_file(): void
+    {
+        $user = User::create([
+            'uuid' => (string) Str::uuid(),
+            'name' => 'Doctor User',
+            'email' => 'doc2@hospital.com',
+            'password' => 'secret',
+            'role' => 'doctor',
+        ]);
+
+        $patient = Patient::create([
+            'uuid' => (string) Str::uuid(),
+            'name' => 'Upload Patient 2',
+            'phone' => '87654321',
+            'address' => 'Giza, Egypt',
+        ]);
+
+        $fileUuid = (string) Str::uuid();
+        $fakeContent = 'Hello World Base64 File Content';
+        $base64Data = base64_encode($fakeContent);
+
+        $response = $this->actingAs($user, 'sanctum')->postJson("/api/v1/patients/{$patient->id}/files", [
+            'uuid' => $fileUuid,
+            'title' => 'Post-op Radiology',
+            'desc' => 'JSON Base64 upload test',
+            'type' => 'image',
+            'category' => 'post_rad',
+            'date' => '2026-06-27',
+            'file_name' => 'post_rad.jpg',
+            'file' => [
+                'is_file' => true,
+                'name' => 'post_rad.jpg',
+                'type' => 'image/jpeg',
+                'data' => $base64Data,
+            ],
+            'chunk_index' => 0,
+            'total_chunks' => 1,
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('patient_files', [
+            'uuid' => $fileUuid,
+            'patient_id' => $patient->id,
+            'title' => 'Post-op Radiology',
+        ]);
+
+        $patientFile = \App\Models\PatientFile::where('uuid', $fileUuid)->firstOrFail();
+        $savedPath = storage_path('app/public/' . str_replace('/storage/', '', $patientFile->file_path));
+        
+        $this->assertFileExists($savedPath);
+        $this->assertEquals($fakeContent, file_get_contents($savedPath));
+        
+        if (file_exists($savedPath)) {
+            unlink($savedPath);
+        }
+    }
 }
