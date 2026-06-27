@@ -213,4 +213,37 @@ class SyncHandlerTest extends TestCase
             'patient_id' => $patient->id, // Resolved local patient_id!
         ]);
     }
+
+    /**
+     * Test that DELETE validation only checks the uuid field, ignoring other required fields.
+     */
+    public function test_patient_delete_validation_ignores_other_required_fields(): void
+    {
+        $patientUuid = (string) Str::uuid();
+
+        // 1. Pre-create the patient locally
+        $patient = Patient::create([
+            'uuid' => $patientUuid,
+            'name' => 'John Doe',
+            'phone' => '1234567890',
+            'address' => '123 Main St',
+        ]);
+
+        // 2. Submit a delete operation with ONLY uuid in payload (no name, phone, etc.)
+        $operations = [
+            [
+                'table' => 'patients',
+                'operation' => 'delete',
+                'uuid' => $patientUuid,
+                'payload' => [
+                    'uuid' => $patientUuid,
+                ]
+            ]
+        ];
+
+        $results = $this->syncService->applyOperations($operations);
+
+        $this->assertEquals('deleted', $results[0]['status']);
+        $this->assertSoftDeleted('patients', ['uuid' => $patientUuid]);
+    }
 }

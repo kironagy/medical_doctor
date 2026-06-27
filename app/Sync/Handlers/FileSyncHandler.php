@@ -18,6 +18,13 @@ class FileSyncHandler extends BaseSyncHandler
      */
     public function validate(array $payload, string $operation, ?Model $model = null): array
     {
+        if (strtolower($operation) === 'delete') {
+            $validator = Validator::make($payload, [
+                'uuid' => ['required', 'string'],
+            ]);
+            return $validator->fails() ? $validator->errors()->toArray() : [];
+        }
+
         $rules = [
             'uuid' => ['required', 'string'],
             'title' => ['required', 'string', 'max:255'],
