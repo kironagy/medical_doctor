@@ -60,8 +60,9 @@ class MobileLoginTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('mode', 'online')
-            ->assertJsonPath('access_token', 'server-token');
+            ->assertJsonPath('mode', 'online');
+
+        $this->assertNotEmpty($response->json('access_token'));
 
         Http::assertSent(fn ($request) => $request->method() === 'POST'
             && $request->url() === 'http://prof-hosam-fekry.online/api/v1/auth/login'

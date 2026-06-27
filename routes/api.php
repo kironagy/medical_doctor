@@ -49,6 +49,17 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('/changes', [V1SyncController::class, 'changes'])->name('changes');
             Route::post('/push', [V1SyncController::class, 'push'])->name('push');
             
+            // Endpoint to serve local sync logs
+            Route::get('/logs', function () {
+                if (config('database.default') !== 'sqlite') {
+                    return response()->json([]);
+                }
+                $logs = \App\Models\SyncQueueItem::orderByDesc('id')
+                    ->limit(50)
+                    ->get();
+                return response()->json($logs);
+            })->name('logs');
+            
             // Endpoint to trigger offline sync engine manually from the frontend
             Route::post('/now', function (\App\Services\OfflineSyncEngine $engine) {
                 try {

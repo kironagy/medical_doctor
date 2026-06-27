@@ -1407,12 +1407,45 @@
                 <button class="btn" style="justify-content:center; gap:0.5rem; background: var(--surface); color: var(--text); border: 1px solid var(--border);" onclick="toggleLang();">
                     <i class="fa-solid fa-language"></i> <span>English / عربي</span>
                 </button>
+                <button class="btn" style="justify-content:center; gap:0.5rem; background: var(--surface); color: var(--text); border: 1px solid var(--border);" onclick="closeModal('settingsModal'); openSyncLogsModal();">
+                    <i class="fa-solid fa-rotate"></i> <span data-i18n="syncLogs">سجلات المزامنة</span>
+                </button>
                 <button class="btn" style="background:var(--danger); color:white; justify-content:center; gap:0.5rem;" onclick="closeModal('settingsModal'); openLogoutModal()">
                     <i class="fa-solid fa-right-from-bracket"></i> <span data-i18n="logout">تسجيل خروج</span>
                 </button>
             </div>
             <div class="modal-actions" style="justify-content: center; margin-top: 0;">
                 <button class="btn btn-cancel" onclick="closeModal('settingsModal')" data-i18n="cancel">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Logs Modal -->
+    <div class="modal" id="syncLogsModal">
+        <div class="modal-content" style="max-width: 800px; text-align: start;">
+            <div class="modal-header" style="font-size: 1.6rem; font-weight: bold; color: var(--primary); display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+                <span data-i18n="syncLogs">سجلات المزامنة (Sync Logs)</span>
+                <button type="button" style="background:none; border:none; font-size:2rem; cursor:pointer;" onclick="closeModal('syncLogsModal')">&times;</button>
+            </div>
+            <div style="max-height: 50vh; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.95rem; min-width: 500px;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid var(--border); text-align: start; background: var(--bg);">
+                            <th style="padding: 0.8rem; text-align: start;">العنصر (Entity)</th>
+                            <th style="padding: 0.8rem; text-align: start;">العملية (Action)</th>
+                            <th style="padding: 0.8rem; text-align: start;">الحالة (Status)</th>
+                            <th style="padding: 0.8rem; text-align: center;">المحاولات (Attempts)</th>
+                            <th style="padding: 0.8rem; text-align: start;">التفاصيل / الخطأ (Error)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="syncLogsTableBody">
+                        <!-- Dynamic logs here -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-actions" style="justify-content: space-between; margin-top: 1.5rem; display: flex; align-items: center; gap: 1rem;">
+                <button class="btn btn-primary" onclick="syncNow(); closeModal('syncLogsModal');" data-i18n="syncNow">مزامنة الآن</button>
+                <button class="btn btn-cancel" onclick="closeModal('syncLogsModal')" data-i18n="close">إغلاق</button>
             </div>
         </div>
     </div>
@@ -1544,7 +1577,7 @@
                 typeFile: "إرفاق ملف", textDetails: "التفاصيل أو الملاحظات:", fileSelectHint: "اضغط لاختيار صورة، PDF، أو فيديو",
                 save: "حفظ", cancel: "إلغاء", deleteBtn: "مسح", printBtn: "طباعة", logout: "خروج", langName: "English", prev: "السابق", next: "التالي",
                 noPatients: "قم باختيار مريض من القائمة לעرض بياناته", saving: "جاري الحفظ...", addPatientTitle: "إضافة مريض", editPatientTitle: "تعديل مريض",
-                confirmDelete: "هل أنت متأكد من مسح هذا العنصر؟", confirmDeletePatient: "هل أنت متأكد من مسح هذا المريض؟ لا يمكن التراجع عن هذا الإجراء.", deletePatient: "مسح المريض", loadMore: "إظهار المزيد", backToList: "العودة لقائمة المرضى", patientCode: "الكود"
+                confirmDelete: "هل أنت متأكد من مسح هذا العنصر؟", confirmDeletePatient: "هل أنت متأكد من مسح هذا المريض؟ لا يمكن التراجع عن هذا الإجراء.", deletePatient: "مسح المريض", loadMore: "إظهار المزيد", backToList: "العودة لقائمة المرضى", patientCode: "الكود", syncLogs: "سجلات المزامنة", syncNow: "مزامنة الآن", close: "إغلاق"
             },
             en: {
                 newPatient: "New Patient", searchPlaceholder: "Search name / phone / code...", name: "Name", phone: "Phone", address: "Address", diagnosis: "Diagnosis",
@@ -1554,7 +1587,7 @@
                 typeFile: "Attach File", textDetails: "Details or Notes:", fileSelectHint: "Click to select Image, PDF, or Video",
                 save: "Save", cancel: "Cancel", deleteBtn: "Delete", printBtn: "Print", logout: "Logout", langName: "عربي", prev: "Prev", next: "Next",
                 noPatients: "Select a patient to view details", saving: "Saving...", addPatientTitle: "Add Patient", editPatientTitle: "Edit Patient",
-                confirmDelete: "Are you sure you want to delete this item?", confirmDeletePatient: "Are you sure you want to delete this patient? This action cannot be undone.", deletePatient: "Delete Patient", loadMore: "Load More", backToList: "Back to List", patientCode: "Code"
+                confirmDelete: "Are you sure you want to delete this item?", confirmDeletePatient: "Are you sure you want to delete this patient? This action cannot be undone.", deletePatient: "Delete Patient", loadMore: "Load More", backToList: "Back to List", patientCode: "Code", syncLogs: "Sync Logs", syncNow: "Sync Now", close: "Close"
             }
         };
 
@@ -2562,6 +2595,53 @@
 
         function openSettingsModal() {
             document.getElementById('settingsModal').classList.add('active');
+        }
+
+        async function openSyncLogsModal() {
+            document.getElementById('syncLogsModal').classList.add('active');
+            const tbody = document.getElementById('syncLogsTableBody');
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 2rem;">جاري التحميل...</td></tr>`;
+
+            try {
+                const res = await apiFetch('/sync/logs');
+                if (res.ok) {
+                    const logs = await res.json();
+                    if (logs.length === 0) {
+                        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 2rem;">لا توجد سجلات مزامنة حالياً.</td></tr>`;
+                        return;
+                    }
+
+                    tbody.innerHTML = '';
+                    logs.forEach(log => {
+                        const statusColors = {
+                            pending: 'var(--primary)',
+                            running: 'var(--warning)',
+                            completed: 'var(--success)',
+                            failed: 'var(--danger)',
+                            retrying: 'var(--warning)',
+                            skipped: '#64748b'
+                        };
+                        const statusColor = statusColors[log.status] || 'var(--text)';
+                        
+                        const row = document.createElement('tr');
+                        row.style.borderBottom = '1px solid var(--border)';
+                        row.innerHTML = `
+                            <td style="padding: 0.8rem; font-weight: bold;">${log.table_name}</td>
+                            <td style="padding: 0.8rem;">${log.operation}</td>
+                            <td style="padding: 0.8rem; font-weight: bold; color: ${statusColor};">${log.status}</td>
+                            <td style="padding: 0.8rem; text-align: center;">${log.retry_count}</td>
+                            <td style="padding: 0.8rem; font-size: 0.85rem; color: var(--danger); max-width: 250px; word-wrap: break-word;">
+                                ${log.last_error ? log.last_error : '<span style="color:#64748b;">-</span>'}
+                            </td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 2rem; color: var(--danger);">خطأ في تحميل البيانات.</td></tr>`;
+                }
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 2rem; color: var(--danger);">خطأ في الاتصال بالخادم.</td></tr>`;
+            }
         }
 
         // Logout Modal

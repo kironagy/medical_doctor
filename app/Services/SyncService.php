@@ -7,10 +7,12 @@ use App\Models\Patient;
 use App\Models\PatientFile;
 use App\Models\PatientVisit;
 use App\Models\User;
+use App\Sync\SyncHandlerRegistry;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 
 class SyncService
@@ -22,6 +24,10 @@ class SyncService
         'file_categories' => FileCategory::class,
         'users' => User::class,
     ];
+
+    public function __construct(private readonly SyncHandlerRegistry $registry)
+    {
+    }
 
     public function initialSeed(int $page = 1, int $limit = 100): array
     {
@@ -81,19 +87,24 @@ class SyncService
         ];
     }
 
+    /**
+     * Apply a list of operations pushed from the client.
+     * Process entities independently and commit individually (isolated transactions).
+     */
     public function applyOperations(array $operations): array
     {
         $results = [];
 
-        DB::transaction(function () use ($operations, &$results): void {
-            foreach ($operations as $operation) {
-                $results[] = $this->applyOperation($operation);
-            }
-        });
+        foreach ($operations as $operation) {
+            $results[] = $this->applyOperation($operation);
+        }
 
         return $results;
     }
 
+    /**
+     * Apply a single synchronization operation using entity-specific handlers.
+     */
     private function applyOperation(array $operation): array
     {
         $table = $operation['table'] ?? '';
@@ -101,67 +112,52 @@ class SyncService
         $action = strtolower((string) ($operation['operation'] ?? ''));
         $payload = $operation['payload'] ?? [];
 
-        if (! isset(self::MODELS[$table])) {
-            throw new InvalidArgumentException("Unsupported sync table [{$table}].");
-        }
+        $startedAt = microtime(true);
 
-        if (! $uuid && isset($payload['uuid'])) {
-            $uuid = $payload['uuid'];
-        }
-
-        if (! $uuid) {
-            throw new InvalidArgumentException('Sync operation requires a uuid.');
-        }
-
-        /** @var class-string<Model> $modelClass */
-        $modelClass = self::MODELS[$table];
-        $model = $this->queryFor($table, true)->where('uuid', $uuid)->first();
-
-        if ($action === 'delete') {
-            if ($model && (! method_exists($model, 'trashed') || ! $model->trashed())) {
-                $model->delete();
+        try {
+            if (!$this->registry->hasHandler($table)) {
+                throw new InvalidArgumentException("Unsupported sync table [{$table}].");
             }
 
-            return ['uuid' => $uuid, 'table' => $table, 'status' => 'deleted'];
+            $handler = $this->registry->getHandler($table);
+
+            // Execute application flow through the specific entity handler
+            $result = $handler->apply($action, $payload, $uuid);
+            $result['table'] = $table;
+
+            $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
+
+            // Detailed operational logging
+            Log::info('sync.operation_processed', [
+                'table' => $table,
+                'uuid' => $uuid,
+                'operation' => $action,
+                'status' => $result['status'] ?? 'unknown',
+                'duration_ms' => $durationMs,
+                'payload' => $this->sanitizePayload($table, $payload),
+                'error' => $result['error'] ?? null,
+            ]);
+
+            return $result;
+        } catch (\Throwable $throwable) {
+            $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
+
+            Log::error('sync.operation_error', [
+                'table' => $table,
+                'uuid' => $uuid,
+                'operation' => $action,
+                'duration_ms' => $durationMs,
+                'message' => $throwable->getMessage(),
+                'trace' => $throwable->getTraceAsString(),
+            ]);
+
+            return [
+                'uuid' => $uuid,
+                'table' => $table,
+                'status' => 'failed',
+                'error' => $throwable->getMessage(),
+            ];
         }
-
-        unset($payload['id'], $payload['deleted_at'], $payload['created_at'], $payload['updated_at']);
-        $payload['uuid'] = $uuid;
-        $payload['client_updated_at'] = $payload['client_updated_at'] ?? now();
-
-        if ($table === 'patient_files' && !empty($payload['data'])) {
-            $fileData = base64_decode($payload['data']);
-            $extension = pathinfo($payload['file_name'] ?? 'file.bin', PATHINFO_EXTENSION) ?: 'bin';
-            $finalName = \Illuminate\Support\Str::random(40) . '.' . $extension;
-            $finalPath = storage_path('app/public/patient_files/' . $finalName);
-
-            if (!file_exists(dirname($finalPath))) {
-                mkdir(dirname($finalPath), 0777, true);
-            }
-
-            file_put_contents($finalPath, $fileData);
-            $payload['file_path'] = '/storage/patient_files/' . $finalName;
-            $payload['data'] = null;
-        }
-
-        if ($model && method_exists($model, 'trashed') && $model->trashed()) {
-            $model->restore();
-        }
-
-        if ($model) {
-            $serverTime = $model->client_updated_at ?? $model->updated_at;
-            $clientTime = Carbon::parse($payload['client_updated_at']);
-
-            if ($serverTime && $serverTime->greaterThan($clientTime)) {
-                return ['uuid' => $uuid, 'table' => $table, 'status' => 'conflict_server_won'];
-            }
-
-            $model->update($payload);
-        } else {
-            $model = $modelClass::create($payload);
-        }
-
-        return ['uuid' => $uuid, 'table' => $table, 'status' => 'applied', 'id' => $model->id];
     }
 
     private function queryFor(string $table, bool $withDeleted = false)
@@ -176,6 +172,10 @@ class SyncService
             : $query;
     }
 
+    /**
+     * Serialize records for outbound seed and changes syncing.
+     * Translates foreign keys to global UUID references.
+     */
     private function serializeRecords(string $table, $records): array
     {
         return $records->map(function ($record) use ($table): array {
@@ -183,7 +183,35 @@ class SyncService
 
             unset($data['remember_token']);
 
+            // Map patient_id to patient_uuid for visit and file entities
+            if ($table === 'patient_visits' || $table === 'patient_files') {
+                if (!empty($data['patient_id']) && empty($data['patient_uuid'])) {
+                    $patient = Patient::find($data['patient_id']);
+                    if ($patient) {
+                        $data['patient_uuid'] = $patient->uuid;
+                    }
+                }
+            }
+
             return $data;
         })->all();
+    }
+
+    /**
+     * Helper to redact sensitive information in sync logs.
+     */
+    private function sanitizePayload(string $table, array $payload): array
+    {
+        if ($table === 'users') {
+            foreach (['password', 'remember_token'] as $key) {
+                if (array_key_exists($key, $payload)) {
+                    $payload[$key] = '[redacted]';
+                }
+            }
+        }
+        if (isset($payload['data'])) {
+            $payload['data'] = '[base64_data_omitted_for_log]';
+        }
+        return $payload;
     }
 }

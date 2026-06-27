@@ -57,7 +57,9 @@ class AuthController extends Controller
         );
 
         if ($result['success']) {
-            $request->session()->regenerate();
+            if ($request->hasSession()) {
+                $request->session()->regenerate();
+            }
 
             // Generate a local token for the frontend to use
             $user = Auth::user();

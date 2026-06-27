@@ -26,19 +26,33 @@ trait HasSyncIdentity
 
         static::created(function ($model): void {
             if (config('database.default') === 'sqlite') {
-                app(\App\Services\OfflineSyncEngine::class)->queue($model->getTable(), 'create', $model->toArray(), $model->uuid);
+                $payload = $model->toArray();
+                if (($model->getTable() === 'patient_visits' || $model->getTable() === 'patient_files') && $model->patient) {
+                    $payload['patient_uuid'] = $model->patient->uuid;
+                }
+                app(\App\Services\OfflineSyncEngine::class)->queue($model->getTable(), 'create', $payload, $model->uuid);
             }
         });
 
         static::updated(function ($model): void {
             if (config('database.default') === 'sqlite') {
-                app(\App\Services\OfflineSyncEngine::class)->queue($model->getTable(), 'update', $model->toArray(), $model->uuid);
+                $payload = $model->toArray();
+                if (($model->getTable() === 'patient_visits' || $model->getTable() === 'patient_files') && $model->patient) {
+                    $payload['patient_uuid'] = $model->patient->uuid;
+                }
+                app(\App\Services\OfflineSyncEngine::class)->queue($model->getTable(), 'update', $payload, $model->uuid);
             }
         });
 
         static::deleted(function ($model): void {
             if (config('database.default') === 'sqlite') {
-                app(\App\Services\OfflineSyncEngine::class)->queue($model->getTable(), 'delete', ['id' => $model->id, 'uuid' => $model->uuid], $model->uuid);
+                $payload = ['id' => $model->id, 'uuid' => $model->uuid];
+                if ($model->getTable() === 'patient_visits' || $model->getTable() === 'patient_files') {
+                    if ($model->patient) {
+                        $payload['patient_uuid'] = $model->patient->uuid;
+                    }
+                }
+                app(\App\Services\OfflineSyncEngine::class)->queue($model->getTable(), 'delete', $payload, $model->uuid);
             }
         });
     }
