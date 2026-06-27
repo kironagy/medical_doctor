@@ -38,7 +38,7 @@ class OfflineSyncEngine
         $database = config('database.connections.sqlite.database');
         if ($database && $database !== ':memory:' && !file_exists($database)) {
             touch($database);
-            Artisan::call('migrate', ['--force' => true]);
+            Artisan::call('migrate', ['--force' => true, '--seed' => true]);
         }
     }
 
