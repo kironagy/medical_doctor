@@ -23,5 +23,23 @@ trait HasSyncIdentity
                 $model->client_updated_at = now();
             }
         });
+
+        static::created(function ($model): void {
+            if (config('database.default') === 'sqlite') {
+                app(\App\Services\OfflineSyncEngine::class)->queue($model->getTable(), 'create', $model->toArray(), $model->uuid);
+            }
+        });
+
+        static::updated(function ($model): void {
+            if (config('database.default') === 'sqlite') {
+                app(\App\Services\OfflineSyncEngine::class)->queue($model->getTable(), 'update', $model->toArray(), $model->uuid);
+            }
+        });
+
+        static::deleted(function ($model): void {
+            if (config('database.default') === 'sqlite') {
+                app(\App\Services\OfflineSyncEngine::class)->queue($model->getTable(), 'delete', ['id' => $model->id, 'uuid' => $model->uuid], $model->uuid);
+            }
+        });
     }
 }

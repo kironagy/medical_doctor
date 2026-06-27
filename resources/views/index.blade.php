@@ -775,7 +775,10 @@
             .add-btn i { font-size: 1.6rem; margin: 0; }
 
             /* Search - Comfortable */
-            .search-box { padding: 0.8rem; }
+            .search-box { 
+                padding: 0.8rem; 
+                margin-top: calc(0.5rem + env(safe-area-inset-top));
+            }
             .search-box input {
                 padding: 0.85rem 1rem;
                 font-size: 1rem;
@@ -911,6 +914,10 @@
             }
 
             /* Modals - Full Screen App Style */
+            .modal {
+                align-items: flex-start; /* move popup up */
+                padding-top: calc(3rem + env(safe-area-inset-top));
+            }
             .modal-content {
                 padding: 1.25rem;
                 margin: 0.5rem;
@@ -1165,7 +1172,7 @@
 
                 <div id="fileInputContainer" style="display:none;">
                     <div class="file-upload-area">
-                        <input type="file" id="itemFile" onchange="updateFileName(this)">
+                        <input type="file" id="itemFile" accept="image/*,video/*,application/pdf" capture="environment" onchange="updateFileName(this)">
                         <i class="fa-solid fa-cloud-arrow-up file-upload-icon"></i>
                         <div class="file-upload-text" id="fileNameDisplay" data-i18n="fileSelectHint">اضغط هنا لاختيار صورة أو ملف PDF أو فيديو</div>
                     </div>
@@ -1769,13 +1776,13 @@
                     if (file.file_path) {
                         const ext = file.file_path.split('.').pop().toLowerCase();
                         if (['jpg','jpeg','png','gif','webp'].includes(ext) || file.type === 'image') {
-                            mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'image')"><img src="${file.file_path}"></div>`;
+                            mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'image')"><img src="${file.file_path}" onerror="this.onerror=null; this.src='https://prof-hosam-fekry.online' + '${file.file_path}';"></div>`;
                         } else if (ext === 'pdf' || file.type === 'pdf') {
                             mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'pdf')"><i class="fa-solid fa-file-pdf file-icon" style="color: #EF4444;"></i></div>`;
                         } else if (['mp4','webm','ogg'].includes(ext) || file.type === 'video') {
                             mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video')"><i class="fa-solid fa-circle-play file-icon" style="color: #3B82F6;"></i></div>`;
                         } else {
-                            mediaHTML = `<div class="item-preview-box" onclick="window.open('${file.file_path}','_blank')"><i class="fa-solid fa-file file-icon"></i></div>`;
+                            mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'file')"><i class="fa-solid fa-file file-icon"></i></div>`;
                         }
                     } else {
                         // No file - text only
@@ -1887,9 +1894,18 @@
                     renderFiles();
                     showToast('Item saved successfully', 'success');
                     closeModal('itemModal');
-                } else showToast('Error saving', 'error');
+                } else {
+                    const errData = await res.json();
+                    let errMsg = errData.message || 'Error saving file';
+                    if (errData.errors) {
+                        errMsg += '\n' + Object.values(errData.errors).flat().join('\n');
+                    }
+                    alert(errMsg);
+                    showToast('Error saving', 'error');
+                }
             } catch(err) {
                 console.error('[patient-files] save failed', err);
+                alert('Connection error or invalid data');
                 showToast('Error saving', 'error');
             }
             finally { btn.disabled = false; btn.textContent = i18n[lang].save; }
@@ -1959,19 +1975,34 @@
         }
 
         // Media Preview
-        function viewMedia(src, type) {
+        async function viewMedia(src, type) {
             const viewer = document.getElementById('mediaViewer');
             const content = document.getElementById('viewerContent');
-            content.innerHTML = '';
+            content.innerHTML = '<div style="color:white; font-size:1.5rem; text-align:center;"><i class="fa-solid fa-spinner fa-spin"></i> جاري التحميل...</div>';
+            viewer.style.display = 'flex';
+
+            let finalSrc = src;
+            if (src && !src.startsWith('http')) {
+                try {
+                    // Check if file exists locally
+                    const res = await fetch(src, { method: 'HEAD' });
+                    if (!res.ok) throw new Error('Local file not found');
+                } catch (e) {
+                    // Fallback to live server if local file is not found (e.g., synced but not downloaded)
+                    finalSrc = "https://prof-hosam-fekry.online" + src;
+                }
+            }
 
             if(type === 'image') {
-                content.innerHTML = `<img src="${src}">`;
+                content.innerHTML = `<img src="${finalSrc}">`;
             } else if (type === 'pdf') {
-                content.innerHTML = `<iframe src="${src}" style="width: 80vw; height: 90vh; border:none; background: white; border-radius: 8px;"></iframe>`;
+                content.innerHTML = `<iframe src="${finalSrc}" style="width: 80vw; height: 90vh; border:none; background: white; border-radius: 8px;"></iframe>`;
             } else if (type === 'video') {
-                content.innerHTML = `<video controls autoplay style="width: 80vw; max-height: 90vh;"><source src="${src}"></video>`;
+                content.innerHTML = `<video controls autoplay style="width: 80vw; max-height: 90vh;"><source src="${finalSrc}"></video>`;
+            } else {
+                window.open(finalSrc, '_blank');
+                closeViewer({ target: { id: 'mediaViewer' } });
             }
-            viewer.style.display = 'flex';
         }
 
         function closeViewer(e) {
@@ -2009,7 +2040,7 @@
             if (file.file_path) {
                 const ext = file.file_path.split('.').pop().toLowerCase();
                 if (['jpg','jpeg','png','gif','webp'].includes(ext) || file.type === 'image') {
-                    printWindow.document.write(`<img src="${file.file_path}">`);
+                    printWindow.document.write(`<img src="${file.file_path}" onerror="this.onerror=null; this.src='https://prof-hosam-fekry.online' + '${file.file_path}';">`);
                 } else {
                     printWindow.document.write(`<p class="pdf-link">مرفق ملف، يرجى فتح الملف لطباعته مباشرة.</p>`);
                 }
