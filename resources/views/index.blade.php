@@ -758,7 +758,7 @@
             /* Add Patient Button - FAB on Mobile */
             .add-btn {
                 position: fixed;
-                bottom: calc(3.5rem + env(safe-area-inset-bottom)); /* Raised higher */
+                bottom: calc(6.5rem + env(safe-area-inset-bottom)); /* Raised higher */
                 left: 1.5rem; /* left for RTL */
                 border-radius: 50%;
                 width: 64px;
@@ -775,8 +775,8 @@
             .add-btn i { font-size: 1.6rem; margin: 0; }
 
             /* Search - Comfortable */
-            .search-box { 
-                padding: 0.8rem; 
+            .search-box {
+                padding: 0.8rem;
                 margin-top: calc(0.5rem + env(safe-area-inset-top));
             }
             .search-box input {
@@ -1400,13 +1400,13 @@
                     ptr.classList.add('active');
                     ptr.style.height = '';
                     ptr.style.opacity = '';
-                    
+
                     if (navigator.onLine) {
                         await triggerSync();
                     } else {
                         await fetchPatients();
                     }
-                    
+
                     ptr.classList.remove('active');
                 } else {
                     ptr.style.height = '0px';
@@ -1563,7 +1563,7 @@
                     await fetchPatients();
                     if (id && currentPatient && currentPatient.id == id) selectPatient(patients.find(x => x.id == id));
                     else if (!id && responseData) { const savedPatient = responseData.data || responseData; selectPatient(patients.find(x => x.id == savedPatient.id) || savedPatient); }
-                    
+
                     // Trigger sync immediately in background
                     syncNow();
                     return;
@@ -1926,7 +1926,7 @@
                     renderFiles();
                     showToast('Item saved successfully', 'success');
                     closeModal('itemModal');
-                    
+
                     // Trigger sync immediately in background
                     syncNow();
                 } else {
