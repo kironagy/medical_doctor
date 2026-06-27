@@ -48,6 +48,21 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
             Route::get('/seed', [V1SyncController::class, 'seed'])->name('seed');
             Route::get('/changes', [V1SyncController::class, 'changes'])->name('changes');
             Route::post('/push', [V1SyncController::class, 'push'])->name('push');
+            
+            // Endpoint to trigger offline sync engine manually from the frontend
+            Route::post('/now', function (\App\Services\OfflineSyncEngine $engine) {
+                try {
+                    $token = \App\Models\SyncState::where('key', 'api_token')->first()?->value['data'];
+                    if (!$token) {
+                        return response()->json(['success' => false, 'error' => 'No API token found for sync'], 401);
+                    }
+                    $result = $engine->sync($token);
+                    return response()->json(['success' => true, 'data' => $result]);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::error('Manual sync failed: ' . $e->getMessage());
+                    return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+                }
+            })->name('now');
         });
     });
 });

@@ -755,12 +755,24 @@
             .sidebar.mobile-hidden { transform: translateX(100%); }
             [dir="ltr"] .sidebar.mobile-hidden { transform: translateX(-100%); }
 
-            /* Add Patient Button - Large Touch Target */
+            /* Add Patient Button - FAB on Mobile */
             .add-btn {
-                padding: 1rem;
-                font-size: 1rem;
-                min-height: 52px;
+                position: fixed;
+                bottom: calc(1.5rem + env(safe-area-inset-bottom));
+                left: 1.5rem; /* left for RTL */
+                border-radius: 50%;
+                width: 64px;
+                height: 64px;
+                padding: 0;
+                box-shadow: var(--shadow-lg), var(--shadow-colored);
+                z-index: 100;
+                display: flex;
+                align-items: center;
+                justify-content: center;
             }
+            [dir="ltr"] .add-btn { left: auto; right: 1.5rem; }
+            .add-btn span { display: none; }
+            .add-btn i { font-size: 1.6rem; margin: 0; }
 
             /* Search - Comfortable */
             .search-box { padding: 0.8rem; }
@@ -802,7 +814,7 @@
             .main-content {
                 width: 100%;
                 padding: 0.75rem;
-                padding-top: 3.5rem;
+                padding-top: calc(4.5rem + env(safe-area-inset-top));
                 min-height: 100dvh;
                 display: none;
             }
@@ -953,14 +965,15 @@
             background: var(--surface);
             border: 1px solid var(--border);
             color: var(--text);
-            padding: 0.6rem;
+            padding: 1rem 0.6rem 0.6rem;
+            padding-top: calc(1rem + env(safe-area-inset-top));
             border-radius: 0;
             font-weight: 600;
-            font-size: 0.85rem;
+            font-size: 1rem;
             margin-bottom: 0.5rem;
             align-items: center;
             justify-content: center;
-            gap: 0.3rem;
+            gap: 0.5rem;
             cursor: pointer;
             box-shadow: var(--shadow-sm);
             position: fixed;
@@ -979,6 +992,28 @@
             padding-left: env(safe-area-inset-left);
             padding-right: env(safe-area-inset-right);
         }
+
+        /* Pull-to-Refresh Styles */
+        .ptr-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 0;
+            overflow: hidden;
+            transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+            background: var(--surface);
+            opacity: 0;
+            color: var(--primary);
+        }
+        .ptr-container.active {
+            height: 60px;
+            opacity: 1;
+        }
+        .ptr-spinner {
+            animation: spin 1s linear infinite;
+            font-size: 1.5rem;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
 </head>
 
@@ -990,6 +1025,9 @@
         <button class="add-btn" onclick="openPatientModal()"><i class="fa-solid fa-user-plus"></i> <span data-i18n="newPatient">إضافة مريض جديد</span></button>
         <div class="search-box">
             <input type="text" id="searchInput" data-i18n-ph="searchPlaceholder" placeholder="البحث بالاسم أو التليفون..." oninput="handleSearch()">
+        </div>
+        <div class="ptr-container" id="ptrContainer">
+            <i class="fa-solid fa-spinner ptr-spinner"></i>
         </div>
         <div id="patientList"></div>
         <div class="pagination">
@@ -1304,7 +1342,72 @@
         document.addEventListener('DOMContentLoaded', () => {
             setLang(lang);
             fetchPatients();
+            initPullToRefresh();
         });
+
+        // Trigger Sync
+        async function triggerSync() {
+            try {
+                // Try syncing with the local API which triggers OfflineSyncEngine
+                await apiFetch('/sync/now', { method: 'POST' });
+                // Fetch patients again to reflect any updates
+                await fetchPatients();
+            } catch (e) {
+                console.error("Sync failed", e);
+            }
+        }
+
+        // Listen for coming back online
+        window.addEventListener('online', triggerSync);
+
+        function initPullToRefresh() {
+            const list = document.getElementById('patientList');
+            const ptr = document.getElementById('ptrContainer');
+            let startY = 0;
+            let currentY = 0;
+            let isPulling = false;
+
+            list.addEventListener('touchstart', (e) => {
+                if (list.scrollTop === 0) {
+                    startY = e.touches[0].clientY;
+                    isPulling = true;
+                }
+            }, { passive: true });
+
+            list.addEventListener('touchmove', (e) => {
+                if (!isPulling) return;
+                currentY = e.touches[0].clientY;
+                if (currentY > startY) {
+                    // Prevent default scrolling when pulling down at the top
+                    if (e.cancelable) e.preventDefault();
+                    ptr.style.height = Math.min((currentY - startY) * 0.4, 80) + 'px';
+                    ptr.style.opacity = Math.min((currentY - startY) / 100, 1);
+                }
+            }, { passive: false });
+
+            list.addEventListener('touchend', async () => {
+                if (!isPulling) return;
+                isPulling = false;
+                if (currentY - startY > 60) {
+                    ptr.classList.add('active');
+                    ptr.style.height = '';
+                    ptr.style.opacity = '';
+                    
+                    if (navigator.onLine) {
+                        await triggerSync();
+                    } else {
+                        await fetchPatients();
+                    }
+                    
+                    ptr.classList.remove('active');
+                } else {
+                    ptr.style.height = '0px';
+                    ptr.style.opacity = '0';
+                }
+                startY = 0;
+                currentY = 0;
+            });
+        }
 
         async function fetchPatients() {
             try {
