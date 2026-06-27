@@ -966,6 +966,141 @@
             }
 
             .mobile-back-btn { display: flex !important; }
+
+            /* ── Mobile Slide Pages (replace modals on mobile) ── */
+            .slide-page {
+                position: fixed;
+                inset: 0;
+                z-index: 200;
+                background: var(--bg);
+                display: flex;
+                flex-direction: column;
+                transform: translateY(100%);
+                transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+                overflow-y: auto;
+                padding: 0;
+            }
+            .slide-page.active {
+                transform: translateY(0);
+            }
+            .slide-page-header {
+                position: sticky;
+                top: 0;
+                z-index: 10;
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+                padding: 1rem;
+                padding-top: calc(1rem + env(safe-area-inset-top));
+                background: var(--surface);
+                border-bottom: 1px solid var(--border);
+                box-shadow: var(--shadow-sm);
+            }
+            .slide-page-header h2 {
+                margin: 0;
+                font-size: 1.15rem;
+                font-weight: 700;
+                color: var(--primary);
+                flex: 1;
+            }
+            .slide-page-back {
+                background: none;
+                border: none;
+                color: var(--text);
+                font-size: 1.3rem;
+                cursor: pointer;
+                padding: 0.5rem;
+                border-radius: var(--radius-sm);
+                min-width: 44px;
+                min-height: 44px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .slide-page-body {
+                flex: 1;
+                padding: 1.25rem;
+                padding-bottom: calc(2rem + env(safe-area-inset-bottom));
+            }
+            .slide-page .form-control {
+                font-size: 1rem;
+                padding: 0.85rem;
+                min-height: 52px;
+            }
+            .slide-page textarea.form-control { min-height: 110px; }
+            .slide-page .form-group { margin-bottom: 1.1rem; }
+            .slide-page .form-group label { font-size: 0.95rem; margin-bottom: 0.4rem; }
+            .slide-page-actions {
+                display: flex;
+                gap: 0.75rem;
+                margin-top: 1.5rem;
+                padding-bottom: env(safe-area-inset-bottom);
+            }
+            .slide-page-actions .btn {
+                flex: 1;
+                min-height: 52px;
+                font-size: 1rem;
+            }
+
+            /* File upload on mobile - dual buttons */
+            .file-upload-buttons {
+                display: flex;
+                gap: 0.75rem;
+                margin-bottom: 1rem;
+            }
+            .file-upload-btn {
+                flex: 1;
+                min-height: 80px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 0.5rem;
+                border: 2px dashed var(--primary-light);
+                border-radius: var(--radius);
+                background: var(--primary-bg);
+                color: var(--primary);
+                font-weight: 600;
+                font-size: 0.9rem;
+                cursor: pointer;
+                transition: var(--transition);
+                position: relative;
+                overflow: hidden;
+            }
+            .file-upload-btn i { font-size: 1.8rem; }
+            .file-upload-btn input[type="file"] {
+                position: absolute;
+                inset: 0;
+                opacity: 0;
+                cursor: pointer;
+                width: 100%;
+                height: 100%;
+            }
+            .file-upload-btn:active { border-style: solid; }
+
+            /* Sync indicator */
+            .sync-indicator {
+                position: fixed;
+                bottom: calc(1rem + env(safe-area-inset-bottom));
+                right: 1rem;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 20px;
+                padding: 0.4rem 0.8rem;
+                font-size: 0.75rem;
+                font-weight: 600;
+                color: var(--text-muted);
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                z-index: 90;
+                transition: var(--transition);
+                box-shadow: var(--shadow-sm);
+            }
+            .sync-indicator.syncing { color: var(--primary); border-color: var(--primary); }
+            .sync-indicator.synced { color: var(--success); border-color: var(--success); }
+            .sync-indicator.error { color: var(--danger); border-color: var(--danger); }
+            [dir="ltr"] .sync-indicator { right: auto; left: 1rem; }
         }
 
         .mobile-back-btn {
@@ -1272,6 +1407,107 @@
     </div>
 
     <!-- Script -->
+    <!-- ══════════════════════════════════════════════════════════
+         MOBILE SLIDE PAGES (shown on mobile instead of modals)
+    ══════════════════════════════════════════════════════════ -->
+
+    <!-- Patient Slide Page (mobile) -->
+    <div class="slide-page" id="patientSlidePage">
+        <div class="slide-page-header">
+            <button class="slide-page-back" onclick="closeSlidePage('patientSlidePage')">
+                <i class="fa-solid fa-arrow-right"></i>
+            </button>
+            <h2 id="patientSlideTitle">إضافة مريض</h2>
+        </div>
+        <div class="slide-page-body">
+            <form id="patientSlideForm" onsubmit="savePatient(event)">
+                <input type="hidden" id="slidePatientId">
+                <div class="form-group">
+                    <label data-i18n="name">الاسم</label>
+                    <input type="text" id="sp_name" class="form-control" required autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="phone">التليفون</label>
+                    <input type="tel" id="sp_phone" class="form-control" required autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="address">العنوان</label>
+                    <input type="text" id="sp_address" class="form-control" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label data-i18n="diagnosis">التشخيص</label>
+                    <textarea id="sp_diagnosis" class="form-control"></textarea>
+                </div>
+                <div class="slide-page-actions">
+                    <button type="button" class="btn btn-cancel" onclick="closeSlidePage('patientSlidePage')" data-i18n="cancel">إلغاء</button>
+                    <button type="submit" id="savePatientSlideBtn" class="btn btn-primary" data-i18n="save">حفظ</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Item (File/Text) Slide Page (mobile) -->
+    <div class="slide-page" id="itemSlidePage">
+        <div class="slide-page-header">
+            <button class="slide-page-back" onclick="closeSlidePage('itemSlidePage')">
+                <i class="fa-solid fa-arrow-right"></i>
+            </button>
+            <h2 id="itemSlideTitle" data-i18n="addEntry">إضافة سجل</h2>
+        </div>
+        <div class="slide-page-body">
+            <form id="itemSlideForm" onsubmit="saveItem(event, true)">
+                <input type="hidden" id="slideItemCategory">
+                <input type="hidden" id="slideSelectedType" value="text">
+
+                <!-- Type Selection -->
+                <div class="type-selection-cards" style="margin-bottom:1.25rem;">
+                    <div class="type-card active" id="slide_card_text" onclick="selectSlideEntryType('text')">
+                        <i class="fa-solid fa-align-right"></i>
+                        <span data-i18n="typeText">كتابة نص</span>
+                    </div>
+                    <div class="type-card" id="slide_card_file" onclick="selectSlideEntryType('file')">
+                        <i class="fa-solid fa-file-arrow-up"></i>
+                        <span data-i18n="typeFile">إرفاق ملف</span>
+                    </div>
+                </div>
+
+                <!-- File Upload Buttons (mobile) -->
+                <div id="slideFileInputContainer" style="display:none; margin-bottom:1rem;">
+                    <div class="file-upload-buttons">
+                        <label class="file-upload-btn">
+                            <i class="fa-solid fa-camera"></i>
+                            <span>التقاط صورة</span>
+                            <input type="file" id="slideItemFileCamera" accept="image/*" capture="environment" onchange="updateSlideFileName(this)">
+                        </label>
+                        <label class="file-upload-btn">
+                            <i class="fa-solid fa-folder-open"></i>
+                            <span>اختيار ملف</span>
+                            <input type="file" id="slideItemFile" accept="image/*,video/*,application/pdf" onchange="updateSlideFileName(this)">
+                        </label>
+                    </div>
+                    <div id="slideFileNameDisplay" style="text-align:center; font-size:0.9rem; color:var(--primary); font-weight:600; padding:0.5rem; background:var(--primary-bg); border-radius:var(--radius-sm); display:none;"></div>
+                </div>
+
+                <!-- Text Input -->
+                <div id="slideTextInputContainer" class="form-group">
+                    <label data-i18n="textDetails">التفاصيل أو الملاحظات</label>
+                    <textarea id="slideItemText" class="form-control" placeholder="..." rows="5"></textarea>
+                </div>
+
+                <div class="slide-page-actions">
+                    <button type="button" class="btn btn-cancel" onclick="closeSlidePage('itemSlidePage')" data-i18n="cancel">إلغاء</button>
+                    <button type="submit" id="saveItemSlideBtn" class="btn btn-primary" data-i18n="save">حفظ</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Sync Indicator (mobile) -->
+    <div class="sync-indicator" id="syncIndicator" style="display:none;">
+        <i class="fa-solid fa-rotate" id="syncIcon"></i>
+        <span id="syncText">متزامن</span>
+    </div>
+
     <script>
         // Translations
         const i18n = {
@@ -1396,22 +1632,83 @@
             setLang(lang);
             fetchPatients();
             initPullToRefresh();
+            initSyncIndicator();
+            // Interval sync every 30 seconds when online
+            setInterval(() => { if (navigator.onLine) syncNow(); }, 30000);
         });
 
-        // Trigger Sync
-        async function triggerSync() {
-            try {
-                // Try syncing with the local API which triggers OfflineSyncEngine
-                await apiFetch('/sync/now', { method: 'POST' });
-                // Fetch patients again to reflect any updates
-                await fetchPatients();
-            } catch (e) {
-                console.error("Sync failed", e);
+        // ═══════════════════════════════════════════════
+        // SYNC SYSTEM
+        // ═══════════════════════════════════════════════
+        let isSyncing = false;
+
+        function showSyncIndicator(state, text) {
+            const el = document.getElementById('syncIndicator');
+            const icon = document.getElementById('syncIcon');
+            const txt = document.getElementById('syncText');
+            if (!el) return;
+            el.style.display = 'flex';
+            el.className = 'sync-indicator ' + state;
+            txt.textContent = text;
+            if (state === 'syncing') {
+                icon.className = 'fa-solid fa-rotate fa-spin';
+            } else if (state === 'synced') {
+                icon.className = 'fa-solid fa-check-circle';
+                setTimeout(() => { el.style.display = 'none'; }, 3000);
+            } else if (state === 'error') {
+                icon.className = 'fa-solid fa-exclamation-circle';
+                setTimeout(() => { el.style.display = 'none'; }, 5000);
+            } else {
+                icon.className = 'fa-solid fa-rotate';
             }
         }
 
-        // Listen for coming back online
-        window.addEventListener('online', triggerSync);
+        function initSyncIndicator() {
+            // Only show on mobile
+            if (window.innerWidth <= 768) {
+                const el = document.getElementById('syncIndicator');
+                if (el) el.style.display = 'none';
+            }
+        }
+
+        async function syncNow() {
+            if (isSyncing) return;
+            if (!navigator.onLine) return;
+            isSyncing = true;
+            showSyncIndicator('syncing', 'جاري المزامنة...');
+            try {
+                const res = await apiFetch('/sync/now', { method: 'POST' });
+                if (res.ok) {
+                    const result = await res.json();
+                    const downloaded = result?.data?.downloaded ?? 0;
+                    if (downloaded > 0) {
+                        await fetchPatients();
+                        if (currentPatient) {
+                            const refreshed = patients.find(p => p.id === currentPatient.id);
+                            if (refreshed) await selectPatient(refreshed);
+                        }
+                    }
+                    showSyncIndicator('synced', 'تمت المزامنة');
+                } else {
+                    showSyncIndicator('error', 'خطأ في المزامنة');
+                }
+            } catch (e) {
+                console.warn('Sync failed:', e.message);
+                showSyncIndicator('error', 'لا يوجد اتصال');
+            } finally {
+                isSyncing = false;
+            }
+        }
+
+        // Trigger full sync when coming back online
+        window.addEventListener('online', () => {
+            showToast('تم الاتصال بالإنترنت، جاري المزامنة...', 'info');
+            syncNow();
+        });
+        window.addEventListener('offline', () => {
+            showToast('لا يوجد اتصال بالإنترنت', 'error');
+        });
+
 
         function initPullToRefresh() {
             const list = document.getElementById('patientList');
@@ -1489,18 +1786,7 @@
             renderPatients();
         }
 
-        // Handle hardware back button on mobile
-        window.addEventListener('popstate', (e) => {
-            if (window.innerWidth <= 768) {
-                if (e.state && e.state.page === 'patient') {
-                    // Do nothing, we are on patient page
-                } else {
-                    document.querySelector('.sidebar').classList.remove('mobile-hidden');
-                    document.getElementById('mainContent').style.display = 'none';
-                    currentPatient = null;
-                }
-            }
-        });
+
 
         function backToList() {
             if (window.innerWidth <= 768) {
@@ -1575,31 +1861,82 @@
             document.getElementById('mainContent').style.display = 'none';
         }
 
-        function openPatientModal(p = null) {
-            document.getElementById('patientForm').reset();
-            if (p && p.id) {
-                document.getElementById('patientModalTitle').textContent = i18n[lang].editPatientTitle || 'Edit Patient';
-                document.getElementById('patientId').value = p.id;
-                document.getElementById('p_name').value = p.name || '';
-                document.getElementById('p_phone').value = p.phone || '';
-                document.getElementById('p_address').value = p.address || '';
-                document.getElementById('p_diagnosis').value = p.diagnosis || '';
-            } else {
-                document.getElementById('patientModalTitle').textContent = i18n[lang].addPatientTitle || 'Add Patient';
-                document.getElementById('patientId').value = '';
+        // ══ Slide Page Helpers ══
+        function isMobile() { return window.innerWidth <= 768; }
+
+        function openSlidePage(id) {
+            document.getElementById(id).classList.add('active');
+            history.pushState({ slidePage: id }, '');
+        }
+        function closeSlidePage(id) {
+            document.getElementById(id).classList.remove('active');
+        }
+
+        // Back button closes slide pages
+        window.addEventListener('popstate', (e) => {
+            // Close any open slide pages
+            document.querySelectorAll('.slide-page.active').forEach(p => p.classList.remove('active'));
+            if (window.innerWidth <= 768) {
+                if (e.state && e.state.page === 'patient') {
+                    // on patient detail page
+                } else if (!e.state || !e.state.slidePage) {
+                    document.querySelector('.sidebar').classList.remove('mobile-hidden');
+                    document.getElementById('mainContent').style.display = 'none';
+                    currentPatient = null;
+                }
             }
-            document.getElementById('patientModal').classList.add('active');
+        });
+
+        function openPatientModal(p = null) {
+            if (isMobile()) {
+                // Use slide page on mobile
+                document.getElementById('patientSlideForm').reset();
+                if (p && p.id) {
+                    document.getElementById('patientSlideTitle').textContent = i18n[lang].editPatientTitle || 'تعديل مريض';
+                    document.getElementById('slidePatientId').value = p.id;
+                    document.getElementById('sp_name').value = p.name || '';
+                    document.getElementById('sp_phone').value = p.phone || '';
+                    document.getElementById('sp_address').value = p.address || '';
+                    document.getElementById('sp_diagnosis').value = p.diagnosis || '';
+                } else {
+                    document.getElementById('patientSlideTitle').textContent = i18n[lang].addPatientTitle || 'إضافة مريض';
+                    document.getElementById('slidePatientId').value = '';
+                }
+                openSlidePage('patientSlidePage');
+            } else {
+                // Use modal on desktop
+                document.getElementById('patientForm').reset();
+                if (p && p.id) {
+                    document.getElementById('patientModalTitle').textContent = i18n[lang].editPatientTitle || 'Edit Patient';
+                    document.getElementById('patientId').value = p.id;
+                    document.getElementById('p_name').value = p.name || '';
+                    document.getElementById('p_phone').value = p.phone || '';
+                    document.getElementById('p_address').value = p.address || '';
+                    document.getElementById('p_diagnosis').value = p.diagnosis || '';
+                } else {
+                    document.getElementById('patientModalTitle').textContent = i18n[lang].addPatientTitle || 'Add Patient';
+                    document.getElementById('patientId').value = '';
+                }
+                document.getElementById('patientModal').classList.add('active');
+            }
         }
 
         async function savePatient(e) {
             e.preventDefault();
-            const id = document.getElementById('patientId').value;
+            // Read from slide page (mobile) or modal (desktop)
+            const mobile = isMobile();
+            const id = mobile
+                ? document.getElementById('slidePatientId').value
+                : document.getElementById('patientId').value;
             const payload = {
-                name: document.getElementById('p_name').value,
-                phone: document.getElementById('p_phone').value,
-                address: document.getElementById('p_address').value || null,
-                diagnosis: document.getElementById('p_diagnosis').value || null,
+                name:      (mobile ? document.getElementById('sp_name') : document.getElementById('p_name')).value.trim(),
+                phone:     (mobile ? document.getElementById('sp_phone') : document.getElementById('p_phone')).value.trim(),
+                address:   (mobile ? document.getElementById('sp_address') : document.getElementById('p_address')).value.trim() || null,
+                diagnosis: (mobile ? document.getElementById('sp_diagnosis') : document.getElementById('p_diagnosis')).value.trim() || null,
             };
+
+            const saveBtn = document.getElementById(mobile ? 'savePatientSlideBtn' : 'saveItemBtn') || e.submitter;
+            if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = i18n[lang].saving; }
 
             const url = id ? apiUrl(`/patients/${id}`) : apiUrl('/patients');
             try {
@@ -1611,31 +1948,37 @@
 
                 const text = await res.text();
                 let responseData = null;
-                try { responseData = JSON.parse(text); } catch {};
+                try { responseData = JSON.parse(text); } catch {}
                 if (res.ok) {
-                    closeModal('patientModal');
-                    showToast(id ? 'Patient updated successfully' : 'Patient added successfully', 'success');
+                    if (mobile) closeSlidePage('patientSlidePage');
+                    else closeModal('patientModal');
+                    showToast(id ? 'تم تعديل المريض بنجاح' : 'تم إضافة المريض بنجاح', 'success');
                     await fetchPatients();
-                    if (id && currentPatient && currentPatient.id == id) selectPatient(patients.find(x => x.id == id));
-                    else if (!id && responseData) { const savedPatient = responseData.data || responseData; selectPatient(patients.find(x => x.id == savedPatient.id) || savedPatient); }
-
-                    // Trigger sync immediately in background
+                    if (id && currentPatient && String(currentPatient.id) === String(id)) {
+                        const refreshed = patients.find(x => String(x.id) === String(id));
+                        if (refreshed) selectPatient(refreshed);
+                    } else if (!id && responseData) {
+                        const saved = responseData.data || responseData;
+                        const found = patients.find(x => String(x.id) === String(saved.id));
+                        if (found) selectPatient(found);
+                    }
+                    syncNow();
                     return;
                 }
 
-                let errorMessage = responseData?.message || text || `Error saving patient (${res.status})`;
+                let errorMessage = responseData?.message || text || `Error (${res.status})`;
                 if (responseData?.errors) {
                     errorMessage = Object.values(responseData.errors).flat().join(' ');
-                }
-                if (!errorMessage) {
-                    errorMessage = `Error saving patient (${res.status})`;
                 }
                 showToast(errorMessage, 'error');
             } catch(e) {
                 console.error('[patients] save failed', e);
                 showToast('Error saving patient', 'error');
+            } finally {
+                if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = i18n[lang].save; }
             }
         }
+
 
         function buildSections() {
             const container = document.getElementById('sectionsContainer');
@@ -1919,16 +2262,57 @@
         }
 
         function openItemModal(category) {
-            document.getElementById('itemForm').reset();
-            document.getElementById('itemCategory').value = category;
-            document.getElementById('fileNameDisplay').textContent = i18n[lang].fileSelectHint;
-            selectEntryType('text'); // default
-            document.getElementById('itemModal').classList.add('active');
+            if (isMobile()) {
+                // Reset slide form
+                document.getElementById('itemSlideForm').reset();
+                document.getElementById('slideItemCategory').value = category;
+                document.getElementById('slideFileNameDisplay').style.display = 'none';
+                document.getElementById('slideFileNameDisplay').textContent = '';
+                selectSlideEntryType('text');
+                openSlidePage('itemSlidePage');
+            } else {
+                document.getElementById('itemForm').reset();
+                document.getElementById('itemCategory').value = category;
+                document.getElementById('fileNameDisplay').textContent = i18n[lang].fileSelectHint;
+                selectEntryType('text'); // default
+                document.getElementById('itemModal').classList.add('active');
+            }
+        }
+
+        function selectSlideEntryType(type) {
+            document.getElementById('slideSelectedType').value = type;
+            document.getElementById('slide_card_text').classList.remove('active');
+            document.getElementById('slide_card_file').classList.remove('active');
+            if (type === 'text') {
+                document.getElementById('slide_card_text').classList.add('active');
+                document.getElementById('slideFileInputContainer').style.display = 'none';
+                document.getElementById('slideTextInputContainer').style.display = 'block';
+            } else {
+                document.getElementById('slide_card_file').classList.add('active');
+                document.getElementById('slideFileInputContainer').style.display = 'block';
+                document.getElementById('slideTextInputContainer').style.display = 'block';
+            }
+        }
+
+        function updateSlideFileName(input) {
+            const display = document.getElementById('slideFileNameDisplay');
+            if (input.files && input.files.length > 0) {
+                display.textContent = '✓ ' + input.files[0].name;
+                display.style.display = 'block';
+                // Mirror to the other input for clarity
+                const otherInput = input.id === 'slideItemFileCamera'
+                    ? document.getElementById('slideItemFile')
+                    : document.getElementById('slideItemFileCamera');
+                // Reset the other input's display (no action needed, we just use whichever has files)
+            } else {
+                display.textContent = '';
+                display.style.display = 'none';
+            }
         }
 
         function updateFileName(input) {
             const display = document.getElementById('fileNameDisplay');
-            if (input.files.length > 0) {
+            if (input.files && input.files.length > 0) {
                 display.textContent = input.files[0].name;
                 display.style.color = 'var(--primary)';
             } else {
@@ -1936,44 +2320,56 @@
             }
         }
 
-        async function saveItem(e) {
+        async function saveItem(e, fromSlide = false) {
             e.preventDefault();
             if (!currentPatient) return;
 
-            const category = document.getElementById('itemCategory').value;
-            const type = document.getElementById('selectedType').value;
-            const textDesc = document.getElementById('itemText').value;
-            const fileInput = document.getElementById('itemFile');
-            const btn = document.getElementById('saveItemBtn');
+            const mobile = fromSlide || isMobile();
+            const category = mobile
+                ? document.getElementById('slideItemCategory').value
+                : document.getElementById('itemCategory').value;
+            const type = mobile
+                ? document.getElementById('slideSelectedType').value
+                : document.getElementById('selectedType').value;
+            const textDesc = mobile
+                ? document.getElementById('slideItemText').value
+                : document.getElementById('itemText').value;
 
-            const formData = new FormData();
-            formData.append('title', category);
-            formData.append('desc', textDesc);
-            formData.append('category', category);
-            formData.append('date', new Date().toISOString().split('T')[0]);
-
-            if (type === 'file') {
-                if (fileInput.files.length === 0) {
-                    alert('اختر ملف / Select a file'); return;
-                }
-                const f = fileInput.files[0];
-                formData.append('file', f);
-
-                let ft = 'file';
-                if(f.type.includes('image')) ft = 'image';
-                else if(f.type.includes('pdf')) ft = 'pdf';
-                else if(f.type.includes('video')) ft = 'video';
-                formData.append('type', ft);
-            } else {
-                formData.append('type', 'text');
-            }
-
-            btn.disabled = true;
-            btn.textContent = i18n[lang].saving;
+            const btn = document.getElementById(mobile ? 'saveItemSlideBtn' : 'saveItemBtn');
+            if (btn) { btn.disabled = true; btn.textContent = i18n[lang].saving; }
 
             try {
                 let fetchOptions = { method: 'POST', headers: { 'Accept': 'application/json' } };
+
                 if (type === 'file') {
+                    // Get file from whichever input has a file (camera or gallery)
+                    let fileInput = null;
+                    if (mobile) {
+                        const cam = document.getElementById('slideItemFileCamera');
+                        const gal = document.getElementById('slideItemFile');
+                        if (cam && cam.files && cam.files.length > 0) fileInput = cam;
+                        else if (gal && gal.files && gal.files.length > 0) fileInput = gal;
+                    } else {
+                        fileInput = document.getElementById('itemFile');
+                    }
+
+                    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                        showToast('الرجاء اختيار ملف أولًا', 'error');
+                        return;
+                    }
+                    const f = fileInput.files[0];
+                    let ft = 'file';
+                    if (f.type.includes('image')) ft = 'image';
+                    else if (f.type.includes('pdf')) ft = 'pdf';
+                    else if (f.type.includes('video')) ft = 'video';
+
+                    const formData = new FormData();
+                    formData.append('title', category);
+                    formData.append('desc', textDesc);
+                    formData.append('category', category);
+                    formData.append('date', new Date().toISOString().split('T')[0]);
+                    formData.append('file', f);
+                    formData.append('type', ft);
                     fetchOptions.body = formData;
                 } else {
                     fetchOptions.headers['Content-Type'] = 'application/json';
@@ -1985,33 +2381,33 @@
                         type: 'text'
                     });
                 }
+
                 const res = await apiFetch(`/patients/${currentPatient.id}/files`, fetchOptions);
                 if (res.ok) {
                     const response = await res.json();
                     const savedFile = response.data || response;
                     patientFiles.unshift(savedFile);
                     renderFiles();
-                    showToast('Item saved successfully', 'success');
-                    closeModal('itemModal');
-
-                    // Trigger sync immediately in background
+                    showToast('تم الحفظ بنجاح', 'success');
+                    if (mobile) closeSlidePage('itemSlidePage');
+                    else closeModal('itemModal');
+                    syncNow();
                     return;
                 } else {
-                    const errData = await res.json();
-                    let errMsg = errData.message || 'Error saving file';
-                    if (errData.errors) {
-                        errMsg += '\n' + Object.values(errData.errors).flat().join('\n');
-                    }
-                    alert(errMsg);
-                    showToast('Error saving', 'error');
+                    let errData = {};
+                    try { errData = await res.json(); } catch {}
+                    let errMsg = errData.message || 'Error saving';
+                    if (errData.errors) errMsg = Object.values(errData.errors).flat().join(' ');
+                    showToast(errMsg, 'error');
                 }
             } catch(err) {
                 console.error('[patient-files] save failed', err);
-                alert('Connection error or invalid data');
-                showToast('Error saving', 'error');
+                showToast('خطأ في الاتصال', 'error');
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = i18n[lang].save; }
             }
-            finally { btn.disabled = false; btn.textContent = i18n[lang].save; }
         }
+
 
         let itemToDelete = null;
         let deleteType = null; // 'file' or 'patient'
