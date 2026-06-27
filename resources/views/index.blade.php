@@ -1022,11 +1022,56 @@
             font-size: 1.5rem;
         }
         @keyframes spin { 100% { transform: rotate(360deg); } }
+        
+        /* Splash Screen */
+        .splash-screen {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.5s ease, visibility 0.5s ease;
+        }
+        .splash-screen.hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+        .splash-content {
+            text-align: center;
+        }
+        .splash-icon {
+            font-size: 5rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+            animation: pulse 2s infinite;
+        }
+        .splash-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 2rem;
+            letter-spacing: -0.5px;
+        }
+        .splash-loader {
+            width: 50px;
+            height: 50px;
+            border: 4px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
     </style>
 </head>
-
-
-<body>
+<body class="light">
 
     <!-- Sidebar: Patient List -->
     <div class="sidebar">
@@ -1173,7 +1218,7 @@
 
                 <div id="fileInputContainer" style="display:none;">
                     <div class="file-upload-area">
-                        <input type="file" id="itemFile" accept="image/*,video/*,application/pdf" capture="environment" onchange="updateFileName(this)">
+                        <input type="file" id="itemFile" accept="image/*,video/*,application/pdf" onchange="updateFileName(this)">
                         <i class="fa-solid fa-cloud-arrow-up file-upload-icon"></i>
                         <div class="file-upload-text" id="fileNameDisplay" data-i18n="fileSelectHint">اضغط هنا لاختيار صورة أو ملف PDF أو فيديو</div>
                     </div>
@@ -1425,6 +1470,16 @@
                 handleSearch();
                 setTimeout(restoreState, 100);
             } catch(e) { console.error(e); }
+            finally {
+                hideSplash();
+            }
+        }
+
+        function hideSplash() {
+            const splash = document.getElementById('splashScreen');
+            if (splash) {
+                splash.classList.add('hidden');
+            }
         }
 
         function handleSearch() {
@@ -1522,15 +1577,15 @@
 
         function openPatientModal(p = null) {
             document.getElementById('patientForm').reset();
-            if (p) {
-                document.getElementById('patientModalTitle').textContent = i18n[lang].editPatientTitle;
+            if (p && p.id) {
+                document.getElementById('patientModalTitle').textContent = i18n[lang].editPatientTitle || 'Edit Patient';
                 document.getElementById('patientId').value = p.id;
-                document.getElementById('p_name').value = p.name;
-                document.getElementById('p_phone').value = p.phone;
+                document.getElementById('p_name').value = p.name || '';
+                document.getElementById('p_phone').value = p.phone || '';
                 document.getElementById('p_address').value = p.address || '';
                 document.getElementById('p_diagnosis').value = p.diagnosis || '';
             } else {
-                document.getElementById('patientModalTitle').textContent = i18n[lang].addPatientTitle;
+                document.getElementById('patientModalTitle').textContent = i18n[lang].addPatientTitle || 'Add Patient';
                 document.getElementById('patientId').value = '';
             }
             document.getElementById('patientModal').classList.add('active');
@@ -1565,7 +1620,6 @@
                     else if (!id && responseData) { const savedPatient = responseData.data || responseData; selectPatient(patients.find(x => x.id == savedPatient.id) || savedPatient); }
 
                     // Trigger sync immediately in background
-                    syncNow();
                     return;
                 }
 
@@ -1918,7 +1972,20 @@
             btn.textContent = i18n[lang].saving;
 
             try {
-                const res = await apiFetch(`/patients/${currentPatient.id}/files`, { method: 'POST', headers: { 'Accept': 'application/json' }, body: formData });
+                let fetchOptions = { method: 'POST', headers: { 'Accept': 'application/json' } };
+                if (type === 'file') {
+                    fetchOptions.body = formData;
+                } else {
+                    fetchOptions.headers['Content-Type'] = 'application/json';
+                    fetchOptions.body = JSON.stringify({
+                        title: category,
+                        desc: textDesc,
+                        category: category,
+                        date: new Date().toISOString().split('T')[0],
+                        type: 'text'
+                    });
+                }
+                const res = await apiFetch(`/patients/${currentPatient.id}/files`, fetchOptions);
                 if (res.ok) {
                     const response = await res.json();
                     const savedFile = response.data || response;
@@ -1928,7 +1995,7 @@
                     closeModal('itemModal');
 
                     // Trigger sync immediately in background
-                    syncNow();
+                    return;
                 } else {
                     const errData = await res.json();
                     let errMsg = errData.message || 'Error saving file';
@@ -1978,6 +2045,7 @@
                         document.querySelector('.sidebar').classList.remove('mobile-hidden');
                         handleSearch();
                         showToast('Patient deleted successfully', 'success');
+                        syncNow();
                     } else {
                         showToast('Failed to delete patient', 'error');
                     }
@@ -1991,7 +2059,7 @@
             closeModal('confirmModal');
             try {
                 const res = await apiFetch(`/patients/${currentPatient.id}/files/${id}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
-                if (res.ok) { patientFiles = patientFiles.filter(f => f.id !== id); renderFiles(); showToast('Item deleted', 'success'); }
+                if (res.ok) { patientFiles = patientFiles.filter(f => f.id !== id); renderFiles(); showToast('Item deleted', 'success'); syncNow(); }
             } catch(e) {
                 console.error('[patient-files] delete failed', e);
                 showToast('Error deleting item', 'error');
@@ -2265,6 +2333,14 @@
         window.addEventListener('beforeunload', saveState);
 
         </script>
+    <div id="splashScreen" class="splash-screen">
+        <div class="splash-content">
+            <i class="fas fa-clinic-medical splash-icon"></i>
+            <h1 class="splash-title">أداره المرضي</h1>
+            <div class="splash-loader"></div>
+        </div>
+    </div>
+
     <!-- Toast Container -->
     <div id="toastContainer"></div>
 
