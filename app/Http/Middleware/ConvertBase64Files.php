@@ -41,6 +41,18 @@ class ConvertBase64Files
                     // Map to request files collection
                     $request->files->set('file', $uploadedFile);
 
+                    // Clear Laravel's internal convertedFiles cache
+                    try {
+                        $ref = new \ReflectionClass($request);
+                        if ($ref->hasProperty('convertedFiles')) {
+                            $prop = $ref->getProperty('convertedFiles');
+                            $prop->setAccessible(true);
+                            $prop->setValue($request, null);
+                        }
+                    } catch (\Exception $e) {
+                        // Safe fallback
+                    }
+
                     // Update request merged input array
                     $all['file'] = $uploadedFile;
                     $request->merge($all);

@@ -33,14 +33,6 @@ class PatientFileController extends Controller
 
     public function store(Request $request, Patient $patient)
     {
-        \Log::info('Upload request debug', [
-            'all' => $request->all(),
-            'files' => $request->allFiles(),
-            'headers' => $request->headers->all(),
-            'content_type' => $request->header('Content-Type'),
-            'raw_content' => substr($request->getContent(), 0, 500),
-        ]);
-
         $data = $request->validate([
             'uuid' => ['nullable', 'uuid'],
             'title' => ['required', 'string', 'max:255'],
