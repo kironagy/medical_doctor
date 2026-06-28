@@ -3013,7 +3013,11 @@
             } else if (type === 'pdf') {
                 content.innerHTML = `<iframe src="${finalSrc}" style="width: 80vw; height: 90vh; border:none; background: white; border-radius: 8px;"></iframe>`;
             } else if (type === 'video') {
-                content.innerHTML = `<video id="plyrPlayer" controls playsinline style="width: 100%; max-height: 90vh;"><source src="${finalSrc}"></video>`;
+                let streamSrc = finalSrc;
+                if (streamSrc.startsWith('/storage/')) {
+                    streamSrc = '/api/v1/stream-video?path=' + encodeURIComponent(streamSrc);
+                }
+                content.innerHTML = `<video id="plyrPlayer" controls playsinline style="width: 100%; max-height: 90vh;"><source src="${streamSrc}"></video>`;
                 setTimeout(() => {
                     plyrInstance = new Plyr('#plyrPlayer');
                     plyrInstance.play();
