@@ -1085,29 +1085,7 @@
             }
             .file-upload-btn:active { border-style: solid; }
 
-            /* Sync indicator */
-            .sync-indicator {
-                position: fixed;
-                bottom: calc(1rem + env(safe-area-inset-bottom));
-                right: 1rem;
-                background: var(--surface);
-                border: 1px solid var(--border);
-                border-radius: 20px;
-                padding: 0.4rem 0.8rem;
-                font-size: 0.75rem;
-                font-weight: 600;
-                color: var(--text-muted);
-                display: flex;
-                align-items: center;
-                gap: 0.4rem;
-                z-index: 90;
-                transition: var(--transition);
-                box-shadow: var(--shadow-sm);
-            }
-            .sync-indicator.syncing { color: var(--primary); border-color: var(--primary); }
-            .sync-indicator.synced { color: var(--success); border-color: var(--success); }
-            .sync-indicator.error { color: var(--danger); border-color: var(--danger); }
-            [dir="ltr"] .sync-indicator { right: auto; left: 1rem; }
+
         }
 
         .mobile-back-btn {
@@ -1624,11 +1602,7 @@
         </div>
     </div>
 
-    <!-- Sync Indicator (mobile) -->
-    <div class="sync-indicator" id="syncIndicator" style="display:none;">
-        <i class="fa-solid fa-rotate" id="syncIcon"></i>
-        <span id="syncText">متزامن</span>
-    </div>
+
 
     <script>
         // Translations
@@ -1763,32 +1737,19 @@
         let isSyncing = false;
 
         function showSyncIndicator(state, text) {
-            const el = document.getElementById('syncIndicator');
-            const icon = document.getElementById('syncIcon');
-            const txt = document.getElementById('syncText');
-            if (!el) return;
-            el.style.display = 'flex';
-            el.className = 'sync-indicator ' + state;
-            txt.textContent = text;
-            if (state === 'syncing') {
-                icon.className = 'fa-solid fa-rotate fa-spin';
-            } else if (state === 'synced') {
-                icon.className = 'fa-solid fa-check-circle';
-                setTimeout(() => { el.style.display = 'none'; }, 3000);
+            if (state === 'synced') {
+                if (text && text.toLowerCase().includes('failed')) {
+                    showToast(text, 'error');
+                } else {
+                    showToast('تمت المزامنة وتحديث البيانات بنجاح', 'success');
+                }
             } else if (state === 'error') {
-                icon.className = 'fa-solid fa-exclamation-circle';
-                setTimeout(() => { el.style.display = 'none'; }, 5000);
-            } else {
-                icon.className = 'fa-solid fa-rotate';
+                showToast(text || 'فشل المزامنة', 'error');
             }
         }
 
         function initSyncIndicator() {
-            // Only show on mobile
-            if (window.innerWidth <= 768) {
-                const el = document.getElementById('syncIndicator');
-                if (el) el.style.display = 'none';
-            }
+            // Nothing to initialize anymore, using toasts.
         }
 
         async function syncNow() {
