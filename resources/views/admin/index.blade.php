@@ -90,17 +90,64 @@
         .alert-success { background: #D1FAE5; color: #065F46; border: 2px solid #34D399; }
         .alert-danger { background: #FEE2E2; color: #991B1B; border: 2px solid #F87171; }
 
+        /* Mobile Header */
+        .mobile-header {
+            display: none;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            background: var(--surface);
+            border-bottom: 2px solid var(--border);
+            z-index: 20;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .mobile-header .brand { margin: 0; font-size: 1.5rem; padding: 0; border: none; flex-direction: row; align-items: center; justify-content: flex-start; color: var(--primary); font-weight: bold; }
+        .mobile-header .brand i { font-size: 1.8rem; margin-bottom: 0; margin-left: 0.5rem; color: var(--primary); }
+        [dir="ltr"] .mobile-header .brand i { margin-left: 0; margin-right: 0.5rem; }
+        .menu-toggle { background: none; border: none; font-size: 1.8rem; color: var(--primary); cursor: pointer; padding: 0.5rem; border-radius: 8px; }
+
         @media (max-width: 768px) {
-            body { flex-direction: column; overflow-x: hidden; overflow-y: auto; height: auto; }
-            .sidebar { width: 100%; height: auto; border: none !important; border-bottom: 2px solid var(--border) !important; }
-            .nav-menu { flex-direction: row; flex-wrap: wrap; justify-content: center; padding: 0.5rem; }
-            .nav-btn { padding: 1rem; flex: 1; min-width: 120px; justify-content: center; font-size: 1.1rem; border-bottom: 3px solid transparent; border-right: none !important; border-left: none !important; }
-            .nav-btn.active { border-bottom-color: var(--primary) !important; background: #DBEAFE; }
-            .main-content { width: 100%; height: auto; padding: 1rem; }
+            body { flex-direction: column; overflow-y: hidden; }
+            .mobile-header { display: flex; }
+            
+            .sidebar {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                width: 280px;
+                z-index: 100;
+                transform: translateX(0);
+                box-shadow: 5px 0 25px rgba(0,0,0,0.1);
+                border: none !important;
+                transition: transform 0.3s ease;
+            }
+            [dir="rtl"] .sidebar { right: 0; }
+            [dir="ltr"] .sidebar { left: 0; }
+
+            .sidebar.mobile-hidden {
+                transform: translateX(100%);
+            }
+            [dir="ltr"] .sidebar.mobile-hidden {
+                transform: translateX(-100%);
+            }
+
+            .main-content {
+                width: 100%;
+                padding: 1rem;
+                padding-bottom: 5rem;
+                overflow-y: auto;
+            }
+            
+            .nav-menu { padding: 1rem; }
+            .nav-btn { flex-direction: row; padding: 1.2rem; font-size: 1.2rem; border: none !important; border-radius: 8px; margin-bottom: 0.5rem; justify-content: flex-start; }
+            .nav-btn.active { background: #DBEAFE; color: var(--primary); }
+            [dir="rtl"] .nav-btn.active { border-right: 6px solid var(--primary) !important; }
+            [dir="ltr"] .nav-btn.active { border-left: 6px solid var(--primary) !important; }
+
             .stats-grid { grid-template-columns: 1fr; }
             .list-grid { grid-template-columns: 1fr; }
             .panel-header { flex-direction: column; gap: 1rem; align-items: stretch; text-align: center; }
-            .modal-content { padding: 1.5rem; margin: 1rem; max-height: 85vh; }
+            .modal-content { padding: 1.5rem; margin: 1rem; max-height: 85vh; width: calc(100% - 2rem); }
         }
     </style>
     <style>
@@ -115,8 +162,19 @@
 </head>
 <body>
 
+    <!-- Mobile Header -->
+    <div class="mobile-header">
+        <div class="brand">
+            <i class="fa-solid fa-shield-halved"></i>
+            <span data-i18n="adminPanel">لوحة الإدارة</span>
+        </div>
+        <button class="menu-toggle" onclick="toggleSidebar()">
+            <i class="fa-solid fa-bars"></i>
+        </button>
+    </div>
+
     <!-- Sidebar -->
-    <div class="sidebar">
+    <div class="sidebar mobile-hidden" id="adminSidebar">
         <div class="brand">
             <i class="fa-solid fa-shield-halved"></i>
             <span data-i18n="adminPanel">لوحة الإدارة</span>
@@ -330,11 +388,20 @@
             if(btn) btn.classList.add('active');
 
             localStorage.setItem('adminActiveTab', tabId);
+            
+            // On mobile, close sidebar after clicking
+            if (window.innerWidth <= 768) {
+                document.getElementById('adminSidebar').classList.add('mobile-hidden');
+            }
+        }
+
+        function toggleSidebar() {
+            document.getElementById('adminSidebar').classList.toggle('mobile-hidden');
         }
 
         function openDoctorModal(doc = null) {
             document.getElementById('doctorForm').reset();
-            const actionUrl = doc ? `/admin/doctors/${doc.id}` : `/admin/doctors`;
+            const actionUrl = doc ? `{{ url('admin/doctors') }}/${doc.id}` : `{{ url('admin/doctors') }}`;
             document.getElementById('doctorForm').action = actionUrl;
 
             if (doc) {
@@ -357,7 +424,7 @@
 
         function openCategoryModal(cat = null) {
             document.getElementById('categoryForm').reset();
-            const actionUrl = cat ? `/admin/categories/${cat.id}` : `/admin/categories`;
+            const actionUrl = cat ? `{{ url('admin/categories') }}/${cat.id}` : `{{ url('admin/categories') }}`;
             document.getElementById('categoryForm').action = actionUrl;
 
             if (cat) {
