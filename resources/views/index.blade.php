@@ -2303,7 +2303,15 @@
                     } else if (ext === 'pdf' || file.type === 'pdf') {
                         mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'pdf')"><i class="fa-solid fa-file-pdf file-icon" style="color: #EF4444;"></i></div>`;
                     } else if (['mp4','webm','ogg'].includes(ext) || file.type === 'video') {
-                        mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video')"><i class="fa-solid fa-circle-play file-icon" style="color: #3B82F6;"></i></div>`;
+                        const thumb = file.thumbnail_path || '';
+                        if (thumb) {
+                            mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video', '${thumb}')" style="position:relative;">
+                                <img src="${thumb}" loading="lazy" style="width:100%; height:100%; object-fit:cover; opacity:0.8;">
+                                <i class="fa-solid fa-circle-play file-icon" style="position:absolute; color:white; font-size:2rem; text-shadow:0 2px 4px rgba(0,0,0,0.5);"></i>
+                            </div>`;
+                        } else {
+                            mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video', '')"><i class="fa-solid fa-circle-play file-icon" style="color: #3B82F6;"></i></div>`;
+                        }
                     } else {
                         mediaHTML = `<div class="item-preview-box" onclick="window.open('${file.file_path}','_blank')"><i class="fa-solid fa-file file-icon"></i></div>`;
                     }
@@ -2396,7 +2404,15 @@
                         } else if (ext === 'pdf' || file.type === 'pdf') {
                             mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'pdf')"><i class="fa-solid fa-file-pdf file-icon" style="color: #EF4444;"></i></div>`;
                         } else if (['mp4','webm','ogg'].includes(ext) || file.type === 'video') {
-                            mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video')"><i class="fa-solid fa-circle-play file-icon" style="color: #3B82F6;"></i></div>`;
+                            const thumb = file.thumbnail_path || '';
+                            if (thumb) {
+                                mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video', '${thumb}')" style="position:relative;">
+                                    <img src="${thumb}" loading="lazy" style="width:100%; height:100%; object-fit:cover; opacity:0.8;" onerror="this.onerror=null; this.src='https://prof-hosam-fekry.online' + '${thumb}';">
+                                    <i class="fa-solid fa-circle-play file-icon" style="position:absolute; color:white; font-size:2rem; text-shadow:0 2px 4px rgba(0,0,0,0.5);"></i>
+                                </div>`;
+                            } else {
+                                mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video', '')"><i class="fa-solid fa-circle-play file-icon" style="color: #3B82F6;"></i></div>`;
+                            }
                         } else {
                             mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'file')"><i class="fa-solid fa-file file-icon"></i></div>`;
                         }
@@ -2990,13 +3006,14 @@
         // Media Preview
         let plyrInstance = null;
 
-        async function viewMedia(src, type) {
+        async function viewMedia(src, type, thumbnailPath = '') {
             const viewer = document.getElementById('mediaViewer');
             const content = document.getElementById('viewerContent');
             content.innerHTML = '<div style="color:white; font-size:1.5rem; text-align:center;"><i class="fa-solid fa-spinner fa-spin"></i> جاري التحميل...</div>';
             viewer.style.display = 'flex';
 
             let finalSrc = src;
+            let finalThumb = thumbnailPath;
             if (src && !src.startsWith('http')) {
                 try {
                     // Check if file exists locally
@@ -3005,6 +3022,7 @@
                 } catch (e) {
                     // Fallback to live server if local file is not found (e.g., synced but not downloaded)
                     finalSrc = "https://prof-hosam-fekry.online" + src;
+                    if (finalThumb) finalThumb = "https://prof-hosam-fekry.online" + finalThumb;
                 }
             }
 
@@ -3017,7 +3035,8 @@
                 if (streamSrc.startsWith('/storage/')) {
                     streamSrc = '/api/v1/stream-video?path=' + encodeURIComponent(streamSrc);
                 }
-                content.innerHTML = `<video id="plyrPlayer" controls playsinline style="width: 100%; max-height: 90vh;"><source src="${streamSrc}"></video>`;
+                const posterAttr = finalThumb ? `poster="${finalThumb}"` : '';
+                content.innerHTML = `<video id="plyrPlayer" controls playsinline ${posterAttr} style="width: 100%; max-height: 90vh;"><source src="${streamSrc}"></video>`;
                 setTimeout(() => {
                     plyrInstance = new Plyr('#plyrPlayer');
                     plyrInstance.play();

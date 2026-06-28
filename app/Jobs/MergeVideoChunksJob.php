@@ -55,6 +55,8 @@ class MergeVideoChunksJob implements ShouldQueue
 
         Storage::disk('local')->deleteDirectory($tempDir);
 
+        $thumbnailName = null;
+
         $isVideo = in_array(strtolower($this->extension), ['mp4', 'mov', 'avi', 'webm', 'mkv', 'flv']);
         if ($isVideo) {
             $optimizedName = Str::random(40) . '.mp4';
@@ -62,6 +64,21 @@ class MergeVideoChunksJob implements ShouldQueue
 
             $cmd = "ffmpeg -i " . escapeshellarg($finalPath) . " -vf \"scale=-2:480\" -vcodec libx264 -crf 30 -preset ultrafast -movflags +faststart -y " . escapeshellarg($optimizedPath) . " 2>&1";
             shell_exec($cmd);
+
+            // Generate thumbnail from the 1st second (or 00:00:01)
+            $thumbnailName = Str::random(40) . '.jpg';
+            $thumbnailPath = storage_path('app/public/patient_files/' . $thumbnailName);
+            $thumbCmd = "ffmpeg -i " . escapeshellarg($finalPath) . " -ss 00:00:01.000 -vframes 1 -vf \"scale=-2:480\" -y " . escapeshellarg($thumbnailPath) . " 2>&1";
+            shell_exec($thumbCmd);
+
+            if (!file_exists($thumbnailPath) || filesize($thumbnailPath) === 0) {
+                // fallback to 0 second if 1s fails
+                $thumbCmd = "ffmpeg -i " . escapeshellarg($finalPath) . " -ss 00:00:00.000 -vframes 1 -vf \"scale=-2:480\" -y " . escapeshellarg($thumbnailPath) . " 2>&1";
+                shell_exec($thumbCmd);
+            }
+            if (!file_exists($thumbnailPath) || filesize($thumbnailPath) === 0) {
+                $thumbnailName = null;
+            }
 
             if (file_exists($optimizedPath) && filesize($optimizedPath) > 0) {
                 unlink($finalPath); // Delete unoptimized raw merged file
@@ -71,10 +88,14 @@ class MergeVideoChunksJob implements ShouldQueue
 
         $patientFile = PatientFile::where('uuid', $this->uuid)->first();
         if ($patientFile) {
-            $patientFile->update([
+            $updateData = [
                 'file_path' => '/storage/patient_files/' . $finalName,
                 'upload_status' => 'completed',
-            ]);
+            ];
+            if ($thumbnailName) {
+                $updateData['thumbnail_path'] = '/storage/patient_files/' . $thumbnailName;
+            }
+            $patientFile->update($updateData);
         }
     }
 }
