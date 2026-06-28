@@ -1214,75 +1214,37 @@
         /* Upload Manager Styles */
         .upload-manager {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 350px;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
             background: var(--surface);
-            border-radius: var(--radius-lg);
-            box-shadow: var(--shadow-lg);
+            border-radius: 50px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
             border: 1px solid var(--border);
             z-index: 9999;
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: none;
-            overflow: hidden;
-            flex-direction: column;
-            max-height: 400px;
-        }
-        .upload-manager.active { display: flex; }
-        .upload-manager.collapsed .um-body { display: none; }
-        .upload-manager.collapsed .um-header i { transform: rotate(180deg); }
-        .um-header {
-            padding: 1rem;
-            background: var(--primary);
-            color: white;
-            font-weight: 600;
-            display: flex;
-            justify-content: space-between;
             align-items: center;
-            cursor: pointer;
+            padding: 10px 25px;
+            gap: 15px;
+            direction: rtl;
         }
-        .um-body {
-            overflow-y: auto;
-            flex: 1;
-            padding: 0.5rem;
+        .upload-manager .spinner-box {
+            color: var(--primary);
+            font-size: 1.3rem;
         }
-        .um-item {
-            padding: 0.75rem;
-            border-bottom: 1px solid var(--border);
+        .upload-manager .text-box {
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
         }
-        .um-item:last-child { border-bottom: none; }
-        .um-item-header {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.85rem;
-            font-weight: 500;
+        .upload-manager .text-box .title {
+            font-size: 0.9rem;
+            font-weight: bold;
             color: var(--text);
         }
-        .um-progress-container {
-            width: 100%;
-            height: 6px;
-            background: var(--border);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        .um-progress-bar {
-            height: 100%;
-            background: var(--primary);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-        .um-status { font-size: 0.75rem; color: var(--text-muted); }
-        .um-retry-btn {
-            background: var(--danger);
-            color: white;
-            border: none;
-            border-radius: 4px;
-            padding: 0.2rem 0.5rem;
+        .upload-manager .text-box .subtitle {
             font-size: 0.75rem;
-            cursor: pointer;
+            color: #64748b;
         }
 
         /* Overlay for uploading items in timeline */
@@ -1304,14 +1266,12 @@
 </head>
 <body class="light">
 
-    <!-- Upload Manager UI -->
-    <div id="uploadManager" class="upload-manager collapsed">
-        <div class="um-header" onclick="document.getElementById('uploadManager').classList.toggle('collapsed')">
-            <span>عمليات الرفع (<span id="umCount">0</span>)</span>
-            <i class="fa-solid fa-chevron-up"></i>
-        </div>
-        <div class="um-body" id="umBody">
-            <!-- Items injected by JS -->
+    <!-- Upload Manager UI (Pill) -->
+    <div id="uploadManager" class="upload-manager">
+        <i class="fa-solid fa-spinner fa-spin spinner-box"></i>
+        <div class="text-box">
+            <span class="title" id="umTitle">جاري الرفع...</span>
+            <span class="subtitle" id="umSubtitle">1 ملف (0%)</span>
         </div>
     </div>
 
@@ -2785,41 +2745,45 @@
 
             renderUI() {
                 const container = document.getElementById('uploadManager');
-                const umBody = document.getElementById('umBody');
-                const umCount = document.getElementById('umCount');
+                const umTitle = document.getElementById('umTitle');
+                const umSubtitle = document.getElementById('umSubtitle');
 
-                if (this.queue.length === 0) {
+                const activeJobs = this.queue.filter(j => j.status !== 'completed' && j.status !== 'failed');
+                const failedJobs = this.queue.filter(j => j.status === 'failed');
+
+                if (activeJobs.length === 0 && failedJobs.length === 0) {
                     container.style.display = 'none';
                     return;
                 }
                 container.style.display = 'flex';
-                umCount.textContent = this.queue.filter(j => j.status !== 'completed').length;
 
-                umBody.innerHTML = '';
-                this.queue.forEach(job => {
-                    const item = document.createElement('div');
-                    item.className = 'um-item';
+                if (failedJobs.length > 0) {
+                    container.querySelector('.spinner-box').className = 'fa-solid fa-triangle-exclamation spinner-box';
+                    container.querySelector('.spinner-box').style.color = 'var(--danger)';
+                    umTitle.textContent = 'فشل الرفع';
+                    umSubtitle.innerHTML = `<span style="color:var(--danger); cursor:pointer;" onclick="bgUploader.retry('${failedJobs[0].id}')">إعادة المحاولة لـ ${failedJobs.length} ملف</span>`;
+                    return;
+                }
 
-                    let statusText = 'في الانتظار';
-                    if (job.status === 'uploading') statusText = `جاري الرفع ${job.progress}%`;
-                    if (job.status === 'merging') statusText = 'جاري المعالجة...';
-                    if (job.status === 'completed') statusText = 'اكتمل الرفع';
-                    if (job.status === 'failed') statusText = 'فشل الرفع';
-
-                    let retryBtn = job.status === 'failed' ? `<button class="um-retry-btn" onclick="bgUploader.retry('${job.id}')">إعادة المحاولة</button>` : '';
-
-                    item.innerHTML = `
-                        <div class="um-item-header">
-                            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 200px;">${job.fileObj.name}</span>
-                            <span class="um-status" style="${job.status === 'failed' ? 'color:var(--danger)' : ''}">${statusText}</span>
-                        </div>
-                        <div class="um-progress-container">
-                            <div class="um-progress-bar" style="width: ${job.progress}%; ${job.status === 'failed' ? 'background:var(--danger)' : ''}"></div>
-                        </div>
-                        ${retryBtn}
-                    `;
-                    umBody.appendChild(item);
+                let totalProgress = 0;
+                let isMerging = false;
+                activeJobs.forEach(j => {
+                    totalProgress += j.progress;
+                    if (j.status === 'merging') isMerging = true;
                 });
+                const avgProgress = activeJobs.length > 0 ? Math.round(totalProgress / activeJobs.length) : 0;
+
+                if (isMerging) {
+                    container.querySelector('.spinner-box').className = 'fa-solid fa-gear fa-spin spinner-box';
+                    container.querySelector('.spinner-box').style.color = 'var(--primary)';
+                    umTitle.textContent = 'جاري المعالجة...';
+                    umSubtitle.textContent = 'يتم تحسين الملفات';
+                } else {
+                    container.querySelector('.spinner-box').className = 'fa-solid fa-spinner fa-spin spinner-box';
+                    container.querySelector('.spinner-box').style.color = 'var(--primary)';
+                    umTitle.textContent = 'جاري الرفع...';
+                    umSubtitle.textContent = `${activeJobs.length} ملف (${avgProgress}%)`;
+                }
             }
         }
 

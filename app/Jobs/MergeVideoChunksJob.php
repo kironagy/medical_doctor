@@ -60,7 +60,7 @@ class MergeVideoChunksJob implements ShouldQueue
             $optimizedName = Str::random(40) . '.mp4';
             $optimizedPath = storage_path('app/public/patient_files/' . $optimizedName);
 
-            $cmd = "ffmpeg -i " . escapeshellarg($finalPath) . " -vcodec libx264 -crf 28 -preset ultrafast -movflags +faststart -y " . escapeshellarg($optimizedPath) . " 2>&1";
+            $cmd = "ffmpeg -i " . escapeshellarg($finalPath) . " -vf \"scale=-2:480\" -vcodec libx264 -crf 30 -preset ultrafast -movflags +faststart -y " . escapeshellarg($optimizedPath) . " 2>&1";
             shell_exec($cmd);
 
             if (file_exists($optimizedPath) && filesize($optimizedPath) > 0) {
