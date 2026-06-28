@@ -1164,7 +1164,7 @@
             font-size: 1.5rem;
         }
         @keyframes spin { 100% { transform: rotate(360deg); } }
-        
+
         /* Splash Screen */
         .splash-screen {
             position: fixed;
@@ -1211,9 +1211,109 @@
             50% { transform: scale(1.1); }
             100% { transform: scale(1); }
         }
+        /* Upload Manager Styles */
+        .upload-manager {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 350px;
+            background: var(--surface);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border);
+            z-index: 9999;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: none;
+            overflow: hidden;
+            flex-direction: column;
+            max-height: 400px;
+        }
+        .upload-manager.active { display: flex; }
+        .upload-manager.collapsed .um-body { display: none; }
+        .upload-manager.collapsed .um-header i { transform: rotate(180deg); }
+        .um-header {
+            padding: 1rem;
+            background: var(--primary);
+            color: white;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .um-body {
+            overflow-y: auto;
+            flex: 1;
+            padding: 0.5rem;
+        }
+        .um-item {
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .um-item:last-child { border-bottom: none; }
+        .um-item-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text);
+        }
+        .um-progress-container {
+            width: 100%;
+            height: 6px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .um-progress-bar {
+            height: 100%;
+            background: var(--primary);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .um-status { font-size: 0.75rem; color: var(--text-muted); }
+        .um-retry-btn {
+            background: var(--danger);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 0.2rem 0.5rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+
+        /* Overlay for uploading items in timeline */
+        .item-uploading-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255, 255, 255, 0.7);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            backdrop-filter: blur(2px);
+        }
+        .dark .item-uploading-overlay { background: rgba(0, 0, 0, 0.7); }
     </style>
+    <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+    <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
 </head>
 <body class="light">
+
+    <!-- Upload Manager UI -->
+    <div id="uploadManager" class="upload-manager collapsed">
+        <div class="um-header" onclick="document.getElementById('uploadManager').classList.toggle('collapsed')">
+            <span>عمليات الرفع (<span id="umCount">0</span>)</span>
+            <i class="fa-solid fa-chevron-up"></i>
+        </div>
+        <div class="um-body" id="umBody">
+            <!-- Items injected by JS -->
+        </div>
+    </div>
 
     <!-- Sidebar: Patient List -->
     <div class="sidebar">
@@ -1231,7 +1331,7 @@
             <button id="nextBtn" onclick="changePage(1)" disabled><span data-i18n="next">التالي</span> <i class="fa-solid fa-chevron-left"></i></button>
         </div>
         <div class="sidebar-footer">
-            <form method="POST" action="/logout" id="logoutForm" style="margin:0; display:none;">
+            <form method="POST" action="{{ route('logout') }}" id="logoutForm" style="margin:0; display:none;">
                 <input type="hidden" name="_token" value="{{ csrf_token() }}">
             </form>
             <button type="button" class="btn btn-primary" style="width: 100%; justify-content: center; gap: 0.5rem; background: var(--surface); color: var(--text); border: 1px solid var(--border);" onclick="openSettingsModal()">
@@ -2286,6 +2386,17 @@
                     } else {
                         mediaHTML = `<div class="item-preview-box" onclick="window.open('${file.file_path}','_blank')"><i class="fa-solid fa-file file-icon"></i></div>`;
                     }
+                } else if (file.upload_status === 'uploading') {
+                    mediaHTML = `
+                        <div class="item-preview-box" style="position:relative;">
+                            <i class="fa-solid fa-spinner fa-spin file-icon" style="color: var(--primary);"></i>
+                            <div class="item-uploading-overlay">
+                                <div style="width:80%; height:4px; background:var(--border); border-radius:2px; overflow:hidden; margin-bottom:5px;">
+                                    <div id="upload-progress-${file.uuid}" style="width:0%; height:100%; background:var(--primary); transition:width 0.3s;"></div>
+                                </div>
+                                <span id="upload-text-${file.uuid}" style="font-size:0.75rem; color:var(--text);">في الانتظار...</span>
+                            </div>
+                        </div>`;
                 } else {
                     // No file - text only
                     isTextOnly = true;
@@ -2368,6 +2479,17 @@
                         } else {
                             mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'file')"><i class="fa-solid fa-file file-icon"></i></div>`;
                         }
+                    } else if (file.upload_status === 'uploading') {
+                        mediaHTML = `
+                            <div class="item-preview-box" style="position:relative;">
+                                <i class="fa-solid fa-spinner fa-spin file-icon" style="color: var(--primary);"></i>
+                                <div class="item-uploading-overlay">
+                                    <div style="width:80%; height:4px; background:var(--border); border-radius:2px; overflow:hidden; margin-bottom:5px;">
+                                        <div id="upload-progress-${file.uuid}" style="width:0%; height:100%; background:var(--primary); transition:width 0.3s;"></div>
+                                    </div>
+                                    <span id="upload-text-${file.uuid}" style="font-size:0.75rem; color:var(--text);">في الانتظار...</span>
+                                </div>
+                            </div>`;
                     } else {
                         // No file - text only
                         isTextOnly = true;
@@ -2475,6 +2597,234 @@
             }
         }
 
+        class BackgroundUploader {
+            constructor() {
+                this.queue = [];
+                this.isUploading = false;
+                this.loadQueue();
+            }
+
+            loadQueue() {
+                try {
+                    const saved = localStorage.getItem('bg_upload_queue');
+                    if (saved) {
+                        localStorage.removeItem('bg_upload_queue');
+                    }
+                } catch (e) {}
+            }
+
+            addUpload(patientId, fileRecord, fileObj) {
+                const uploadJob = {
+                    id: fileRecord.uuid,
+                    patientId: patientId,
+                    fileRecord: fileRecord,
+                    fileObj: fileObj,
+                    progress: 0,
+                    status: 'pending',
+                    chunksUploaded: 0,
+                    totalChunks: Math.ceil(fileObj.size / (2 * 1024 * 1024))
+                };
+                this.queue.push(uploadJob);
+                this.renderUI();
+                if (!this.isUploading) this.processQueue();
+            }
+
+            async processQueue() {
+                this.isUploading = true;
+                for (let i = 0; i < this.queue.length; i++) {
+                    const job = this.queue[i];
+                    if (job.status === 'pending' || job.status === 'uploading') {
+                        await this.uploadJob(job);
+                    } else if (job.status === 'merging') {
+                        await this.pollMergeStatus(job);
+                    }
+                }
+                this.isUploading = false;
+                this.renderUI();
+            }
+
+            async uploadJob(job) {
+                job.status = 'uploading';
+                this.renderUI();
+
+                const chunkSize = 2 * 1024 * 1024;
+                const maxConcurrent = 3;
+                
+                let pendingChunks = [];
+                for(let i = 0; i < job.totalChunks; i++) {
+                    pendingChunks.push(i);
+                }
+                
+                job.chunksUploaded = 0;
+                let hasFailed = false;
+
+                const uploadChunk = async (chunkIndex) => {
+                    if (hasFailed) return;
+                    const start = chunkIndex * chunkSize;
+                    const end = Math.min(start + chunkSize, job.fileObj.size);
+                    const chunk = job.fileObj.slice(start, end);
+
+                    const formData = new FormData();
+                    formData.append('uuid', job.id);
+                    formData.append('chunk_index', chunkIndex);
+                    formData.append('total_chunks', job.totalChunks);
+                    formData.append('file_name', job.fileObj.name);
+                    formData.append('file', chunk, job.fileObj.name);
+
+                    let retries = 3;
+                    let success = false;
+                    while (retries > 0 && !success && !hasFailed) {
+                        try {
+                            const res = await apiFetch(`/files/upload-chunk`, {
+                                method: 'POST',
+                                headers: { 'Accept': 'application/json' },
+                                body: formData
+                            });
+                            if (res.ok) {
+                                success = true;
+                                job.chunksUploaded++;
+                                job.progress = Math.round((job.chunksUploaded / job.totalChunks) * 100);
+                                this.updateProgress(job);
+                            } else {
+                                retries--;
+                                await new Promise(r => setTimeout(r, 1000));
+                            }
+                        } catch (e) {
+                            retries--;
+                            await new Promise(r => setTimeout(r, 1000));
+                        }
+                    }
+
+                    if (!success) {
+                        hasFailed = true;
+                    }
+                };
+
+                const lastChunkIndex = pendingChunks.pop();
+
+                const workers = [];
+                for (let i = 0; i < maxConcurrent; i++) {
+                    workers.push((async () => {
+                        while (pendingChunks.length > 0 && !hasFailed) {
+                            const chunkIndex = pendingChunks.shift();
+                            await uploadChunk(chunkIndex);
+                        }
+                    })());
+                }
+
+                await Promise.all(workers);
+
+                if (hasFailed) {
+                    job.status = 'failed';
+                    this.renderUI();
+                    return;
+                }
+
+                if (lastChunkIndex !== undefined) {
+                    await uploadChunk(lastChunkIndex);
+                }
+
+                if (hasFailed) {
+                    job.status = 'failed';
+                    this.renderUI();
+                    return;
+                }
+
+                job.status = 'merging';
+                this.renderUI();
+                await this.pollMergeStatus(job);
+            }
+
+            async pollMergeStatus(job) {
+                let attempts = 0;
+                while (job.status === 'merging' && attempts < 60) {
+                    try {
+                        const res = await apiFetch(`/files/status/${job.id}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.upload_status === 'completed') {
+                                job.status = 'completed';
+                                job.fileRecord.upload_status = 'completed';
+                                job.fileRecord.file_path = data.file_path;
+                                this.renderUI();
+                                setTimeout(() => {
+                                    this.queue = this.queue.filter(j => j.id !== job.id);
+                                    this.renderUI();
+                                    if (currentPatient && currentPatient.id === job.patientId) {
+                                        loadPatientFiles(currentPatient.id);
+                                    }
+                                }, 3000);
+                                return;
+                            }
+                        }
+                    } catch (e) {}
+                    attempts++;
+                    await new Promise(r => setTimeout(r, 2000));
+                }
+                if (job.status === 'merging') {
+                    job.status = 'failed';
+                    this.renderUI();
+                }
+            }
+
+            retry(id) {
+                const job = this.queue.find(j => j.id === id);
+                if (job && job.status === 'failed') {
+                    job.status = 'pending';
+                    if (!this.isUploading) this.processQueue();
+                }
+            }
+
+            updateProgress(job) {
+                const cardOverlay = document.getElementById(`upload-progress-${job.id}`);
+                if (cardOverlay) cardOverlay.style.width = `${job.progress}%`;
+                const cardText = document.getElementById(`upload-text-${job.id}`);
+                if (cardText) cardText.textContent = job.progress < 100 ? `جاري الرفع ${job.progress}%` : 'جاري المعالجة...';
+                this.renderUI();
+            }
+
+            renderUI() {
+                const container = document.getElementById('uploadManager');
+                const umBody = document.getElementById('umBody');
+                const umCount = document.getElementById('umCount');
+
+                if (this.queue.length === 0) {
+                    container.style.display = 'none';
+                    return;
+                }
+                container.style.display = 'flex';
+                umCount.textContent = this.queue.filter(j => j.status !== 'completed').length;
+
+                umBody.innerHTML = '';
+                this.queue.forEach(job => {
+                    const item = document.createElement('div');
+                    item.className = 'um-item';
+
+                    let statusText = 'في الانتظار';
+                    if (job.status === 'uploading') statusText = `جاري الرفع ${job.progress}%`;
+                    if (job.status === 'merging') statusText = 'جاري المعالجة...';
+                    if (job.status === 'completed') statusText = 'اكتمل الرفع';
+                    if (job.status === 'failed') statusText = 'فشل الرفع';
+
+                    let retryBtn = job.status === 'failed' ? `<button class="um-retry-btn" onclick="bgUploader.retry('${job.id}')">إعادة المحاولة</button>` : '';
+
+                    item.innerHTML = `
+                        <div class="um-item-header">
+                            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 200px;">${job.fileObj.name}</span>
+                            <span class="um-status" style="${job.status === 'failed' ? 'color:var(--danger)' : ''}">${statusText}</span>
+                        </div>
+                        <div class="um-progress-container">
+                            <div class="um-progress-bar" style="width: ${job.progress}%; ${job.status === 'failed' ? 'background:var(--danger)' : ''}"></div>
+                        </div>
+                        ${retryBtn}
+                    `;
+                    umBody.appendChild(item);
+                });
+            }
+        }
+
+        const bgUploader = new BackgroundUploader();
+
         async function saveItem(e, fromSlide = false) {
             e.preventDefault();
             if (!currentPatient) return;
@@ -2497,7 +2847,6 @@
                 let fetchOptions = { method: 'POST', headers: { 'Accept': 'application/json' } };
 
                 if (type === 'file') {
-                    // Get file from whichever input has a file (camera or gallery)
                     let fileInput = null;
                     if (mobile) {
                         const cam = document.getElementById('slideItemFileCamera');
@@ -2518,76 +2867,36 @@
                     else if (f.type.includes('pdf')) ft = 'pdf';
                     else if (f.type.includes('video')) ft = 'video';
 
-                    const chunkSize = 2 * 1024 * 1024; // 2MB
-                    const totalChunks = Math.ceil(f.size / chunkSize);
                     const fileUuid = crypto.randomUUID ? crypto.randomUUID() : 'uuid-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
-                    
-                    if (btn) { btn.disabled = true; btn.textContent = 'جاري الرفع... 0%'; }
 
-                    let finalResponse = null;
+                    const formData = new FormData();
+                    formData.append('title', category);
+                    formData.append('desc', textDesc);
+                    formData.append('category', category);
+                    formData.append('date', new Date().toISOString().split('T')[0]);
+                    formData.append('type', ft);
+                    formData.append('file_name', f.name);
+                    formData.append('uuid', fileUuid);
+                    formData.append('initialize_upload', '1');
 
-                    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-                        const start = chunkIndex * chunkSize;
-                        const end = Math.min(start + chunkSize, f.size);
-                        const chunk = f.slice(start, end);
-
-                        const formData = new FormData();
-                        formData.append('title', category);
-                        formData.append('desc', textDesc);
-                        formData.append('category', category);
-                        formData.append('date', new Date().toISOString().split('T')[0]);
-                        formData.append('type', ft);
-                        formData.append('file_name', f.name);
-                        formData.append('file', chunk, f.name);
-                        formData.append('chunk_index', chunkIndex);
-                        formData.append('total_chunks', totalChunks);
-                        formData.append('uuid', fileUuid);
-
-                        fetchOptions.body = formData;
-
-                        let retries = 3;
-                        let res = null;
-                        let lastError = null;
-                        
-                        while (retries > 0) {
-                            try {
-                                res = await apiFetch(`/patients/${currentPatient.id}/files`, fetchOptions);
-                                if (res.ok) break;
-                                
-                                let errData = {};
-                                try { errData = await res.json(); } catch {}
-                                lastError = errData.message || 'Error saving chunk';
-                                if (errData.errors) lastError = Object.values(errData.errors).flat().join(' ');
-                            } catch (e) {
-                                lastError = 'خطأ في الاتصال';
-                            }
-                            retries--;
-                            if (retries > 0) await new Promise(r => setTimeout(r, 1000));
-                        }
-
-                        if (!res || !res.ok) {
-                            throw new Error(lastError || 'Chunk upload failed');
-                        }
-
-                        if (chunkIndex === totalChunks - 1) {
-                            finalResponse = res;
-                        }
-
-                        if (btn) {
-                            const percent = Math.round(((chunkIndex + 1) / totalChunks) * 100);
-                            btn.textContent = `جاري الرفع... ${percent}%`;
-                        }
+                    fetchOptions.body = formData;
+                    const res = await apiFetch(`/patients/${currentPatient.id}/files`, fetchOptions);
+                    if (!res.ok) {
+                        let errData = {};
+                        try { errData = await res.json(); } catch {}
+                        let errMsg = errData.message || 'Error initializing upload';
+                        if (errData.errors) errMsg = Object.values(errData.errors).flat().join(' ');
+                        throw new Error(errMsg);
                     }
 
-                    const response = await finalResponse.json();
+                    const response = await res.json();
                     const savedFile = response.data || response;
+
                     patientFiles.unshift(savedFile);
                     renderFiles();
-                    showToast('تم الحفظ بنجاح', 'success');
-                    if (mobile) closeSlidePage('itemSlidePage');
-                    else closeModal('itemModal');
-                    syncNow();
-                    return;
+                    bgUploader.addUpload(currentPatient.id, savedFile, f);
+
+                    showToast('تمت الإضافة، جاري الرفع...', 'success');
                 } else {
                     fetchOptions.headers['Content-Type'] = 'application/json';
                     fetchOptions.body = JSON.stringify({
@@ -2605,17 +2914,28 @@
                         patientFiles.unshift(savedFile);
                         renderFiles();
                         showToast('تم الحفظ بنجاح', 'success');
-                        if (mobile) closeSlidePage('itemSlidePage');
-                        else closeModal('itemModal');
-                        syncNow();
-                        return;
                     } else {
                         let errData = {};
                         try { errData = await res.json(); } catch {}
                         let errMsg = errData.message || 'Error saving';
                         if (errData.errors) errMsg = Object.values(errData.errors).flat().join(' ');
-                        showToast(errMsg, 'error');
+                        throw new Error(errMsg);
                     }
+                }
+
+                if (mobile) closeSlidePage('itemSlidePage');
+                else closeModal('itemModal');
+                syncNow();
+
+                document.getElementById(mobile ? 'slideItemText' : 'itemText').value = '';
+                if(mobile){
+                    const cam = document.getElementById('slideItemFileCamera');
+                    const gal = document.getElementById('slideItemFile');
+                    if(cam) cam.value = '';
+                    if(gal) gal.value = '';
+                } else {
+                    document.getElementById('itemFile').value = '';
+                    updateFileName(document.getElementById('itemFile'));
                 }
 
             } catch(err) {
@@ -2712,7 +3032,7 @@
                             skipped: '#64748b'
                         };
                         const statusColor = statusColors[log.status] || 'var(--text)';
-                        
+
                         const row = document.createElement('tr');
                         row.style.borderBottom = '1px solid var(--border)';
                         row.innerHTML = `
@@ -2743,6 +3063,8 @@
         }
 
         // Media Preview
+        let plyrInstance = null;
+
         async function viewMedia(src, type) {
             const viewer = document.getElementById('mediaViewer');
             const content = document.getElementById('viewerContent');
@@ -2766,7 +3088,11 @@
             } else if (type === 'pdf') {
                 content.innerHTML = `<iframe src="${finalSrc}" style="width: 80vw; height: 90vh; border:none; background: white; border-radius: 8px;"></iframe>`;
             } else if (type === 'video') {
-                content.innerHTML = `<video controls autoplay style="width: 80vw; max-height: 90vh;"><source src="${finalSrc}"></video>`;
+                content.innerHTML = `<video id="plyrPlayer" controls playsinline style="width: 100%; max-height: 90vh;"><source src="${finalSrc}"></video>`;
+                setTimeout(() => {
+                    plyrInstance = new Plyr('#plyrPlayer');
+                    plyrInstance.play();
+                }, 100);
             } else {
                 window.open(finalSrc, '_blank');
                 closeViewer({ target: { id: 'mediaViewer' } });
@@ -2776,6 +3102,10 @@
         function closeViewer(e) {
             if (e.target.id === 'mediaViewer' || e.target.classList.contains('close-viewer')) {
                 document.getElementById('mediaViewer').style.display = 'none';
+                if (plyrInstance) {
+                    plyrInstance.destroy();
+                    plyrInstance = null;
+                }
                 document.getElementById('viewerContent').innerHTML = ''; // stop video
             }
         }

@@ -4,9 +4,12 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PatientFileResource;
+use App\Jobs\MergeVideoChunksJob;
 use App\Models\Patient;
 use App\Models\PatientFile;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
 
 class PatientFileController extends Controller
 {
@@ -40,73 +43,80 @@ class PatientFileController extends Controller
             'type' => ['required', 'string', 'max:50'],
             'category' => ['nullable', 'string', 'max:255'],
             'date' => ['required', 'date'],
-            'file' => ['nullable', 'file'], // Removed max rule to allow chunks
+            'file' => ['nullable', 'file'],
             'file_name' => ['nullable', 'string', 'max:255'],
             'file_path' => ['nullable', 'string', 'max:500'],
             'data' => ['nullable', 'string'],
             'client_updated_at' => ['nullable', 'date'],
-            'chunk_index' => ['nullable', 'integer'],
-            'total_chunks' => ['nullable', 'integer'],
+            'initialize_upload' => ['nullable', 'boolean'],
         ]);
 
         $data['patient_id'] = $patient->id;
+        $data['uuid'] = $request->input('uuid') ?: Str::uuid()->toString();
 
-        if ($request->has('chunk_index') && $request->hasFile('file')) {
-            $chunkIndex = $request->integer('chunk_index');
-            $totalChunks = $request->integer('total_chunks');
-            $uuid = $request->input('uuid') ?: \Illuminate\Support\Str::uuid()->toString();
-            $data['uuid'] = $uuid;
-
+        if ($request->boolean('initialize_upload')) {
+            $data['upload_status'] = 'uploading';
             if (empty($data['file_name'])) {
-                $data['file_name'] = $request->file('file')->getClientOriginalName();
+                $data['file_name'] = 'uploading...' . ($data['type'] === 'video' ? '.mp4' : '');
             }
+            $file = PatientFile::create($data);
+            return (new PatientFileResource($file))->response()->setStatusCode(201);
+        }
 
-            $tempDir = 'chunks/' . $uuid;
-            \Illuminate\Support\Facades\Storage::disk('local')->putFileAs($tempDir, $request->file('file'), $chunkIndex . '.part');
-
-            if ($chunkIndex == $totalChunks - 1) {
-                set_time_limit(300);
-                ini_set('memory_limit', '512M');
-
-                $extension = pathinfo($data['file_name'], PATHINFO_EXTENSION);
-                if (empty($extension)) $extension = 'bin';
-
-                $finalName = \Illuminate\Support\Str::random(40) . '.' . $extension;
-                $finalPath = storage_path('app/public/patient_files/' . $finalName);
-
-                if (!file_exists(storage_path('app/public/patient_files'))) {
-                    mkdir(storage_path('app/public/patient_files'), 0777, true);
-                }
-
-                $finalFile = fopen($finalPath, 'ab');
-                for ($i = 0; $i < $totalChunks; $i++) {
-                    $partPath = \Illuminate\Support\Facades\Storage::disk('local')->path($tempDir . '/' . $i . '.part');
-                    if (file_exists($partPath)) {
-                        $chunkFile = fopen($partPath, 'rb');
-                        stream_copy_to_stream($chunkFile, $finalFile);
-                        fclose($chunkFile);
-                    }
-                }
-                fclose($finalFile);
-                \Illuminate\Support\Facades\Storage::disk('local')->deleteDirectory($tempDir);
-
-                $data['file_path'] = '/storage/patient_files/' . $finalName;
-                $data['data'] = null;
-            } else {
-                return response()->json(['message' => 'Chunk received', 'uuid' => $uuid], 200);
-            }
-        } elseif ($request->hasFile('file')) {
+        if ($request->hasFile('file')) {
             $uploadedFile = $request->file('file');
             $data['file_name'] = $uploadedFile->getClientOriginalName();
             $data['file_path'] = '/storage/'.$uploadedFile->store('patient_files', 'public');
             $data['data'] = null;
+            $data['upload_status'] = 'completed';
         } else {
             $data['file_name'] = $data['file_name'] ?? 'ملاحظة_نصية.txt';
+            $data['upload_status'] = 'completed';
         }
 
         $file = PatientFile::create($data);
 
         return (new PatientFileResource($file))->response()->setStatusCode(201);
+    }
+
+    public function uploadChunk(Request $request)
+    {
+        $request->validate([
+            'uuid' => ['required', 'uuid'],
+            'chunk_index' => ['required', 'integer'],
+            'total_chunks' => ['required', 'integer'],
+            'file' => ['required', 'file'],
+            'file_name' => ['required', 'string'],
+        ]);
+
+        $uuid = $request->input('uuid');
+        $chunkIndex = $request->integer('chunk_index');
+        $totalChunks = $request->integer('total_chunks');
+        $fileName = $request->input('file_name');
+
+        $tempDir = 'chunks/' . $uuid;
+        Storage::disk('local')->putFileAs($tempDir, $request->file('file'), $chunkIndex . '.part');
+
+        if ($chunkIndex == $totalChunks - 1) {
+            $extension = pathinfo($fileName, PATHINFO_EXTENSION);
+            if (empty($extension)) $extension = 'bin';
+
+            MergeVideoChunksJob::dispatch($uuid, $totalChunks, $extension);
+
+            return response()->json(['message' => 'Chunk received, merging started', 'uuid' => $uuid], 202);
+        }
+
+        return response()->json(['message' => 'Chunk received', 'uuid' => $uuid], 200);
+    }
+
+    public function uploadStatus($uuid)
+    {
+        $file = PatientFile::where('uuid', $uuid)->firstOrFail();
+        return response()->json([
+            'uuid' => $file->uuid,
+            'upload_status' => $file->upload_status,
+            'file_path' => $file->file_path
+        ]);
     }
 
     public function show(Patient $patient, PatientFile $file)

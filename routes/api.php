@@ -34,6 +34,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::apiResource('patients.files', V1PatientFileController::class)
             ->parameters(['files' => 'file'])
             ->except(['update']);
+
+        Route::post('/files/upload-chunk', [V1PatientFileController::class, 'uploadChunk']);
+        Route::get('/files/status/{uuid}', [V1PatientFileController::class, 'uploadStatus']);
+
         Route::apiResource('patients.visits', V1PatientVisitController::class)
             ->parameters(['visits' => 'visit']);
 

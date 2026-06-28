@@ -191,7 +191,7 @@
 
         <div class="sidebar-footer">
             <button class="lang-btn" onclick="toggleLang()"><i class="fa-solid fa-language" style="font-size:1.5rem;"></i> <span data-i18n="langName">English</span></button>
-            <form method="POST" action="/logout" style="margin:0; flex:1; display:flex;">
+            <form method="POST" action="{{ route('logout') }}" style="margin:0; flex:1; display:flex;">
                 <input type="hidden" name="_token" value="{{ csrf_token() }}">
                 <button type="submit" class="logout-btn" style="width:100%;"><i class="fa-solid fa-arrow-right-from-bracket"></i> <span data-i18n="logout">خروج</span></button>
             </form>
