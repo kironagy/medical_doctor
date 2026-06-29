@@ -17,10 +17,24 @@ class HLSGenerator
             mkdir($outputFolder, 0777, true);
         }
 
+        // Detect audio codec of the incoming source
+        $ffprobeCmd = "ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 " . escapeshellarg($inputFile);
+        $audioCodec = trim((string) shell_exec($ffprobeCmd));
+        Log::info("HLSGenerator: probed audio codec", ['codec' => $audioCodec]);
+
+        $audioOptions = "";
+        if (strtolower($audioCodec) === 'aac') {
+            Log::info("HLSGenerator: Source audio is AAC. Copying stream without re-encoding to preserve 100% quality.");
+            $audioOptions = "-c:a copy";
+        } else {
+            Log::info("HLSGenerator: Source audio is not AAC. Re-encoding using high-fidelity parameters.");
+            $audioOptions = "-c:a aac -b:a 192k -ar 48000 -ac 2";
+        }
+
         // Generate only ONE HLS stream
         $cmd = "ffmpeg -i " . escapeshellarg($inputFile) . " " .
                "-codec:v libx264 -crf 28 -preset ultrafast " .
-               "-codec:a aac -b:a 128k " .
+               $audioOptions . " " .
                "-f hls " .
                "-hls_time 4 " .
                "-hls_playlist_type vod " .
