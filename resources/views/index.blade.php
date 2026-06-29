@@ -2685,38 +2685,67 @@
                     return;
                 }
 
-                job.status = 'merging';
+                job.status = 'uploaded';
                 this.renderUI();
                 await this.pollMergeStatus(job);
             }
 
             async pollMergeStatus(job) {
                 let attempts = 0;
-                while (job.status === 'merging' && attempts < 60) {
+                while ((job.status === 'uploaded' || job.status === 'processing') && attempts < 90) {
                     try {
                         const res = await apiFetch(`/files/status/${job.id}`);
                         if (res.ok) {
                             const data = await res.json();
-                            if (data.upload_status === 'completed') {
+                            if (data.upload_status === 'ready') {
                                 job.status = 'completed';
-                                job.fileRecord.upload_status = 'completed';
+                                job.fileRecord.upload_status = 'ready';
                                 job.fileRecord.file_path = data.file_path;
+                                job.fileRecord.thumbnail_path = data.thumbnail_path;
                                 this.renderUI();
+
+                                // Update in-memory patient files to swap placeholders with ready HLS play button
+                                const fileInList = patientFiles.find(f => f.uuid === job.id);
+                                if (fileInList) {
+                                    fileInList.upload_status = 'ready';
+                                    fileInList.file_path = data.file_path;
+                                    fileInList.thumbnail_path = data.thumbnail_path;
+                                    renderFiles();
+                                }
+
                                 setTimeout(() => {
                                     this.queue = this.queue.filter(j => j.id !== job.id);
                                     this.renderUI();
                                     if (currentPatient && currentPatient.id === job.patientId) {
-                                        loadPatientFiles(currentPatient.id);
+                                        selectPatient(currentPatient);
                                     }
-                                }, 3000);
+                                }, 2000);
+                                return;
+                            } else if (data.upload_status === 'processing') {
+                                job.status = 'processing';
+                                job.fileRecord.upload_status = 'processing';
+                                this.renderUI();
+
+                                // Update in-memory patient file with the generated thumbnail early
+                                const fileInList = patientFiles.find(f => f.uuid === job.id);
+                                if (fileInList) {
+                                    fileInList.upload_status = 'processing';
+                                    if (data.thumbnail_path) {
+                                        fileInList.thumbnail_path = data.thumbnail_path;
+                                    }
+                                    renderFiles();
+                                }
+                            } else if (data.upload_status === 'failed') {
+                                job.status = 'failed';
+                                this.renderUI();
                                 return;
                             }
                         }
                     } catch (e) {}
                     attempts++;
-                    await new Promise(r => setTimeout(r, 2000));
+                    await new Promise(r => setTimeout(r, 10000)); // Poll every 10 seconds (YouTube like requirement)
                 }
-                if (job.status === 'merging') {
+                if (job.status === 'uploaded' || job.status === 'processing') {
                     job.status = 'failed';
                     this.renderUI();
                 }
@@ -3070,12 +3099,15 @@
                     hlsInstance.attachMedia(videoEl);
 
                     hlsInstance.on(Hls.Events.MANIFEST_PARSED, function () {
-                        // Gather quality levels for Plyr configuration
-                        const availableQualities = hlsInstance.levels.map(l => l.height);
-                        availableQualities.unshift(0); // Add 'Auto' quality
-
-                        plyrInstance = new Plyr(videoEl, {
-                            quality: {
+                        const plyrOptions = {
+                            i18n: {
+                                speed: 'السرعة'
+                            }
+                        };
+                        if (hlsInstance.levels.length > 1) {
+                            const availableQualities = hlsInstance.levels.map(l => l.height);
+                            availableQualities.unshift(0); // Add 'Auto' quality
+                            plyrOptions.quality = {
                                 default: 0,
                                 options: availableQualities,
                                 forced: true,
@@ -3087,12 +3119,11 @@
                                         hlsInstance.currentLevel = index;
                                     }
                                 }
-                            },
-                            i18n: {
-                                quality: 'الجودة',
-                                speed: 'السرعة'
-                            }
-                        });
+                            };
+                            plyrOptions.i18n.quality = 'الجودة';
+                        }
+
+                        plyrInstance = new Plyr(videoEl, plyrOptions);
                         plyrInstance.play();
                     });
                 } else {

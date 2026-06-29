@@ -72,10 +72,6 @@ class PatientController extends Controller
 
     public function destroy(Patient $patient)
     {
-        foreach ($patient->files as $file) {
-            $file->delete();
-        }
-        $patient->visits()->delete();
         $patient->delete();
 
         return response()->json(['message' => 'Deleted successfully']);

@@ -4,15 +4,25 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PatientFileResource;
-use App\Jobs\MergeVideoChunksJob;
+use App\Jobs\MergeChunksJob;
 use App\Models\Patient;
 use App\Models\PatientFile;
+use App\Services\ChunkUploadService;
+use App\Services\VideoUploadService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Storage;
 
 class PatientFileController extends Controller
 {
+    protected VideoUploadService $videoUploadService;
+    protected ChunkUploadService $chunkUploadService;
+
+    public function __construct(VideoUploadService $videoUploadService, ChunkUploadService $chunkUploadService)
+    {
+        $this->videoUploadService = $videoUploadService;
+        $this->chunkUploadService = $chunkUploadService;
+    }
+
     public function index(Request $request, Patient $patient)
     {
         $perPage = min(max((int) $request->integer('per_page', 25), 1), 100);
@@ -51,27 +61,23 @@ class PatientFileController extends Controller
             'initialize_upload' => ['nullable', 'boolean'],
         ]);
 
-        $data['patient_id'] = $patient->id;
-        $data['uuid'] = $request->input('uuid') ?: Str::uuid()->toString();
-
         if ($request->boolean('initialize_upload')) {
-            $data['upload_status'] = 'uploading';
-            if (empty($data['file_name'])) {
-                $data['file_name'] = 'uploading...' . ($data['type'] === 'video' ? '.mp4' : '');
-            }
-            $file = PatientFile::create($data);
+            $file = $this->videoUploadService->initialize($patient, $data);
             return (new PatientFileResource($file))->response()->setStatusCode(201);
         }
+
+        $data['patient_id'] = $patient->id;
+        $data['uuid'] = $request->input('uuid') ?: Str::uuid()->toString();
 
         if ($request->hasFile('file')) {
             $uploadedFile = $request->file('file');
             $data['file_name'] = $uploadedFile->getClientOriginalName();
             $data['file_path'] = '/storage/'.$uploadedFile->store('patient_files', 'public');
             $data['data'] = null;
-            $data['upload_status'] = 'completed';
+            $data['upload_status'] = 'ready';
         } else {
             $data['file_name'] = $data['file_name'] ?? 'ملاحظة_نصية.txt';
-            $data['upload_status'] = 'completed';
+            $data['upload_status'] = 'ready';
         }
 
         $file = PatientFile::create($data);
@@ -94,14 +100,11 @@ class PatientFileController extends Controller
         $totalChunks = $request->integer('total_chunks');
         $fileName = $request->input('file_name');
 
-        $tempDir = 'chunks/' . $uuid;
-        Storage::disk('local')->putFileAs($tempDir, $request->file('file'), $chunkIndex . '.part');
+        $this->chunkUploadService->storeChunk($uuid, $chunkIndex, $request->file('file'));
 
         if ($chunkIndex == $totalChunks - 1) {
-            $extension = pathinfo($fileName, PATHINFO_EXTENSION);
-            if (empty($extension)) $extension = 'bin';
-
-            MergeVideoChunksJob::dispatch($uuid, $totalChunks, $extension);
+            $extension = pathinfo($fileName, PATHINFO_EXTENSION) ?: 'bin';
+            MergeChunksJob::dispatch($uuid, $totalChunks, $extension);
 
             return response()->json(['message' => 'Chunk received, merging started', 'uuid' => $uuid], 202);
         }
@@ -115,7 +118,12 @@ class PatientFileController extends Controller
         return response()->json([
             'uuid' => $file->uuid,
             'upload_status' => $file->upload_status,
-            'file_path' => $file->file_path
+            'file_path' => $file->file_path,
+            'thumbnail_path' => $file->thumbnail_path,
+            'duration' => $file->duration,
+            'resolution' => $file->resolution,
+            'processing_progress' => $file->processing_progress,
+            'processing_stage' => $file->processing_stage,
         ]);
     }
 

@@ -17,6 +17,16 @@ class Patient extends Model
         'client_updated_at' => 'datetime',
     ];
 
+    protected static function booted()
+    {
+        static::deleting(function (Patient $patient) {
+            foreach ($patient->files()->get() as $file) {
+                $file->delete();
+            }
+            $patient->visits()->delete();
+        });
+    }
+
     public function files()
     {
         return $this->hasMany(PatientFile::class);

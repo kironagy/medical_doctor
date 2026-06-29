@@ -14,22 +14,14 @@ use App\Http\Controllers\Api\V1\PatientFileController as V1PatientFileController
 use App\Http\Controllers\Api\V1\PatientVisitController as V1PatientVisitController;
 use App\Http\Controllers\Api\V1\SyncController as V1SyncController;
 
+use App\Http\Controllers\Api\V1\StreamingController;
+
 Route::prefix('v1')->name('api.v1.')->group(function () {
     Route::post('/auth/login', [V1AuthController::class, 'login'])
         ->middleware('throttle:10,1')
         ->name('auth.login');
 
-    Route::get('/stream-video', function (\Illuminate\Http\Request $request) {
-        $pathStr = $request->query('path');
-        if (str_starts_with($pathStr, '/storage/')) {
-            $pathStr = substr($pathStr, 9); // remove /storage/
-        }
-        $fullPath = storage_path('app/public/' . $pathStr);
-        if (!file_exists($fullPath)) {
-            abort(404);
-        }
-        return response()->file($fullPath);
-    });
+    Route::get('/stream-video', [StreamingController::class, 'stream']);
 
     Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
         Route::get('/auth/me', [V1AuthController::class, 'me'])->name('auth.me');
