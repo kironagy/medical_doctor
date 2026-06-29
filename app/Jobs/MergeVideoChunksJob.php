@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\PatientFile;
+use App\Services\VideoProcessingService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -31,7 +32,6 @@ class MergeVideoChunksJob implements ShouldQueue
     public function handle(): void
     {
         $tempDir = 'chunks/' . $this->uuid;
-
         $finalName = Str::random(40) . '.' . $this->extension;
         $finalPath = storage_path('app/public/patient_files/' . $finalName);
 
@@ -52,50 +52,54 @@ class MergeVideoChunksJob implements ShouldQueue
         }
 
         fclose($finalFile);
-
         Storage::disk('local')->deleteDirectory($tempDir);
 
-        $thumbnailName = null;
+        $patientFile = PatientFile::where('uuid', $this->uuid)->first();
+        if (!$patientFile) {
+            if (file_exists($finalPath)) unlink($finalPath);
+            return;
+        }
 
         $isVideo = in_array(strtolower($this->extension), ['mp4', 'mov', 'avi', 'webm', 'mkv', 'flv']);
         if ($isVideo) {
-            $optimizedName = Str::random(40) . '.mp4';
-            $optimizedPath = storage_path('app/public/patient_files/' . $optimizedName);
-
-            $cmd = "ffmpeg -i " . escapeshellarg($finalPath) . " -vf \"scale=-2:480\" -vcodec libx264 -crf 30 -preset ultrafast -movflags +faststart -y " . escapeshellarg($optimizedPath) . " 2>&1";
-            shell_exec($cmd);
-
-            // Generate thumbnail from the 1st second (or 00:00:01)
-            $thumbnailName = Str::random(40) . '.jpg';
-            $thumbnailPath = storage_path('app/public/patient_files/' . $thumbnailName);
-            $thumbCmd = "ffmpeg -i " . escapeshellarg($finalPath) . " -ss 00:00:01.000 -vframes 1 -vf \"scale=-2:480\" -y " . escapeshellarg($thumbnailPath) . " 2>&1";
-            shell_exec($thumbCmd);
-
-            if (!file_exists($thumbnailPath) || filesize($thumbnailPath) === 0) {
-                // fallback to 0 second if 1s fails
-                $thumbCmd = "ffmpeg -i " . escapeshellarg($finalPath) . " -ss 00:00:00.000 -vframes 1 -vf \"scale=-2:480\" -y " . escapeshellarg($thumbnailPath) . " 2>&1";
-                shell_exec($thumbCmd);
-            }
-            if (!file_exists($thumbnailPath) || filesize($thumbnailPath) === 0) {
-                $thumbnailName = null;
+            $hlsFolder = storage_path('app/public/patient_files/' . $this->uuid);
+            if (!file_exists($hlsFolder)) {
+                mkdir($hlsFolder, 0777, true);
             }
 
-            if (file_exists($optimizedPath) && filesize($optimizedPath) > 0) {
-                unlink($finalPath); // Delete unoptimized raw merged file
-                $finalName = $optimizedName;
-            }
-        }
+            $processor = new VideoProcessingService();
 
-        $patientFile = PatientFile::where('uuid', $this->uuid)->first();
-        if ($patientFile) {
-            $updateData = [
+            // 1. Generate Thumbnail
+            $thumbnailPath = $hlsFolder . '/thumbnail.jpg';
+            $processor->generateThumbnail($finalPath, $thumbnailPath);
+
+            // 2. Generate Preview GIF
+            $previewPath = $hlsFolder . '/preview.gif';
+            $processor->generatePreviewGif($finalPath, $previewPath);
+
+            // 3. Generate HLS stream playlist (master.m3u8)
+            $hlsSuccess = $processor->generateHls($finalPath, $hlsFolder);
+
+            if ($hlsSuccess) {
+                unlink($finalPath); // delete raw video
+                $patientFile->update([
+                    'file_path' => '/storage/patient_files/' . $this->uuid . '/master.m3u8',
+                    'thumbnail_path' => '/storage/patient_files/' . $this->uuid . '/thumbnail.jpg',
+                    'upload_status' => 'completed',
+                ]);
+            } else {
+                // Failback to original MP4 if HLS fails
+                $patientFile->update([
+                    'file_path' => '/storage/patient_files/' . $finalName,
+                    'thumbnail_path' => '/storage/patient_files/' . $this->uuid . '/thumbnail.jpg',
+                    'upload_status' => 'completed',
+                ]);
+            }
+        } else {
+            $patientFile->update([
                 'file_path' => '/storage/patient_files/' . $finalName,
                 'upload_status' => 'completed',
-            ];
-            if ($thumbnailName) {
-                $updateData['thumbnail_path'] = '/storage/patient_files/' . $thumbnailName;
-            }
-            $patientFile->update($updateData);
+            ]);
         }
     }
 }

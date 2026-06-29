@@ -72,7 +72,9 @@ class PatientController extends Controller
 
     public function destroy(Patient $patient)
     {
-        $patient->files()->delete();
+        foreach ($patient->files as $file) {
+            $file->delete();
+        }
         $patient->visits()->delete();
         $patient->delete();
 

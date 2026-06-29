@@ -48,16 +48,6 @@ class PatientFileController extends Controller
     public function destroy($patientId, $id)
     {
         $file = PatientFile::where('patient_id', $patientId)->findOrFail($id);
-        
-        // Delete the actual file from storage if it exists
-        if ($file->file_path) {
-            $storagePath = str_replace('/storage/', '', $file->file_path);
-            $fullPath = storage_path('app/public/' . $storagePath);
-            if (file_exists($fullPath)) {
-                @unlink($fullPath);
-            }
-        }
-        
         $file->delete();
 
         return response()->json(['message' => 'Deleted successfully']);

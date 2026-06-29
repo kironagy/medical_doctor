@@ -1241,6 +1241,7 @@
     </style>
     <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
     <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
 </head>
 <body class="light">
 
@@ -2323,7 +2324,15 @@
                                 <div style="width:80%; height:4px; background:var(--border); border-radius:2px; overflow:hidden; margin-bottom:5px;">
                                     <div id="upload-progress-${file.uuid}" style="width:0%; height:100%; background:var(--primary); transition:width 0.3s;"></div>
                                 </div>
-                                <span id="upload-text-${file.uuid}" style="font-size:0.75rem; color:var(--text);">في الانتظار...</span>
+                                <span id="upload-text-${file.uuid}" style="font-size:0.75rem; color:var(--text);">جاري الرفع...</span>
+                            </div>
+                        </div>`;
+                } else if (file.upload_status === 'merging' || (file.type === 'video' && !file.file_path)) {
+                    mediaHTML = `
+                        <div class="item-preview-box" style="position:relative; background:#f1f5f9;">
+                            <i class="fa-solid fa-gear fa-spin file-icon" style="color: var(--primary); font-size:2rem;"></i>
+                            <div class="item-uploading-overlay">
+                                <span style="font-size:0.75rem; color:var(--text-muted);">جاري تحسين الفيديو (HLS)...</span>
                             </div>
                         </div>`;
                 } else {
@@ -2405,10 +2414,11 @@
                             mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'pdf')"><i class="fa-solid fa-file-pdf file-icon" style="color: #EF4444;"></i></div>`;
                         } else if (['mp4','webm','ogg'].includes(ext) || file.type === 'video') {
                             const thumb = file.thumbnail_path || '';
+                            const gif = thumb ? thumb.replace('thumbnail.jpg', 'preview.gif') : '';
                             if (thumb) {
-                                mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video', '${thumb}')" style="position:relative;">
+                                mediaHTML = `<div class="item-preview-box video-card-hover" onclick="viewMedia('${file.file_path}', 'video', '${thumb}')" style="position:relative; overflow:hidden;" onmouseenter="const img=this.querySelector('img'); if(img && '${gif}') img.src='${gif}';" onmouseleave="const img=this.querySelector('img'); if(img && '${thumb}') img.src='${thumb}';">
                                     <img src="${thumb}" loading="lazy" style="width:100%; height:100%; object-fit:cover; opacity:0.8;" onerror="this.onerror=null; this.src='https://prof-hosam-fekry.online' + '${thumb}';">
-                                    <i class="fa-solid fa-circle-play file-icon" style="position:absolute; color:white; font-size:2rem; text-shadow:0 2px 4px rgba(0,0,0,0.5);"></i>
+                                    <i class="fa-solid fa-circle-play file-icon" style="position:absolute; color:white; font-size:2rem; text-shadow:0 2px 4px rgba(0,0,0,0.5); pointer-events:none;"></i>
                                 </div>`;
                             } else {
                                 mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video', '')"><i class="fa-solid fa-circle-play file-icon" style="color: #3B82F6;"></i></div>`;
@@ -2424,7 +2434,15 @@
                                     <div style="width:80%; height:4px; background:var(--border); border-radius:2px; overflow:hidden; margin-bottom:5px;">
                                         <div id="upload-progress-${file.uuid}" style="width:0%; height:100%; background:var(--primary); transition:width 0.3s;"></div>
                                     </div>
-                                    <span id="upload-text-${file.uuid}" style="font-size:0.75rem; color:var(--text);">في الانتظار...</span>
+                                    <span id="upload-text-${file.uuid}" style="font-size:0.75rem; color:var(--text);">جاري الرفع...</span>
+                                </div>
+                            </div>`;
+                    } else if (file.upload_status === 'merging' || (file.type === 'video' && !file.file_path)) {
+                        mediaHTML = `
+                            <div class="item-preview-box" style="position:relative; background:#f1f5f9;">
+                                <i class="fa-solid fa-gear fa-spin file-icon" style="color: var(--primary); font-size:2rem;"></i>
+                                <div class="item-uploading-overlay">
+                                    <span style="font-size:0.75rem; color:var(--text-muted);">جاري تحسين الفيديو (HLS)...</span>
                                 </div>
                             </div>`;
                     } else {
@@ -3005,6 +3023,7 @@
 
         // Media Preview
         let plyrInstance = null;
+        let hlsInstance = null;
 
         async function viewMedia(src, type, thumbnailPath = '') {
             const viewer = document.getElementById('mediaViewer');
@@ -3035,12 +3054,53 @@
                 if (streamSrc.startsWith('/storage/')) {
                     streamSrc = '/api/v1/stream-video?path=' + encodeURIComponent(streamSrc);
                 }
+
                 const posterAttr = finalThumb ? `poster="${finalThumb}"` : '';
-                content.innerHTML = `<video id="plyrPlayer" controls playsinline ${posterAttr} style="width: 100%; max-height: 90vh;"><source src="${streamSrc}"></video>`;
-                setTimeout(() => {
-                    plyrInstance = new Plyr('#plyrPlayer');
+                content.innerHTML = `<video id="plyrPlayer" controls playsinline ${posterAttr} style="width: 100%; max-height: 90vh;"></video>`;
+
+                const videoEl = document.getElementById('plyrPlayer');
+
+                // If stream is an HLS playlist (ends with .m3u8) and Hls.js is supported
+                if (streamSrc.includes('.m3u8') && Hls.isSupported()) {
+                    hlsInstance = new Hls({
+                        maxMaxBufferLength: 10, // Download only small chunks ahead (like YouTube)
+                        enableWorker: true
+                    });
+                    hlsInstance.loadSource(streamSrc);
+                    hlsInstance.attachMedia(videoEl);
+
+                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, function () {
+                        // Gather quality levels for Plyr configuration
+                        const availableQualities = hlsInstance.levels.map(l => l.height);
+                        availableQualities.unshift(0); // Add 'Auto' quality
+
+                        plyrInstance = new Plyr(videoEl, {
+                            quality: {
+                                default: 0,
+                                options: availableQualities,
+                                forced: true,
+                                onChange: (newQuality) => {
+                                    if (newQuality === 0) {
+                                        hlsInstance.currentLevel = -1; // Auto level
+                                    } else {
+                                        const index = hlsInstance.levels.findIndex(l => l.height === newQuality);
+                                        hlsInstance.currentLevel = index;
+                                    }
+                                }
+                            },
+                            i18n: {
+                                quality: 'الجودة',
+                                speed: 'السرعة'
+                            }
+                        });
+                        plyrInstance.play();
+                    });
+                } else {
+                    // Direct MP4 playback fallback
+                    videoEl.src = streamSrc;
+                    plyrInstance = new Plyr(videoEl);
                     plyrInstance.play();
-                }, 100);
+                }
             } else {
                 window.open(finalSrc, '_blank');
                 closeViewer({ target: { id: 'mediaViewer' } });
@@ -3053,6 +3113,10 @@
                 if (plyrInstance) {
                     plyrInstance.destroy();
                     plyrInstance = null;
+                }
+                if (hlsInstance) {
+                    hlsInstance.destroy();
+                    hlsInstance = null;
                 }
                 document.getElementById('viewerContent').innerHTML = ''; // stop video
             }

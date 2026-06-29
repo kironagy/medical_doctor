@@ -76,16 +76,8 @@ class PatientController extends Controller
     {
         $patient = Patient::findOrFail($id);
         
-        // Delete all associated files from storage first
         $files = PatientFile::where('patient_id', $id)->get();
         foreach ($files as $file) {
-            if ($file->file_path) {
-                $storagePath = str_replace('/storage/', '', $file->file_path);
-                $fullPath = storage_path('app/public/' . $storagePath);
-                if (file_exists($fullPath)) {
-                    @unlink($fullPath);
-                }
-            }
             $file->delete();
         }
         
