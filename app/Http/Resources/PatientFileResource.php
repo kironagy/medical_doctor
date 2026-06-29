@@ -21,6 +21,7 @@ class PatientFileResource extends JsonResource
             'file_name' => $this->file_name,
             'file_path' => $this->file_path,
             'file_url' => $this->file_path ? url($this->file_path) : null,
+            'stream_url' => ($this->file_path && str_contains($this->file_path, '.m3u8')) ? url($this->file_path) : null,
             'thumbnail_path' => $this->thumbnail_path,
             'upload_status' => $this->upload_status,
             'duration' => $this->duration,

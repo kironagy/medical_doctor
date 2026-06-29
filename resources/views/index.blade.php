@@ -2305,13 +2305,14 @@
                         mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'pdf')"><i class="fa-solid fa-file-pdf file-icon" style="color: #EF4444;"></i></div>`;
                     } else if (['mp4','webm','ogg'].includes(ext) || file.type === 'video') {
                         const thumb = file.thumbnail_path || '';
+                        const playSrc = file.stream_url || file.file_path;
                         if (thumb) {
-                            mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video', '${thumb}')" style="position:relative;">
+                            mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${playSrc}', 'video', '${thumb}')" style="position:relative;">
                                 <img src="${thumb}" loading="lazy" style="width:100%; height:100%; object-fit:cover; opacity:0.8;">
                                 <i class="fa-solid fa-circle-play file-icon" style="position:absolute; color:white; font-size:2rem; text-shadow:0 2px 4px rgba(0,0,0,0.5);"></i>
                             </div>`;
                         } else {
-                            mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video', '')"><i class="fa-solid fa-circle-play file-icon" style="color: #3B82F6;"></i></div>`;
+                            mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${playSrc}', 'video', '')"><i class="fa-solid fa-circle-play file-icon" style="color: #3B82F6;"></i></div>`;
                         }
                     } else {
                         mediaHTML = `<div class="item-preview-box" onclick="window.open('${file.file_path}','_blank')"><i class="fa-solid fa-file file-icon"></i></div>`;
@@ -2415,13 +2416,14 @@
                         } else if (['mp4','webm','ogg'].includes(ext) || file.type === 'video') {
                             const thumb = file.thumbnail_path || '';
                             const gif = thumb ? thumb.replace('thumbnail.jpg', 'preview.gif') : '';
+                            const playSrc = file.stream_url || file.file_path;
                             if (thumb) {
-                                mediaHTML = `<div class="item-preview-box video-card-hover" onclick="viewMedia('${file.file_path}', 'video', '${thumb}')" style="position:relative; overflow:hidden;" onmouseenter="const img=this.querySelector('img'); if(img && '${gif}') img.src='${gif}';" onmouseleave="const img=this.querySelector('img'); if(img && '${thumb}') img.src='${thumb}';">
+                                mediaHTML = `<div class="item-preview-box video-card-hover" onclick="viewMedia('${playSrc}', 'video', '${thumb}')" style="position:relative; overflow:hidden;" onmouseenter="const img=this.querySelector('img'); if(img && '${gif}') img.src='${gif}';" onmouseleave="const img=this.querySelector('img'); if(img && '${thumb}') img.src='${thumb}';">
                                     <img src="${thumb}" loading="lazy" style="width:100%; height:100%; object-fit:cover; opacity:0.8;" onerror="this.onerror=null; this.src='https://prof-hosam-fekry.online' + '${thumb}';">
                                     <i class="fa-solid fa-circle-play file-icon" style="position:absolute; color:white; font-size:2rem; text-shadow:0 2px 4px rgba(0,0,0,0.5); pointer-events:none;"></i>
                                 </div>`;
                             } else {
-                                mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'video', '')"><i class="fa-solid fa-circle-play file-icon" style="color: #3B82F6;"></i></div>`;
+                                mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${playSrc}', 'video', '')"><i class="fa-solid fa-circle-play file-icon" style="color: #3B82F6;"></i></div>`;
                             }
                         } else {
                             mediaHTML = `<div class="item-preview-box" onclick="viewMedia('${file.file_path}', 'file')"><i class="fa-solid fa-file file-icon"></i></div>`;
@@ -2701,6 +2703,7 @@
                                 job.status = 'completed';
                                 job.fileRecord.upload_status = 'ready';
                                 job.fileRecord.file_path = data.file_path;
+                                job.fileRecord.stream_url = data.stream_url;
                                 job.fileRecord.thumbnail_path = data.thumbnail_path;
                                 this.renderUI();
 
@@ -2709,6 +2712,7 @@
                                 if (fileInList) {
                                     fileInList.upload_status = 'ready';
                                     fileInList.file_path = data.file_path;
+                                    fileInList.stream_url = data.stream_url;
                                     fileInList.thumbnail_path = data.thumbnail_path;
                                     renderFiles();
                                 }
@@ -3080,8 +3084,15 @@
                 content.innerHTML = `<iframe src="${finalSrc}" style="width: 80vw; height: 90vh; border:none; background: white; border-radius: 8px;"></iframe>`;
             } else if (type === 'video') {
                 let streamSrc = finalSrc;
-                if (streamSrc.startsWith('/storage/')) {
+                if (streamSrc.startsWith('/storage/') && !streamSrc.endsWith('.m3u8')) {
                     streamSrc = '/api/v1/stream-video?path=' + encodeURIComponent(streamSrc);
+                }
+
+                console.log("viewMedia: Loading video source -> " + streamSrc);
+                if (streamSrc.includes('.m3u8')) {
+                    console.log("viewMedia: Playback mode -> HLS Streaming");
+                } else {
+                    console.log("viewMedia: Playback mode -> MP4 Progressive Download");
                 }
 
                 const posterAttr = finalThumb ? `poster="${finalThumb}"` : '';

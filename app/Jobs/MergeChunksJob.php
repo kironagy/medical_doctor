@@ -34,11 +34,12 @@ class MergeChunksJob implements ShouldQueue
         Log::info("MergeChunksJob: started merging process", ['uuid' => $this->uuid, 'total_chunks' => $this->totalChunks]);
 
         $tempDir = 'chunks/' . $this->uuid;
-        $finalName = Str::random(40) . '.' . $this->extension;
-        $finalPath = storage_path('app/public/patient_files/' . $finalName);
+        $hlsFolder = storage_path('app/public/patient_files/' . $this->uuid);
+        $finalName = 'video.' . $this->extension;
+        $finalPath = $hlsFolder . '/' . $finalName;
 
-        if (!file_exists(storage_path('app/public/patient_files'))) {
-            mkdir(storage_path('app/public/patient_files'), 0777, true);
+        if (!file_exists($hlsFolder)) {
+            mkdir($hlsFolder, 0777, true);
         }
 
         $finalFile = fopen($finalPath, 'ab');
@@ -61,7 +62,7 @@ class MergeChunksJob implements ShouldQueue
         $patientFile = PatientFile::where('uuid', $this->uuid)->first();
         if ($patientFile) {
             $patientFile->update([
-                'file_path' => '/storage/patient_files/' . $finalName,
+                'file_path' => '/storage/patient_files/' . $this->uuid . '/' . $finalName,
                 'upload_status' => 'uploaded',
                 'processing_stage' => 'uploaded',
                 'processing_progress' => 20,

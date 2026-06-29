@@ -119,6 +119,7 @@ class PatientFileController extends Controller
             'uuid' => $file->uuid,
             'upload_status' => $file->upload_status,
             'file_path' => $file->file_path,
+            'stream_url' => ($file->file_path && str_contains($file->file_path, '.m3u8')) ? url($file->file_path) : null,
             'thumbnail_path' => $file->thumbnail_path,
             'duration' => $file->duration,
             'resolution' => $file->resolution,
