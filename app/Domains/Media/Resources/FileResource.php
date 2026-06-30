@@ -20,6 +20,7 @@ class FileResource extends JsonResource
             'date' => $this->date?->format('Y-m-d'),
             'file_name' => $this->file_name,
             'file_url' => $this->file_path ? url('storage/' . $this->file_path) : null,
+            'hls_url' => $this->hls_url,
             'thumbnail_url' => $this->thumbnail_path ? url('storage/' . $this->thumbnail_path) : null,
             'upload_status' => $this->upload_status,
             'video_metadata' => $this->video_metadata,

@@ -83,10 +83,13 @@ Route::middleware('auth')->group(function () {
         Route::post('/uploads/init', [\App\Http\Controllers\Api\UploadController::class, 'init']);
         Route::post('/uploads/chunk', [\App\Http\Controllers\Api\UploadController::class, 'chunk']);
         Route::get('/uploads/status', [\App\Http\Controllers\Api\UploadController::class, 'status']);
+        Route::post('/uploads/cancel', [\App\Http\Controllers\Api\UploadController::class, 'cancel']);
         Route::post('/uploads/complete', [\App\Http\Controllers\Api\UploadController::class, 'complete']);
-        
+
         Route::get('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'streamDirect']);
+        Route::get('/files/{uuid}/status', [\App\Http\Controllers\Api\FileAccessController::class, 'status']);
         Route::get('/files/{uuid}/thumbnail', [\App\Http\Controllers\Api\FileAccessController::class, 'thumbnailDirect']);
+        Route::get('/files/{uuid}/hls/{path?}', [\App\Http\Controllers\Api\FileAccessController::class, 'serveHls'])->where('path', '.*');
         Route::delete('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'destroy']);
         Route::put('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'update']);
         

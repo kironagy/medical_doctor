@@ -26,4 +26,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
         );
-    })->create();
+    })
+    ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule): void {
+        // Sweep abandoned upload session dirs hourly (stale chunks from
+        // interrupted/cancelled uploads that never got cleaned up).
+        $schedule->command('uploads:purge-abandoned --hours=6')->hourly();
+    })
+    ->create();

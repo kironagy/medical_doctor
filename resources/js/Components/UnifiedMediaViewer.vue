@@ -29,7 +29,12 @@
       
       <!-- Video Player (Video.js) -->
       <div v-if="type === 'video'" class="w-full h-full flex items-center justify-center bg-black">
-        <video ref="videoPlayer" class="video-js vjs-big-play-centered w-full h-full max-h-screen"></video>
+        <video
+          ref="videoPlayer"
+          class="video-js vjs-big-play-centered w-full h-full max-h-screen"
+          :poster="posterUrl"
+          preload="metadata"
+        ></video>
       </div>
       
       <!-- Image Viewer (v-viewer) -->
@@ -114,6 +119,19 @@ const fileUrl = computed(() => {
   return `/api/v1/files/${props.file.uuid}`;
 });
 
+const posterUrl = computed(() => {
+  if (!props.file) return '';
+  return props.file.thumbnail_url || `/api/v1/files/${props.file.uuid}/thumbnail`;
+});
+
+const hlsUrl = computed(() => {
+  if (!props.file) return '';
+  // PatientFile appends hls_url; Lara props pass it through
+  return props.file.hls_url || props.file.hls_path
+    ? `/api/v1/files/${props.file.uuid}/hls/playlist.m3u8`
+    : null;
+});
+
 const type = computed(() => {
   if (!props.file) return 'unknown';
   const mime = props.file.mime_type || '';
@@ -147,13 +165,26 @@ const initVideo = () => {
   }
   nextTick(() => {
     if (videoPlayer.value) {
+      // Prefer HLS for adaptive streaming on slow networks; fall back to progressive MP4.
+      const sources = hlsUrl.value
+        ? [{ src: hlsUrl.value, type: 'application/x-mpegURL' }]
+        : [{ src: fileUrl.value, type: props.file.mime_type || 'video/mp4' }];
+
       vjsPlayer = videojs(videoPlayer.value, {
         controls: true,
         autoplay: true,
-        preload: 'auto',
+        preload: 'metadata',
         fluid: false,
         playbackRates: [0.5, 1, 1.25, 1.5, 2],
-        sources: [{ src: fileUrl.value, type: props.file.mime_type }]
+        poster: posterUrl.value,
+        html5: {
+          vhs: {
+            overrideNative: true,
+            enableLowInitialPlaylist: true,
+            lowLatencyMode: false,
+          },
+        },
+        sources,
       });
     }
   });

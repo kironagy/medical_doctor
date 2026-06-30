@@ -3,47 +3,23 @@
     <!-- Dropzone (Hidden if Read-Only) -->
     <div 
       v-if="canEdit"
-      class="border-2 border-dashed rounded-xl p-8 text-center transition-colors mb-6"
+      class="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors mb-6 select-none"
       :class="isDragging ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-slate-300 dark:border-slate-700 hover:border-primary-400 dark:hover:border-primary-500 bg-slate-50 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800'"
+      @click="openFileDialog"
       @dragover.prevent="isDragging = true"
       @dragleave.prevent="isDragging = false"
       @drop.prevent="handleDrop"
     >
       <input type="file" multiple ref="fileInput" class="hidden" @change="handleFileSelect">
-      <div class="mx-auto h-12 w-12 text-slate-400 mb-3 flex items-center justify-center">
+      <div class="mx-auto h-12 w-12 text-slate-400 mb-3 flex items-center justify-center pointer-events-none">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
       </div>
-      <h3 class="text-sm font-medium text-slate-900 dark:text-white mb-1">{{ $t('files.click_to_upload') }}</h3>
-      <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">{{ $t('files.upload_hint') }}</p>
-      <BaseButton variant="outline" size="sm" @click="$refs.fileInput.click()">{{ $t('files.select_files') }}</BaseButton>
+      <h3 class="text-sm font-medium text-slate-900 dark:text-white mb-1 pointer-events-none">{{ $t('files.click_to_upload') }}</h3>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-4 pointer-events-none">{{ $t('files.upload_hint') }}</p>
+      <BaseButton variant="outline" size="sm" @click.stop="openFileDialog">{{ $t('files.select_files') }}</BaseButton>
     </div>
 
-    <!-- Upload Progress -->
-    <div v-if="uploadingFiles.length > 0" class="mb-6 space-y-3">
-      <h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300 border-b dark:border-slate-800 pb-2">{{ $t('files.uploading') }} ({{ uploadingFiles.length }})</h4>
-      <div v-for="file in uploadingFiles" :key="file.id" class="bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-lg p-3">
-        <div class="flex justify-between text-sm mb-1 gap-3">
-          <span class="font-medium text-slate-700 dark:text-slate-300 truncate flex items-center gap-2 min-w-0">
-            <span class="truncate">{{ file.name }}</span>
-            <span v-if="file.status === 'retrying'" class="text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300 px-1.5 py-0.5 rounded shrink-0">{{ $t('files.status_retrying') }} #{{ file.retryChunk }}</span>
-            <span v-else-if="file.status === 'failed'" class="text-[10px] font-bold uppercase tracking-wider text-rose-700 bg-rose-100 dark:bg-rose-900/30 dark:text-rose-300 px-1.5 py-0.5 rounded shrink-0">{{ $t('files.failed') }}</span>
-          </span>
-          <span class="text-slate-500 dark:text-slate-400 shrink-0 tabular-nums">{{ file.progress.toFixed(file.progress < 100 ? 1 : 0) }}%</span>
-        </div>
-        <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
-          <div class="h-2 rounded-full transition-[width] duration-150 ease-out"
-               :class="file.status === 'failed' ? 'bg-rose-500' : (file.status === 'merging' ? 'bg-amber-500' : 'bg-primary-500')"
-               :style="{ width: `${file.progress}%` }"></div>
-        </div>
-        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mt-2 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
-          <span>{{ formatSize(file.uploadedBytes) }} / {{ formatSize(file.totalSize) }}</span>
-          <span>{{ $t('files.upload_speed') }}: {{ file.speed > 0 ? formatSpeed(file.speed) : '—' }}</span>
-          <span>{{ $t('files.eta') }}: {{ file.etaText }}</span>
-          <span class="ms-auto px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider"
-                :class="statusBadgeClass(file.status)">{{ statusLabel(file.status) }}</span>
-        </div>
-      </div>
-    </div>
+    <!-- Upload progress is now shown in the global Upload Manager (bottom-right) -->
 
     <!-- File Grid -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -119,7 +95,7 @@
             <p class="text-xs text-slate-500 dark:text-slate-400">{{ formatSize(activeMobileFile.size) }}</p>
           </div>
         </div>
-        
+
         <div class="space-y-2.5">
           <button @click="handleMobilePreview(activeMobileFile)" class="w-full flex items-center space-x-3 rtl:space-x-reverse p-3.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700 transition-colors text-start">
             <div class="w-9 h-9 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
@@ -187,6 +163,7 @@ import { router } from '@inertiajs/vue3';
 import axios from 'axios';
 import BaseButton from '@/Components/BaseButton.vue';
 import { useDialog } from '@/Composables/useDialog';
+import { useUploads } from '@/Composables/useUploads';
 
 const props = defineProps({
   patientId: String,
@@ -197,9 +174,10 @@ const props = defineProps({
 
 const emit = defineEmits(['preview', 'uploaded']);
 
+const { enqueue, onUploaded } = useUploads();
+
 const isDragging = ref(false);
 const fileInput = ref(null);
-const uploadingFiles = ref([]);
 const dialog = useDialog();
 const activeMobileFile = ref(null);
 
@@ -208,9 +186,10 @@ const savingEdit = ref(false);
 const editForm = ref({ id: null, uuid: null, title: '', desc: '' });
 
 let pollInterval = null;
+let offUploaded = () => {};
 
 const checkPolling = () => {
-  const needsPolling = props.files.some(f => 
+  const needsPolling = props.files.some(f =>
     ['queued', 'processing', 'optimizing', 'generating_preview'].includes(f.upload_status)
   );
 
@@ -224,17 +203,25 @@ const checkPolling = () => {
   }
 };
 
-watch(() => props.files, () => {
-  checkPolling();
-}, { deep: true });
+watch(() => props.files, () => { checkPolling(); }, { deep: true });
 
 onMounted(() => {
   checkPolling();
+  // Reload the file grid whenever the global store reports a finished upload
+  // (so newly-uploaded files appear without manual refresh).
+  offUploaded = onUploaded(() => emit('uploaded'));
 });
 
 onUnmounted(() => {
   if (pollInterval) clearInterval(pollInterval);
+  offUploaded();
 });
+
+// ---------- Dropzone ----------
+const openFileDialog = () => {
+  if (!props.canEdit) return;
+  fileInput.value?.click();
+};
 
 const handleDrop = (e) => {
   if (!props.canEdit) return;
@@ -248,86 +235,21 @@ const handleFileSelect = (e) => {
   e.target.value = null; // Reset input
 };
 
+// Delegate uploads to the global background store so they survive navigation.
+const handleFiles = (selectedFiles) => {
+  enqueue(selectedFiles, {
+    patientId: props.patientId,
+    category: props.category,
+  });
+};
+
+// ---------- Helpers ----------
 const formatSize = (bytes) => {
-  if (bytes === 0) return '0 B';
+  if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-};
-
-const handleFiles = (selectedFiles) => {
-  selectedFiles.forEach(file => {
-    const uploadJob = {
-      id: Math.random().toString(36).substring(7),
-      name: file.name,
-      progress: 0,
-      file: file
-    };
-    uploadingFiles.value.push(uploadJob);
-    startChunkedUpload(uploadJob);
-  });
-};
-
-const startChunkedUpload = async (uploadJob) => {
-  try {
-    const chunkSize = 2 * 1024 * 1024; // 2MB
-    const totalChunks = Math.ceil(uploadJob.file.size / chunkSize);
-    
-    // Init upload
-    const initRes = await axios.post('/api/v1/uploads/init', {
-      filename: uploadJob.file.name,
-      total_chunks: totalChunks,
-      patient_id: props.patientId,
-      category: props.category
-    });
-    const sessionId = initRes.data.session_id;
-
-    // Upload chunks
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-      const start = chunkIndex * chunkSize;
-      const end = Math.min(start + chunkSize, uploadJob.file.size);
-      const chunkData = uploadJob.file.slice(start, end);
-
-      const formData = new FormData();
-      formData.append('chunk', chunkData);
-      formData.append('session_id', sessionId);
-      formData.append('chunk_index', chunkIndex);
-
-      await axios.post('/api/v1/uploads/chunk', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      uploadJob.progress = Math.round(((chunkIndex + 1) / totalChunks) * 100);
-    }
-
-    // Complete upload
-    await axios.post('/api/v1/uploads/complete', {
-      session_id: sessionId,
-      total_chunks: totalChunks,
-      patient_uuid: props.patientId,
-      metadata: { 
-        category: props.category,
-        original_name: uploadJob.file.name,
-        extension: uploadJob.file.name.split('.').pop(),
-        type: uploadJob.file.type.split('/')[0] || 'document',
-        mime_type: uploadJob.file.type
-      }
-    });
-
-    // Remove from upload list and emit
-    uploadingFiles.value = uploadingFiles.value.filter(f => f.id !== uploadJob.id);
-    emit('uploaded');
-
-  } catch (error) {
-    console.error('Upload failed', error);
-    uploadJob.progress = 'Error';
-    dialog.alert({
-      title: 'Upload Failed',
-      message: error.response?.data?.message || 'There was an error uploading the file.',
-      style: 'danger'
-    });
-  }
 };
 
 const downloadFile = (file) => {
@@ -410,6 +332,11 @@ const handleMobileDelete = (file) => {
   activeMobileFile.value = null;
   deleteFile(file);
 };
+
+// Allow the parent header "Upload File" button to open the picker
+defineExpose({
+  triggerUpload: openFileDialog,
+});
 </script>
 
 <style>

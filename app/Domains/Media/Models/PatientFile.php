@@ -14,7 +14,8 @@ class PatientFile extends Model
 
     protected $fillable = [
         'uuid', 'patient_id', 'uploaded_by_id', 'title', 'desc', 'type', 'category',
-        'date', 'file_name', 'file_path', 'thumbnail_path', 'upload_status', 'video_metadata',
+        'date', 'file_name', 'file_path', 'hls_path', 'duration', 'width', 'height',
+        'thumbnail_path', 'upload_status', 'video_metadata',
         'client_updated_at', 'mime_type', 'size'
     ];
 
@@ -24,11 +25,17 @@ class PatientFile extends Model
         'client_updated_at' => 'datetime',
     ];
 
-    protected $appends = ['url', 'thumbnail_url', 'name'];
+    protected $appends = ['url', 'thumbnail_url', 'hls_url', 'name'];
 
     public function getUrlAttribute()
     {
         return url('/api/v1/files/' . $this->uuid);
+    }
+
+    public function getHlsUrlAttribute()
+    {
+        if (!$this->hls_path) return null;
+        return url('/api/v1/files/' . $this->uuid . '/hls/playlist.m3u8');
     }
 
     public function getThumbnailUrlAttribute()
