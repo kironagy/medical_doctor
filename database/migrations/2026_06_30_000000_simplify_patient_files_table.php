@@ -11,18 +11,21 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Drop columns only if they exist (may have been added by previous HLS migration)
+        $dropColumns = [];
+        foreach (['hls_path', 'duration', 'width', 'height', 'video_metadata', 'processing_times'] as $col) {
+            if (Schema::hasColumn('patient_files', $col)) {
+                $dropColumns[] = $col;
+            }
+        }
+        if (!empty($dropColumns)) {
+            Schema::table('patient_files', function (Blueprint $table) use ($dropColumns) {
+                $table->dropColumn($dropColumns);
+            });
+        }
+        
+        // Add required columns for simplified system (only if missing)
         Schema::table('patient_files', function (Blueprint $table) {
-            // Remove unnecessary columns from the over-engineered system
-            $table->dropColumn([
-                'hls_path',
-                'duration',
-                'width',
-                'height',
-                'video_metadata',
-                'processing_times'
-            ]);
-            
-            // Add required columns for simplified system
             if (!Schema::hasColumn('patient_files', 'mime_type')) {
                 $table->string('mime_type')->after('file_path');
             }
@@ -30,7 +33,9 @@ return new class extends Migration
             if (!Schema::hasColumn('patient_files', 'size')) {
                 $table->bigInteger('size')->after('mime_type');
             }
-            
+        });
+        
+        Schema::table('patient_files', function (Blueprint $table) {
             // Make required fields non-nullable
             $table->uuid('uuid')->nullable(false)->change();
             $table->string('type')->nullable(false)->change();
