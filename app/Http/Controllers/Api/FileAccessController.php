@@ -21,7 +21,7 @@ class FileAccessController extends Controller
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         $url = URL::temporarySignedRoute(
-            'files.stream', now()->addHours(6), ['uuid' => $file->uuid]
+            'api.files.stream', now()->addHours(6), ['uuid' => $file->uuid]
         );
 
         return response()->json(['url' => $url]);
@@ -126,41 +126,6 @@ class FileAccessController extends Controller
             'Content-Length' => $length,
             'Content-Disposition' => 'inline; filename="' . $file->file_name . '"',
             'Cache-Control' => 'private, max-age=3600',
-        ]);
-    }
-
-    /**
-     * Serve a HLS segment or playlist for a video file.
-     */
-    public function serveHls(Request $request, string $uuid, string $path)
-    {
-        $file = PatientFile::where('uuid', $uuid)->firstOrFail();
-
-        $base = dirname($file->file_path ?? '');
-        // normalize and prevent path traversal
-        $rel = $base . '/hls/' . ltrim($path, '/');
-
-        // disallow ..
-        if (strpos($path, '..') !== false) {
-            abort(403);
-        }
-
-        if (!Storage::disk('local')->exists($rel)) {
-            abort(404, 'HLS segment not found.');
-        }
-
-        $abs = Storage::disk('local')->path($rel);
-        $ext = pathinfo($rel, PATHINFO_EXTENSION);
-
-        $mime = $ext === 'ts'
-            ? 'video/mp2t'
-            : ($ext === 'm3u8' ? 'application/vnd.apple.mpegurl' : 'application/octet-stream');
-
-        // Segments are immutable -> cache aggressively
-        return response()->file($abs, [
-            'Content-Type' => $mime,
-            'Cache-Control' => 'public, max-age=86400',
-            'Access-Control-Allow-Origin' => '*',
         ]);
     }
 

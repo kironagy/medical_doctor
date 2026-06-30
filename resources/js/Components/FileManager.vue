@@ -158,7 +158,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import axios from 'axios';
 import BaseButton from '@/Components/BaseButton.vue';
@@ -174,7 +174,7 @@ const props = defineProps({
 
 const emit = defineEmits(['preview', 'uploaded']);
 
-const { enqueue, onUploaded } = useUploads();
+const { uploadFile } = useUploads();
 
 const isDragging = ref(false);
 const fileInput = ref(null);
@@ -185,39 +185,8 @@ const showEditModal = ref(false);
 const savingEdit = ref(false);
 const editForm = ref({ id: null, uuid: null, title: '', desc: '' });
 
-let pollInterval = null;
-let offUploaded = () => {};
-
-const checkPolling = () => {
-  // Only poll while a file is queued/processing (merge or OptimizeVideoJob in flight).
-  // "optimizing" and "generating_preview" states no longer exist — thumbnail generation
-  // is fully background and does not affect upload_status.
-  const needsPolling = props.files.some(f =>
-    ['queued', 'processing'].includes(f.upload_status)
-  );
-
-  if (needsPolling && !pollInterval) {
-    pollInterval = setInterval(() => {
-      router.reload({ only: ['files'] });
-    }, 3000);
-  } else if (!needsPolling && pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
-  }
-};
-
-watch(() => props.files, () => { checkPolling(); }, { deep: true });
-
 onMounted(() => {
-  checkPolling();
-  // Reload the file grid whenever the global store reports a finished upload
-  // (so newly-uploaded files appear without manual refresh).
-  offUploaded = onUploaded(() => emit('uploaded'));
-});
-
-onUnmounted(() => {
-  if (pollInterval) clearInterval(pollInterval);
-  offUploaded();
+  // No polling needed with direct uploads - files are immediately ready
 });
 
 // ---------- Dropzone ----------
@@ -238,12 +207,30 @@ const handleFileSelect = (e) => {
   e.target.value = null; // Reset input
 };
 
-// Delegate uploads to the global background store so they survive navigation.
+// Handle file uploads with the simplified system
 const handleFiles = (selectedFiles) => {
-  enqueue(selectedFiles, {
-    patientId: props.patientId,
-    category: props.category,
-  });
+  for (const file of selectedFiles) {
+    const metadata = {
+      category: props.category,
+    };
+    
+    const uploadJob = uploadFile(file, props.patientId, metadata);
+    
+    // Watch for completion and reload file list
+    const checkCompletion = () => {
+      if (uploadJob.status === 'completed') {
+        emit('uploaded'); // Trigger parent to reload file list
+      } else if (uploadJob.status !== 'uploading') {
+        // Handle failed uploads
+        console.warn('Upload failed:', uploadJob.error);
+      } else {
+        // Check again in a moment
+        setTimeout(checkCompletion, 100);
+      }
+    };
+    
+    checkCompletion();
+  }
 };
 
 // ---------- Helpers ----------

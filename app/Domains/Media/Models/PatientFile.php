@@ -14,29 +14,21 @@ class PatientFile extends Model
 
     protected $fillable = [
         'uuid', 'patient_id', 'uploaded_by_id', 'title', 'desc', 'type', 'category',
-        'date', 'file_name', 'file_path', 'hls_path', 'duration', 'width', 'height',
-        'thumbnail_path', 'upload_status', 'video_metadata', 'processing_times',
+        'date', 'file_name', 'file_path', 'thumbnail_path', 'upload_status',
         'client_updated_at', 'mime_type', 'size',
     ];
 
     protected $casts = [
-        'date'             => 'date',
-        'video_metadata'   => 'array',
-        'processing_times' => 'array',
+        'date' => 'date',
         'client_updated_at' => 'datetime',
+        'size' => 'integer',
     ];
 
-    protected $appends = ['url', 'thumbnail_url', 'hls_url', 'name'];
+    protected $appends = ['url', 'thumbnail_url', 'name'];
 
     public function getUrlAttribute()
     {
         return url('/api/v1/files/' . $this->uuid);
-    }
-
-    public function getHlsUrlAttribute()
-    {
-        if (!$this->hls_path) return null;
-        return url('/api/v1/files/' . $this->uuid . '/hls/playlist.m3u8');
     }
 
     public function getThumbnailUrlAttribute()
@@ -54,7 +46,9 @@ class PatientFile extends Model
         static::addGlobalScope(new \App\Domains\Auth\Scopes\DoctorIsolationScope);
 
         static::creating(function ($model) {
-            if (empty($model->uuid)) $model->uuid = (string) \Illuminate\Support\Str::uuid();
+            if (empty($model->uuid)) {
+                $model->uuid = (string) Str::uuid();
+            }
         });
     }
 

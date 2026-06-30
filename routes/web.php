@@ -80,17 +80,16 @@ Route::middleware('auth')->group(function () {
 
     // Internal SPA API Routes (Inherits Web Session Auth)
     Route::prefix('api/v1')->group(function () {
-        Route::post('/uploads/init', [\App\Http\Controllers\Api\UploadController::class, 'init']);
-        Route::post('/uploads/chunk', [\App\Http\Controllers\Api\UploadController::class, 'chunk']);
-        Route::get('/uploads/status', [\App\Http\Controllers\Api\UploadController::class, 'status']);
-        Route::post('/uploads/cancel', [\App\Http\Controllers\Api\UploadController::class, 'cancel']);
-        Route::post('/uploads/complete', [\App\Http\Controllers\Api\UploadController::class, 'complete']);
+        // Simplified direct upload endpoint - use UUID instead of ID
+        Route::post('/patients/{patient:uuid}/files', [\App\Http\Controllers\Api\UploadController::class, 'store']);
+        
+        // Optional progress endpoint for compatibility
+        Route::get('/uploads/progress', [\App\Http\Controllers\Api\UploadController::class, 'progress']);
 
-        Route::get('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'streamDirect']);
+        Route::get('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'streamDirect'])->name('api.files.stream');
         Route::get('/files/{uuid}/signed-url', [\App\Http\Controllers\Api\FileAccessController::class, 'generateSignedUrl']);
         Route::get('/files/{uuid}/status', [\App\Http\Controllers\Api\FileAccessController::class, 'status']);
         Route::get('/files/{uuid}/thumbnail', [\App\Http\Controllers\Api\FileAccessController::class, 'thumbnailDirect']);
-        Route::get('/files/{uuid}/hls/{path?}', [\App\Http\Controllers\Api\FileAccessController::class, 'serveHls'])->where('path', '.*');
         Route::delete('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'destroy']);
         Route::put('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'update']);
         

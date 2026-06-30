@@ -13,19 +13,20 @@ return new class extends Migration
     {
         Schema::create('patient_files', function (Blueprint $table) {
             $table->id();
-            $table->uuid('uuid')->nullable()->unique();
+            $table->uuid('uuid')->unique();
             $table->foreignId('patient_id')->constrained()->cascadeOnDelete();
             $table->foreignId('uploaded_by_id')->constrained('users')->cascadeOnDelete();
             $table->string('title')->nullable();
             $table->text('desc')->nullable();
-            $table->string('type')->nullable(); // video, image, document
+            $table->string('type'); // video, image, document
             $table->string('category')->nullable();
             $table->date('date')->nullable();
-            $table->string('file_name')->nullable();
-            $table->string('file_path')->nullable();
+            $table->string('file_name');
+            $table->string('file_path');
+            $table->string('mime_type');
+            $table->bigInteger('size');
             $table->string('thumbnail_path')->nullable();
-            $table->string('upload_status')->default('pending');
-            $table->json('video_metadata')->nullable();
+            $table->string('upload_status')->default('ready'); // Simplified: ready or failed
             $table->timestamp('client_updated_at')->nullable();
             $table->softDeletes();
             $table->timestamps();

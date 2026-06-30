@@ -1,166 +1,170 @@
 <template>
-  <!-- Floating button (collapsed) -->
-  <Transition name="um-fade">
+  <div class="fixed z-50 bottom-4 end-4 md:bottom-4 md:end-4 max-md:bottom-20">
+    <!-- Minimized badge -->
     <button
-      v-if="!open && hasActive"
-      @click="open = true"
-      class="fixed z-[80] bottom-4 right-4 rtl:right-auto rtl:left-4 md:bottom-6 md:right-6 rtl:md:left-6 rtl:md:right-auto flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-lg rounded-full pe-5 ps-3 py-2.5 hover:shadow-xl transition-shadow"
+      v-if="minimized && activeUploads > 0"
+      @click="minimized = false"
+      class="flex items-center gap-2 bg-white dark:bg-slate-900 border dark:border-slate-700 rounded-full shadow-lg px-4 py-2.5 hover:shadow-xl transition-shadow select-none"
     >
-      <span class="relative flex items-center justify-center w-9 h-9 rounded-full bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400">
-        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-        <span v-if="activeJobs.length" class="absolute -top-1 -right-1 rtl:-right-auto rtl:-left-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">{{ activeJobs.length }}</span>
+      <span class="relative flex h-3 w-3">
+        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+        <span class="relative inline-flex rounded-full h-3 w-3 bg-blue-500" />
       </span>
-      <span class="text-sm font-semibold text-slate-700 dark:text-slate-200 tabular-nums">
-        {{ $t('files.uploads_active', { n: activeJobs.length }) }}
+      <span class="text-sm font-medium text-slate-800 dark:text-slate-200">
+        {{ activeUploads }} {{ activeUploads === 1 ? $t('upload_manager.upload') || 'upload' : $t('upload_manager.uploads') || 'uploads' }}
       </span>
-      <span class="text-xs tabular-nums text-slate-500 dark:text-slate-400">{{ totalProgress.toFixed(0) }}%</span>
     </button>
-  </Transition>
 
-  <!-- Panel (expanded) -->
-  <Transition name="um-slide">
+    <!-- Full panel -->
     <div
-      v-if="open"
-      class="fixed z-[85] bottom-0 right-0 rtl:right-auto rtl:left-0 md:bottom-6 md:right-6 rtl:md:left-6 rtl:md:right-auto w-full md:w-96 max-w-md rounded-t-2xl md:rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col"
-      style="max-height: min(70vh, 28rem);"
+      v-show="!minimized && uploads.length > 0"
+      class="bg-white dark:bg-slate-900 border dark:border-slate-700 rounded-xl shadow-2xl w-80 sm:w-96 max-h-[70vh] flex flex-col transition-shadow duration-200 select-none"
+      :class="{ 'shadow-blue-500/10': uploadingCount > 0 }"
     >
       <!-- Header -->
-      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
-        <div class="flex items-center gap-2">
-          <svg class="w-5 h-5 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-          <h3 class="text-sm font-semibold text-slate-800 dark:text-white">{{ $t('files.upload_manager_title') }}</h3>
-        </div>
+      <div class="flex items-center justify-between px-4 py-3 border-b dark:border-slate-800 shrink-0">
+        <h3 class="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+          <svg v-if="uploadingCount > 0" class="animate-spin h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+          <svg v-else class="h-4 w-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          {{ $t('upload_manager.title') || 'Uploads' }}
+          <span class="text-xs text-slate-400 font-normal">({{ uploads.length }})</span>
+        </h3>
         <div class="flex items-center gap-1">
           <button
-            v-if="jobs.some(j => ['completed','cancelled'].includes(j.status))"
+            v-if="completedCount > 0"
             @click="clearCompleted"
-            class="text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 px-2 py-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          >{{ $t('files.clear_finished') }}</button>
-          <button @click="open = false" class="p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            class="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 px-2 py-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          >
+            {{ $t('upload_manager.clear_finished') || 'Clear' }}
+          </button>
+          <button
+            @click="minimized = true"
+            class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+            :title="$t('upload_manager.minimize') || 'Minimize'"
+          >
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
           </button>
         </div>
       </div>
 
-      <!-- Summary -->
-      <div v-if="hasActive" class="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-        <span>{{ $t('files.uploads_active', { n: activeJobs.length }) }}</span>
-        <span class="tabular-nums">{{ totalProgress.toFixed(0) }}%</span>
-        <div class="flex-1 ms-3 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-          <div class="h-full bg-primary-500 rounded-full transition-[width] duration-300 ease-out" :style="{ width: `${totalProgress}%` }"></div>
-        </div>
-      </div>
-
-      <!-- List -->
-      <div class="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-        <div v-if="!jobs.length" class="py-10 text-center text-sm text-slate-400 dark:text-slate-500">{{ $t('files.no_uploads') }}</div>
-
-        <div v-for="job in jobs" :key="job.id" class="px-4 py-3">
-          <div class="flex items-center justify-between gap-2 mb-1.5">
-            <div class="min-w-0 flex items-center gap-2">
-              <span class="truncate text-sm font-medium text-slate-700 dark:text-slate-200">{{ job.name }}</span>
-              <span class="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider" :class="statusBadge(job.status)">{{ statusText(job.status) }}</span>
+      <!-- Body -->
+      <div class="overflow-y-auto overscroll-contain p-3 space-y-2.5 flex-1">
+        <div
+          v-for="upload in uploads"
+          :key="upload.id"
+          class="rounded-xl border dark:border-slate-800 p-3 transition-colors"
+          :class="upload.status === 'failed' ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800' : 'bg-white dark:bg-slate-900'"
+        >
+          <!-- Row: icon + name + action -->
+          <div class="flex items-center gap-2 mb-2">
+            <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+              <svg v-if="upload.file.type?.startsWith('video/')" class="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              <svg v-else-if="upload.file.type?.startsWith('image/')" class="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <svg v-else class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
             </div>
-            <div class="flex items-center gap-1 shrink-0">
-              <button
-                v-if="job.status === 'failed'"
-                @click="retry(job.id)"
-                class="p-1.5 rounded-md text-slate-500 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/30 transition-colors"
-                :title="$t('files.retry_upload')"
-              >
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-              </button>
-              <button
-                v-if="job.cancellable && ['preparing','uploading','merging','processing','retrying'].includes(job.status)"
-                @click="cancel(job.id)"
-                class="p-1.5 rounded-md text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-colors"
-                :title="$t('files.cancel_upload')"
-              >
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-              <button
-                v-if="['completed','cancelled','failed'].includes(job.status)"
-                @click="removeJob(job.id)"
-                class="p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                :title="$t('files.dismiss')"
-              >
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" /></svg>
-              </button>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-medium text-slate-900 dark:text-white truncate" :title="upload.file.name">
+                {{ upload.file.name }}
+              </p>
+              <p class="text-[11px] text-slate-400">{{ formatSize(upload.totalBytes) }}</p>
+            </div>
+            <button
+              v-if="upload.status === 'uploading'"
+              @click="cancelUpload(upload.id)"
+              class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-500 transition-colors"
+              :title="$t('upload_manager.cancel_upload') || 'Cancel'"
+            >
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <button
+              v-else-if="upload.status === 'failed'"
+              @click="retryUpload(upload.id)"
+              class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-red-400 hover:text-red-600 transition-colors"
+              :title="$t('upload_manager.retry_upload') || 'Retry'"
+            >
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+            <div v-else-if="upload.status === 'completed'" class="shrink-0 p-1.5 text-green-500">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
             </div>
           </div>
 
-          <!-- progress bar -->
-          <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden mb-1.5">
-            <div class="h-full rounded-full transition-[width] duration-150 ease-out"
-                 :class="progressBarClass(job.status)"
-                 :style="{ width: `${job.progress}%` }"></div>
+          <!-- Progress bar -->
+          <div v-if="upload.status === 'uploading'" class="mb-1.5">
+            <div class="bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+              <div
+                class="h-full rounded-full transition-all duration-300 ease-out"
+                :class="upload.progress < 50 ? 'bg-blue-500' : upload.progress < 80 ? 'bg-blue-600' : 'bg-green-500'"
+                :style="{ width: upload.progress + '%' }"
+              />
+            </div>
           </div>
 
-          <!-- meta -->
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10.5px] text-slate-500 dark:text-slate-400 tabular-nums">
-            <span>{{ fmtSize(job.uploadedBytes) }} / {{ fmtSize(job.totalSize) }}</span>
-            <span v-if="job.remainingBytes > 0 && job.totalSize">{{ $t('files.remaining_size') }}: {{ fmtSize(job.remainingBytes) }}</span>
-            <span v-if="job.speed > 0 && ['uploading','retrying'].includes(job.status)">{{ fmtSpeed(job.speed) }}</span>
-            <span v-if="['uploading','retrying'].includes(job.status)">{{ job.etaText }}</span>
-            <span v-if="job.retryChunk !== null" class="text-amber-600 dark:text-amber-400">#{{ job.retryChunk }}</span>
-            <span v-if="job.status === 'processing'" class="text-amber-600 dark:text-amber-400">{{ $t('files.uploads_processing') }}…</span>
+          <!-- Status line -->
+          <div class="flex items-center justify-between text-[11px]">
+            <span v-if="upload.status === 'uploading'" class="text-slate-500">
+              <template v-if="upload.speed > 0">
+                {{ formatSize(upload.uploadedBytes) }} / {{ formatSize(upload.totalBytes) }} · {{ formatSpeed(upload.speed) }}
+              </template>
+              <template v-else>{{ formatSize(upload.uploadedBytes) }} / {{ formatSize(upload.totalBytes) }}</template>
+            </span>
+            <span v-else-if="upload.status === 'completed'" class="text-green-600 dark:text-green-400 font-medium">
+              {{ $t('upload_manager.completed') || 'Completed' }}
+            </span>
+            <span v-else-if="upload.status === 'failed'" class="text-red-600 dark:text-red-400 font-medium truncate max-w-[200px]" :title="upload.error">
+              {{ upload.error || ($t('upload_manager.failed') || 'Failed') }}
+            </span>
+            <span v-else-if="upload.status === 'cancelled'" class="text-slate-400">
+              {{ $t('upload_manager.cancelled') || 'Cancelled' }}
+            </span>
+            <span v-if="upload.status === 'uploading' && upload.speed > 0" class="text-slate-400">
+              {{ formatETA(upload.uploadedBytes, upload.totalBytes, upload.speed) }}
+            </span>
           </div>
-
-          <!-- error -->
-          <p v-if="job.status === 'failed' && job.errorMsg" class="mt-1.5 text-[11px] text-rose-600 dark:text-rose-400 line-clamp-2">{{ job.errorMsg }}</p>
         </div>
       </div>
     </div>
-  </Transition>
+  </div>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
-import { useI18n } from 'vue-i18n';
-import { useUploads } from '@/Composables/useUploads';
+import { ref, computed } from 'vue'
+import { useUploads } from '@/Composables/useUploads'
 
-const { t } = useI18n();
-const { jobs, activeJobs, hasActive, totalProgress, cancel, retry, removeJob, clearCompleted, fmtSize, fmtSpeed } = useUploads();
+const { uploads, cancelUpload, retryUpload, clearCompleted, formatSize, formatSpeed } = useUploads()
 
-const open = ref(false);
-// Auto-open the panel the moment an upload becomes active.
-watch(hasActive, (v) => { if (v && !open.value) open.value = true; });
+const minimized = ref(false)
 
-const statusText = (s) =>
-  t('files.status_' + s) || s;
-const statusBadge = (s) => ({
-  preparing: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
-  uploading: 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300',
-  merging: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-  processing: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
-  completed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-  cancelled: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
-  failed: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
-  retrying: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-}[s] || 'bg-slate-100 text-slate-600');
-const progressBarClass = (s) => ({
-  failed: 'bg-rose-500',
-  cancelled: 'bg-slate-400',
-  merging: 'bg-amber-500',
-  processing: 'bg-indigo-500 indeterminate',
-  completed: 'bg-emerald-500',
-  retrying: 'bg-amber-500',
-}[s] || 'bg-primary-500');
+const uploadingCount = computed(() => uploads.value.filter(u => u.status === 'uploading').length)
+const completedCount = computed(() => uploads.value.filter(u => u.status === 'completed').length)
+const activeUploads = computed(() => uploads.value.filter(u => u.status === 'uploading' || u.status === 'failed').length)
+
+function formatETA(loaded, total, speed) {
+  if (!speed || speed <= 0) return ''
+  const remaining = (total - loaded) / speed
+  if (remaining < 5) return '~' + Math.ceil(remaining) + 's'
+  if (remaining < 60) return '~' + Math.round(remaining) + 's'
+  const mins = Math.floor(remaining / 60)
+  const secs = Math.round(remaining % 60)
+  return `~${mins}m ${secs}s`
+}
 </script>
-
-<style scoped>
-.um-fade-enter-active, .um-fade-leave-active { transition: opacity .2s ease, transform .2s ease; }
-.um-fade-enter-from, .um-fade-leave-to { opacity: 0; transform: translateY(10px); }
-.um-slide-enter-active, .um-slide-leave-active { transition: opacity .25s ease, transform .25s ease; }
-.um-slide-enter-from, .um-slide-leave-to { opacity: 0; transform: translateY(20px); }
-@keyframes um-indeterminate {
-  0% { width: 0%; margin-left: 0%; }
-  50% { width: 40%; margin-left: 30%; }
-  100% { width: 0%; margin-left: 100%; }
-}
-.indeterminate {
-  position: relative;
-  width: 40% !important;
-  animation: um-indeterminate 1.4s ease-in-out infinite;
-}
-</style>

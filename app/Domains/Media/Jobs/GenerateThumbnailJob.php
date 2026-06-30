@@ -13,61 +13,84 @@ use App\Domains\Media\Models\PatientFile;
 use Symfony\Component\Process\Process;
 
 /**
- * Lightweight background thumbnail job.
+ * Optional background thumbnail generation for video files.
  *
- * Extracts a single frame from the video (at 1 second or the midpoint,
- * whichever is smaller) using ffmpeg. This is intentionally minimal:
- *   - No re-encoding, no HLS, no metadata extraction.
- *   - No faststart re-mux (the original file streams fine via Range requests).
- *   - If ffmpeg is unavailable or the extraction fails, the job simply logs
- *     the failure and exits cleanly. The video remains fully usable.
+ * This job runs after a video file is already uploaded and marked as 'ready'.
+ * Thumbnail generation failure NEVER affects file usability - the video
+ * remains playable regardless of thumbnail success/failure.
  *
- * The file is already marked "ready" BEFORE this job runs, so a thumbnail
- * failure never blocks the doctor from viewing the file.
- *
- * Business context: medical clinic document storage — not a video platform.
+ * Simple approach:
+ * - Extract one frame at 1 second using ffmpeg
+ * - If ffmpeg fails or is unavailable, log and exit cleanly
+ * - Medical clinic context: reliability over optimization
  */
 class GenerateThumbnailJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /** Give up after 2 minutes — this should take < 5s in practice. */
-    public int $timeout = 120;
-
-    /** Thumbnail is optional; one retry is enough. */
-    public int $tries = 2;
-
-    public int $backoff = 30;
-
-    public function __construct(private readonly PatientFile $patientFile) {}
+    public int $timeout = 120; // 2 minutes max
+    public int $tries = 1; // Single attempt - thumbnail is optional
+    
+    public function __construct(private readonly int $patientFileId) {}
 
     public function handle(): void
     {
-        $t0 = microtime(true);
-
-        $inputPath = Storage::disk('local')->path($this->patientFile->file_path);
-
-        if (!file_exists($inputPath)) {
-            Log::channel('upload')->warning('GenerateThumbnailJob: file not found, skipping', [
-                'uuid' => $this->patientFile->uuid,
+        $patientFile = PatientFile::find($this->patientFileId);
+        
+        if (!$patientFile) {
+            Log::warning('GenerateThumbnailJob: PatientFile not found', [
+                'patient_file_id' => $this->patientFileId,
             ]);
             return;
         }
 
-        // Seek to 1s. For very short clips (< 1s), ffmpeg will just grab the
-        // first available frame instead — no error.
-        $thumbRelPath = substr($this->patientFile->file_path, 0, strrpos($this->patientFile->file_path, '.'))
-            . '_thumb.jpg';
-        $thumbAbsPath = Storage::disk('local')->path($thumbRelPath);
+        // Only generate thumbnails for video files
+        if ($patientFile->type !== 'video') {
+            return;
+        }
 
+        $inputPath = Storage::disk('local')->path($patientFile->file_path);
+
+        if (!file_exists($inputPath)) {
+            Log::warning('GenerateThumbnailJob: video file not found', [
+                'uuid' => $patientFile->uuid,
+                'file_path' => $patientFile->file_path,
+            ]);
+            return;
+        }
+
+        try {
+            $this->generateThumbnail($patientFile, $inputPath);
+        } catch (\Exception $e) {
+            Log::warning('GenerateThumbnailJob: thumbnail generation failed (non-critical)', [
+                'uuid' => $patientFile->uuid,
+                'error' => $e->getMessage(),
+            ]);
+            // Continue - thumbnail failure should never block anything
+        }
+    }
+
+    private function generateThumbnail(PatientFile $patientFile, string $inputPath): void
+    {
+        // Generate thumbnail path
+        $thumbRelPath = $this->generateThumbnailPath($patientFile);
+        $thumbAbsPath = Storage::disk('local')->path($thumbRelPath);
+        
+        // Ensure thumbnail directory exists
+        $thumbDir = dirname($thumbAbsPath);
+        if (!is_dir($thumbDir)) {
+            mkdir($thumbDir, 0755, true);
+        }
+
+        // FFmpeg command to extract thumbnail at 1 second
         $cmd = [
             'ffmpeg',
-            '-y',
-            '-ss', '1',           // seek to 1s (fast input-side seek)
+            '-y', // overwrite output files
+            '-ss', '1', // seek to 1 second
             '-i', $inputPath,
-            '-vframes', '1',       // extract exactly one frame
-            '-vf', 'scale=-1:300', // scale to 300px height, keep aspect ratio
-            '-q:v', '5',           // JPEG quality (2=best, 31=worst; 5 is fine for a thumbnail)
+            '-vframes', '1', // extract one frame
+            '-vf', 'scale=-1:300', // scale to 300px height, maintain aspect ratio
+            '-q:v', '5', // good JPEG quality
             $thumbAbsPath,
         ];
 
@@ -75,44 +98,35 @@ class GenerateThumbnailJob implements ShouldQueue
         $process->setTimeout(60);
         $process->run();
 
-        $elapsed = round((microtime(true) - $t0) * 1000, 2);
-
-        if (!$process->isSuccessful() || !file_exists($thumbAbsPath) || filesize($thumbAbsPath) < 512) {
-            Log::channel('upload')->warning('GenerateThumbnailJob: ffmpeg thumbnail failed (non-critical)', [
-                'uuid'    => $this->patientFile->uuid,
-                'ms'      => $elapsed,
-                'stderr'  => substr($process->getErrorOutput(), 0, 400),
-            ]);
-            // Clean up any partial file
-            if (file_exists($thumbAbsPath)) {
-                @unlink($thumbAbsPath);
-            }
-            return; // file is already "ready" — this failure is non-blocking
+        // Check if thumbnail was created successfully
+        if (!$process->isSuccessful() || !file_exists($thumbAbsPath) || filesize($thumbAbsPath) < 100) {
+            throw new \Exception('FFmpeg thumbnail extraction failed: ' . $process->getErrorOutput());
         }
 
-        // Merge timing into existing processing_times, then save thumbnail path.
-        $times = $this->patientFile->processing_times ?? [];
-        $times['thumbnail_ms'] = $elapsed;
-
-        $this->patientFile->update([
-            'thumbnail_path'   => $thumbRelPath,
-            'processing_times' => $times,
+        // Update PatientFile with thumbnail path
+        $patientFile->update([
+            'thumbnail_path' => $thumbRelPath,
         ]);
 
-        Log::channel('upload')->info('GenerateThumbnailJob: done', [
-            'uuid' => $this->patientFile->uuid,
-            'ms'   => $elapsed,
+        Log::info('Thumbnail generated successfully', [
+            'uuid' => $patientFile->uuid,
+            'thumbnail_path' => $thumbRelPath,
         ]);
     }
 
+    private function generateThumbnailPath(PatientFile $patientFile): string
+    {
+        $pathInfo = pathinfo($patientFile->file_path);
+        return $pathInfo['dirname'] . '/' . $pathInfo['filename'] . '_thumb.jpg';
+    }
+
     /**
-     * If the job fails entirely (both tries exhausted), log it and move on.
-     * The video file is already "ready" and fully usable without a thumbnail.
+     * Handle job failure - log but don't block anything.
      */
     public function failed(\Throwable $e): void
     {
-        Log::channel('upload')->warning('GenerateThumbnailJob: permanently failed (non-critical)', [
-            'uuid'  => $this->patientFile->uuid,
+        Log::warning('GenerateThumbnailJob failed permanently (non-critical)', [
+            'patient_file_id' => $this->patientFileId,
             'error' => $e->getMessage(),
         ]);
     }
