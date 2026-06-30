@@ -1,150 +1,375 @@
 import { ref, reactive } from 'vue'
 import axios from 'axios'
+import { useUploadDiagnostics } from './useUploadDiagnostics'
 
 const uploads = ref([])
 let idCounter = 0
+const POOL_SIZE = 3
+const MAX_RETRIES = 3
+const CHUNK_SIZE = 5 * 1024 * 1024
+const STORAGE_KEY = 'upload_sessions'
+
+function loadPersisted() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') } catch { return {} }
+}
+function savePersisted(s) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)) } catch {}
+}
+function fileKey(f) {
+  return `${f.name}_${f.size}_${f.lastModified || 0}`
+}
+function formatSize(b) {
+  if (!b || b === 0) return '0 B'
+  const k = 1024, sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(b) / Math.log(k))
+  return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+function formatSpeed(bps) {
+  if (!bps || bps <= 0) return ''
+  return formatSize(bps) + '/s'
+}
 
 export function useUploads() {
-  function uploadFile(file, patientId, metadata = {}) {
+  function createJob(file, patientId, metadata) {
     const id = ++idCounter
     const job = reactive({
-      id,
-      file,
-      patientId,
-      status: 'uploading',
-      progress: 0,
-      uploadedBytes: 0,
-      totalBytes: file.size,
-      speed: 0,
-      error: null,
-      _controller: null,
-      _lastLoaded: 0,
-      _lastTime: Date.now(),
+      id, file, patientId,
+      metadata: { ...metadata },
+      status: 'pending', progress: 0, uploadedBytes: 0,
+      totalBytes: file.size, speed: 0, error: null,
+      uploadId: null, chunkSize: CHUNK_SIZE, totalChunks: 0,
+      completedChunks: new Set(),
+      inFlightChunks: new Set(),
+      failedChunks: new Map(),
+      _controllers: new Map(),
+      _paused: false, _cancelled: false,
+      _lastLoaded: 0, _lastTime: Date.now(),
     })
     uploads.value.push(job)
+    return job
+  }
 
-    const formData = new FormData()
-    formData.append('file', file)
-    if (metadata.title) formData.append('title', metadata.title)
-    if (metadata.desc) formData.append('desc', metadata.desc)
-    if (metadata.category) formData.append('category', metadata.category)
-    if (metadata.date) formData.append('date', metadata.date)
+  function uploadFile(file, patientId, metadata = {}) {
+    const job = createJob(file, patientId, metadata)
+    const debug = useUploadDiagnostics(file, patientId)
+    if (debug) { job._debug = debug; debug.logFileInfo(); debug.startNetworkMonitor(); debug.sampleMemory() }
+    startUpload(job, debug)
+    return job
+  }
 
-    const controller = new AbortController()
-    job._controller = controller
+  async function startUpload(job, debug = null) {
+    const d = debug || job?._debug || null
+    try {
+      const patientId = job.patientId
+      const metadata = job.metadata || {}
+      const persisted = loadPersisted()
+      const key = fileKey(job.file)
+      let uploadId = null
+      let completedSet = new Set()
 
-    axios.post(`/api/v1/patients/${patientId}/files`, formData, {
-      signal: controller.signal,
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: (e) => {
-        if (e.total) {
-          job.progress = Math.round((e.loaded / e.total) * 100)
-          job.uploadedBytes = e.loaded
-          const now = Date.now()
-          const elapsed = (now - job._lastTime) / 1000
-          if (elapsed > 0.5) {
-            const deltaBytes = e.loaded - job._lastLoaded
-            job.speed = Math.round(deltaBytes / elapsed)
-            job._lastLoaded = e.loaded
-            job._lastTime = now
+      d?.sampleMemory()
+
+      // Resume check
+      if (persisted[key] && persisted[key].status === 'uploading') {
+        d?._record('resume_check')
+        try {
+          const r = await axios.get(`/api/v1/chunk/${persisted[key].upload_id}/status`)
+          if (r.data.status === 'uploading' || r.data.status === 'pending') {
+            uploadId = r.data.uuid
+            completedSet = new Set(r.data.received_chunks || [])
+            d?._record('resumed_session', { uuid: uploadId, chunks: completedSet.size })
           }
+        } catch {
+          delete persisted[key]; savePersisted(persisted)
+          d?.recordError('resume_check', new Error('Failed to check resume status'))
         }
-      },
-    }).then(() => {
+      }
+
+      if (!uploadId) {
+        const meta = {}
+        if (metadata.title) meta.title = metadata.title
+        if (metadata.desc) meta.desc = metadata.desc
+        if (metadata.category) meta.category = metadata.category
+        if (metadata.date) meta.date = metadata.date
+
+        d?._record('init_start')
+        const initRes = await axios.post('/api/v1/chunk/init', {
+          file_name: job.file.name,
+          file_size: job.file.size,
+          mime_type: job.file.type || 'application/octet-stream',
+          patient_id: patientId,
+          chunk_size: CHUNK_SIZE,
+          metadata: Object.keys(meta).length ? meta : undefined,
+        })
+        uploadId = initRes.data.upload_id
+        job.chunkSize = initRes.data.chunk_size
+        d?.setUploadUuid(uploadId)
+        d?._record('init_complete', { uuid: uploadId, chunkSize: job.chunkSize })
+      }
+
+      d?.sampleMemory()
+      job.uploadId = uploadId
+      job.chunkSize ??= CHUNK_SIZE
+      job.totalChunks = Math.ceil(job.file.size / job.chunkSize)
+      job.completedChunks = completedSet
+      job.status = 'uploading'
+
+      persisted[key] = {
+        upload_id: uploadId, file_name: job.file.name,
+        file_size: job.file.size, patient_id: patientId,
+        total_chunks: job.totalChunks, status: 'uploading',
+      }
+      savePersisted(persisted)
+
+      // Log chunk generation mode
+      if (d) {
+        const allIdx = []
+        for (let i = 0; i < job.totalChunks; i++) {
+          if (!job.completedChunks.has(i)) allIdx.push(i)
+        }
+        d.setAllPregenerated(allIdx.length === 0 || allIdx.length === job.totalChunks)
+        d._record('pool_start', { totalChunks: job.totalChunks, missing: allIdx.length })
+      }
+
+      // Upload with lazy parallel pool
+      await runPool(job, d)
+
+      if (job._cancelled) { d?._record('cancelled_after_pool'); return }
+
+      // Complete
+      d?._record('complete_start')
+      if (job.uploadId) {
+        d?.onMergeStart()
+        await axios.post('/api/v1/chunk/complete', { upload_id: job.uploadId })
+        d?.onMergeComplete()
+      }
       job.status = 'completed'
       job.progress = 100
-      job.speed = 0
-    }).catch((err) => {
-      if (axios.isCancel(err) || err.name === 'CanceledError') {
+
+      delete persisted[key]; savePersisted(persisted)
+      d?._record('upload_completed')
+      d?.printReport()
+      d?.sampleMemory()
+      delete job.file
+
+    } catch (err) {
+      if (err.name === 'CanceledError' || axios.isCancel(err)) {
         job.status = 'cancelled'
+        d?._record('cancelled', { reason: err.message })
       } else {
         job.status = 'failed'
         job.error = err.response?.data?.message || err.message || 'Upload failed'
+        d?.recordError('startUpload', err)
       }
-    })
+    }
+    d?.stopNetworkMonitor()
+  }
 
-    return job
+  // Lazy parallel pool — yields chunk indexes on demand via generator.
+  // Only POOL_SIZE chunks exist in memory at any time.
+  // The first chunk starts uploading immediately; subsequent chunks
+  // are created lazily via Blob.slice() as upload slots free up.
+  async function runPool(job, debug = null) {
+    const d = debug || job?._debug || null
+    const pool = new Set()
+
+    // Lazily produce the next missing chunk index without allocating an array
+    function* missingChunks() {
+      for (let i = 0; i < job.totalChunks; i++) {
+        if (!job.completedChunks.has(i)) yield i
+      }
+    }
+
+    // Upload a single chunk, catching errors for later propagation
+    const errors = []
+    async function uploadSafe(chunkIndex) {
+      try {
+        await uploadChunk(job, chunkIndex, d)
+      } catch (err) {
+        errors.push(err)
+      }
+    }
+
+    for (const chunkIndex of missingChunks()) {
+      if (job._cancelled || job._paused) break
+      if (pool.size >= POOL_SIZE) {
+        d?.snapshotPool(pool.size)
+        await Promise.race(pool)
+        d?.detectSequential(pool.size)
+        if (job._cancelled || job._paused) break
+      }
+      d?.markChunkCreated(chunkIndex)
+      d?.setChunksInMemory(pool.size + 1)
+      d?.onChunkQueued(chunkIndex)
+      const p = uploadSafe(chunkIndex).finally(() => pool.delete(p))
+      pool.add(p)
+    }
+
+    if (pool.size > 0) {
+      d?.snapshotPool(pool.size)
+      await Promise.allSettled(Array.from(pool))
+    }
+
+    if (errors.length > 0 && !job._cancelled && !job._paused) {
+      d?.recordError('runPool', errors[0])
+      throw errors[0]
+    }
+  }
+
+  async function uploadChunk(job, chunkIndex, debug = null) {
+    const d = debug || job?._debug || null
+
+    d?.onChunkBlobStart(chunkIndex)
+    const start = chunkIndex * job.chunkSize
+    const end = Math.min(start + job.chunkSize, job.totalBytes)
+    const blob = job.file?.slice(start, end)
+    d?.onChunkBlobEnd(chunkIndex, blob?.size || 0)
+    if (!blob) return
+
+    const controller = new AbortController()
+    job._controllers.set(chunkIndex, controller)
+    job.inFlightChunks.add(chunkIndex)
+
+    let lastError = null
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (job._cancelled || job._paused) break
+      if (attempt > 0) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000)
+        d?.onChunkRetry(chunkIndex, attempt, delay, lastError)
+        await new Promise(r => setTimeout(r, delay))
+      }
+      try {
+        d?.onChunkUploadStarted(chunkIndex)
+        const fd = new FormData()
+        fd.append('upload_id', job.uploadId)
+        fd.append('chunk_index', chunkIndex)
+        fd.append('chunk', blob, `chunk_${chunkIndex}`)
+
+        await axios.post('/api/v1/chunk/chunk', fd, {
+          signal: controller.signal,
+          timeout: 120000,
+          onUploadProgress: (e) => {
+            d?.onChunkUploadProgress(chunkIndex, e.loaded, e.total)
+          },
+        })
+
+        d?.onChunkResponseReceived(chunkIndex)
+        const parallelCount = job.inFlightChunks.size + 1
+        d?.onChunkComplete(chunkIndex, 200, parallelCount)
+        d?.sampleMemory()
+
+        job.completedChunks.add(chunkIndex)
+        job.inFlightChunks.delete(chunkIndex)
+        job._controllers.delete(chunkIndex)
+        job.failedChunks.delete(chunkIndex)
+        job.progress = Math.round((job.completedChunks.size / job.totalChunks) * 100)
+        job.uploadedBytes = job.completedChunks.size * job.chunkSize
+
+        const now = Date.now()
+        if (now - job._lastTime > 200) {
+          const db = job.uploadedBytes - job._lastLoaded
+          job.speed = db > 0 ? Math.round(db / ((now - job._lastTime) / 1000)) : 0
+          job._lastLoaded = job.uploadedBytes
+          job._lastTime = now
+        }
+        return
+      } catch (err) {
+        lastError = err
+        if (err.name === 'CanceledError' || axios.isCancel(err)) {
+          job.inFlightChunks.delete(chunkIndex)
+          d?.recordError(`chunk_${chunkIndex}_cancelled`, err)
+          throw err
+        }
+        job.failedChunks.set(chunkIndex, attempt + 1)
+      }
+    }
+    job.inFlightChunks.delete(chunkIndex)
+    job._controllers.delete(chunkIndex)
+    const finalErr = lastError || new Error(`Chunk ${chunkIndex} failed`)
+    d?.recordError(`chunk_${chunkIndex}_failed_after_retries`, finalErr)
+    throw finalErr
   }
 
   function cancelUpload(id) {
     const job = uploads.value.find(u => u.id === id)
-    if (job && job._controller) {
-      job._controller.abort()
+    if (!job) return
+    job._debug?._record('cancel_called')
+    job._cancelled = true
+    job._controllers.forEach(c => c.abort())
+    job._controllers.clear()
+    job.inFlightChunks.clear()
+    job.status = 'cancelled'
+    if (job.uploadId) {
+      axios.post(`/api/v1/chunk/${job.uploadId}/cancel`).catch(() => {})
+      const p = loadPersisted()
+      for (const k of Object.keys(p)) { if (p[k].upload_id === job.uploadId) delete p[k] }
+      savePersisted(p)
     }
+  }
+
+  function pauseUpload(id) {
+    const job = uploads.value.find(u => u.id === id)
+    if (!job || job.status !== 'uploading') return
+    job._debug?._record('pause_called')
+    job._paused = true
+    job._controllers.forEach(c => c.abort())
+    job._controllers.clear()
+    job.status = 'paused'
+  }
+
+  function resumeUpload(id) {
+    const job = uploads.value.find(u => u.id === id)
+    if (!job || job.status !== 'paused') return
+    job._debug?._record('resume_called')
+    job.status = 'uploading'
+    job._paused = false
+    job._cancelled = false
+    executeRetry(job)
   }
 
   function retryUpload(id) {
     const job = uploads.value.find(u => u.id === id)
     if (!job) return
+    job._debug?._record('retry_called')
     job.status = 'uploading'
-    job.progress = 0
-    job.uploadedBytes = 0
-    job.speed = 0
     job.error = null
-    job._lastLoaded = 0
-    job._lastTime = Date.now()
+    job._cancelled = false
+    job._paused = false
+    job.failedChunks.clear()
+    executeRetry(job)
+  }
 
-    const formData = new FormData()
-    formData.append('file', job.file)
-
-    const controller = new AbortController()
-    job._controller = controller
-
-    axios.post(`/api/v1/patients/${job.patientId}/files`, formData, {
-      signal: controller.signal,
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: (e) => {
-        if (e.total) {
-          job.progress = Math.round((e.loaded / e.total) * 100)
-          job.uploadedBytes = e.loaded
-          const now = Date.now()
-          const elapsed = (now - job._lastTime) / 1000
-          if (elapsed > 0.5) {
-            const deltaBytes = e.loaded - job._lastLoaded
-            job.speed = Math.round(deltaBytes / elapsed)
-            job._lastLoaded = e.loaded
-            job._lastTime = now
-          }
-        }
-      },
-    }).then(() => {
-      job.status = 'completed'
-      job.progress = 100
-      job.speed = 0
-    }).catch((err) => {
-      if (axios.isCancel(err) || err.name === 'CanceledError') {
-        job.status = 'cancelled'
-      } else {
-        job.status = 'failed'
-        job.error = err.response?.data?.message || err.message || 'Upload failed'
+  async function executeRetry(job) {
+    const d = job?._debug || null
+    try {
+      if (!job.uploadId || !job.totalChunks) {
+        d?._record('retry_start_from_scratch')
+        await startUpload(job, d)
+        return
       }
-    })
+      d?._record('retry_start')
+      await runPool(job, d)
+      if (job._cancelled) return
+      d?.onMergeStart()
+      await axios.post('/api/v1/chunk/complete', { upload_id: job.uploadId })
+      d?.onMergeComplete()
+      job.status = 'completed'; job.progress = 100
+      d?._record('retry_completed')
+      d?.printReport()
+      delete job.file
+    } catch (err) {
+      job.status = 'failed'
+      job.error = err.response?.data?.message || err.message || 'Upload failed'
+      d?.recordError('executeRetry', err)
+    }
   }
 
   function clearCompleted() {
     uploads.value = uploads.value.filter(u => u.status === 'uploading' || u.status === 'failed')
   }
 
-  function formatSize(bytes) {
-    if (!bytes || bytes === 0) return '0 B'
-    const k = 1024
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
-  }
-
-  function formatSpeed(bytesPerSec) {
-    if (!bytesPerSec || bytesPerSec <= 0) return ''
-    return formatSize(bytesPerSec) + '/s'
-  }
-
   return {
-    uploads,
-    uploadFile,
-    cancelUpload,
-    retryUpload,
-    clearCompleted,
-    formatSize,
-    formatSpeed,
+    uploads, uploadFile, cancelUpload, pauseUpload, resumeUpload,
+    retryUpload, clearCompleted, formatSize, formatSpeed,
   }
 }

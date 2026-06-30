@@ -197,6 +197,19 @@
     "desc_optional": "الوصف (اختياري)",
     "desc_placeholder": "أضف وصفاً للملف..."
   },
+  "upload_manager": {
+    "title": "الرفع",
+    "clear_finished": "مسح المنتهي",
+    "minimize": "تصغير",
+    "cancel_upload": "إلغاء",
+    "retry_upload": "إعادة",
+    "completed": "اكتمل",
+    "failed": "فشل",
+    "cancelled": "ملغي",
+    "paused": "متوقف",
+    "upload": "رفع",
+    "uploads": "رفع"
+  },
   "doctors_show": {
     "files_uploaded": "الملفات المرفوعة",
     "storage": "المساحة المستخدمة",

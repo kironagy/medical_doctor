@@ -197,6 +197,19 @@
     "desc_optional": "Description (optional)",
     "desc_placeholder": "Add a description for the file..."
   },
+  "upload_manager": {
+    "title": "Uploads",
+    "clear_finished": "Clear finished",
+    "minimize": "Minimize",
+    "cancel_upload": "Cancel",
+    "retry_upload": "Retry",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "paused": "Paused",
+    "upload": "upload",
+    "uploads": "uploads"
+  },
   "doctors_show": {
     "files_uploaded": "Files Uploaded",
     "storage": "Storage Used",

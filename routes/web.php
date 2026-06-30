@@ -80,6 +80,13 @@ Route::middleware('auth')->group(function () {
 
     // Internal SPA API Routes (Inherits Web Session Auth)
     Route::prefix('api/v1')->group(function () {
+        // Chunked upload endpoints
+        Route::post('/chunk/init', [\App\Http\Controllers\Api\ChunkUploadController::class, 'init']);
+        Route::post('/chunk/chunk', [\App\Http\Controllers\Api\ChunkUploadController::class, 'chunk']);
+        Route::post('/chunk/complete', [\App\Http\Controllers\Api\ChunkUploadController::class, 'complete']);
+        Route::post('/chunk/{uuid}/cancel', [\App\Http\Controllers\Api\ChunkUploadController::class, 'cancel']);
+        Route::get('/chunk/{uuid}/status', [\App\Http\Controllers\Api\ChunkUploadController::class, 'status']);
+
         // Simplified direct upload endpoint - use UUID instead of ID
         Route::post('/patients/{patient:uuid}/files', [\App\Http\Controllers\Api\UploadController::class, 'store']);
         

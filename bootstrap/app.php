@@ -28,8 +28,6 @@ return Application::configure(basePath: dirname(__DIR__))
         );
     })
     ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule): void {
-        // Sweep abandoned upload session dirs hourly (stale chunks from
-        // interrupted/cancelled uploads that never got cleaned up).
-        $schedule->command('uploads:purge-abandoned --hours=6')->hourly();
+        $schedule->command('uploads:purge-expired --hours=6')->hourly();
     })
     ->create();
