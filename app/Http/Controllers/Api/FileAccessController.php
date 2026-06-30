@@ -28,12 +28,27 @@ class FileAccessController extends Controller
     }
 
     /**
-     * Stream the actual file. Protected by Signed URL middleware.
+     * Stream the actual file.
+     *
+     * Accessible via two paths:
+     *  1. Web session (SPA) — user is authenticated, DoctorIsolationScope applies.
+     *  2. Temporary signed URL (/api/files/{uuid}/stream?signature=…) — no session,
+     *     so we bypass the global scope; the signature itself proves prior authorization.
+     *
      * Supports HTTP Range requests (206 Partial Content) for byte-range seeks.
      */
     public function streamDirect(Request $request, string $uuid)
     {
-        $file = PatientFile::where('uuid', $uuid)->firstOrFail();
+        // Signed-URL requests have no authenticated user, so we must bypass the
+        // DoctorIsolationScope (which would return nothing and trigger a 404).
+        // The signature is cryptographically tied to the UUID and expires, so
+        // skipping the scope here is safe — authorization already happened when
+        // the signed URL was generated.
+        $query = $request->hasValidSignature()
+            ? PatientFile::withoutGlobalScopes()->where('uuid', $uuid)
+            : PatientFile::where('uuid', $uuid);
+
+        $file = $query->firstOrFail();
 
         $path = $file->file_path;
         if (!Storage::disk('local')->exists($path)) {

@@ -87,6 +87,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/uploads/complete', [\App\Http\Controllers\Api\UploadController::class, 'complete']);
 
         Route::get('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'streamDirect']);
+        Route::get('/files/{uuid}/signed-url', [\App\Http\Controllers\Api\FileAccessController::class, 'generateSignedUrl']);
         Route::get('/files/{uuid}/status', [\App\Http\Controllers\Api\FileAccessController::class, 'status']);
         Route::get('/files/{uuid}/thumbnail', [\App\Http\Controllers\Api\FileAccessController::class, 'thumbnailDirect']);
         Route::get('/files/{uuid}/hls/{path?}', [\App\Http\Controllers\Api\FileAccessController::class, 'serveHls'])->where('path', '.*');

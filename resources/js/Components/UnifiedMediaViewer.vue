@@ -114,22 +114,21 @@ const textContent = ref('');
 const loadingText = ref(false);
 const codeBlock = ref(null);
 
+// Signed URL for media that the browser fetches directly (video, audio, image, pdf).
+// We fetch it once when the viewer opens and cache it for the session lifetime.
+const signedUrl = ref('');
+const loadingSignedUrl = ref(false);
+
 const fileUrl = computed(() => {
   if (!props.file) return '';
-  return `/api/v1/files/${props.file.uuid}`;
+  // For text files we use axios (which sends cookies), so direct URL is fine.
+  // For everything else we use a signed URL fetched below.
+  return signedUrl.value || `/api/v1/files/${props.file.uuid}`;
 });
 
 const posterUrl = computed(() => {
   if (!props.file) return '';
   return props.file.thumbnail_url || `/api/v1/files/${props.file.uuid}/thumbnail`;
-});
-
-const hlsUrl = computed(() => {
-  if (!props.file) return '';
-  // PatientFile appends hls_url; Lara props pass it through
-  return props.file.hls_url || props.file.hls_path
-    ? `/api/v1/files/${props.file.uuid}/hls/playlist.m3u8`
-    : null;
 });
 
 const type = computed(() => {
@@ -159,16 +158,35 @@ const textLanguage = computed(() => {
   return map[ext] || 'language-plaintext';
 });
 
+/**
+ * Fetch a temporary signed URL from the server so the browser can load
+ * the file directly (video, image, PDF, audio) without needing a session
+ * cookie on the media request itself.
+ */
+const fetchSignedUrl = async () => {
+  if (!props.file) return;
+  loadingSignedUrl.value = true;
+  try {
+    const res = await axios.get(`/api/v1/files/${props.file.uuid}/signed-url`);
+    signedUrl.value = res.data.url;
+  } catch (e) {
+    // Fall back to direct URL — will work as long as the session cookie is sent.
+    signedUrl.value = `/api/v1/files/${props.file.uuid}`;
+    console.warn('Could not fetch signed URL, falling back to direct URL', e);
+  } finally {
+    loadingSignedUrl.value = false;
+  }
+};
+
 const initVideo = () => {
   if (vjsPlayer) {
     vjsPlayer.dispose();
+    vjsPlayer = null;
   }
   nextTick(() => {
     if (videoPlayer.value) {
-      // Always use direct progressive streaming with Range request support.
-      // HLS is no longer generated — this is a document storage system, not
-      // a video platform. The streamDirect endpoint supports 206 Partial Content
-      // so seeking works perfectly without any transcoding.
+      // Use the signed URL so the browser's media engine can fetch the file
+      // independently of the session cookie (Range requests work correctly).
       const sources = [{ src: fileUrl.value, type: props.file.mime_type || 'video/mp4' }];
 
       vjsPlayer = videojs(videoPlayer.value, {
@@ -188,7 +206,8 @@ const initText = async () => {
   loadingText.value = true;
   textContent.value = '';
   try {
-    const res = await axios.get(fileUrl.value, { responseType: 'text' });
+    // axios sends session cookies so the direct URL works fine for text files.
+    const res = await axios.get(`/api/v1/files/${props.file.uuid}`, { responseType: 'text' });
     textContent.value = res.data;
     nextTick(() => {
       if (codeBlock.value) {
@@ -202,8 +221,14 @@ const initText = async () => {
   }
 };
 
-watch(() => props.show, (newVal) => {
+watch(() => props.show, async (newVal) => {
   if (newVal && props.file) {
+    // For types that the browser fetches natively (video, audio, image, pdf),
+    // get a signed URL first so the request succeeds without a session cookie.
+    if (type.value !== 'text' && type.value !== 'unknown') {
+      await fetchSignedUrl();
+    }
+
     if (type.value === 'video') {
       initVideo();
     } else if (type.value === 'text') {
@@ -213,6 +238,7 @@ watch(() => props.show, (newVal) => {
     if (vjsPlayer) {
       vjsPlayer.pause();
     }
+    signedUrl.value = '';
   }
 });
 
