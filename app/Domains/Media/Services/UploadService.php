@@ -132,8 +132,16 @@ class UploadService
     /**
      * Merge all chunks into the final file, compute SHA-256 in a single pass,
      * create the PatientFile record, and clean up the session.
+     *
+     * @param string $sessionId The upload session ID
+     * @param string $fileUuid The pre-generated UUID for the file (from /complete)
+     * @param int $totalChunks Total number of chunks to merge
+     * @param Patient $patient The patient this file belongs to
+     * @param array $fileMetadata File metadata (original_name, extension, etc.)
+     * @param int $uploaderId The user ID of the uploader
+     * @return PatientFile The created file record
      */
-    public function mergeChunks(string $sessionId, int $totalChunks, Patient $patient, array $fileMetadata, int $uploaderId): PatientFile
+    public function mergeChunks(string $sessionId, string $fileUuid, int $totalChunks, Patient $patient, array $fileMetadata, int $uploaderId): PatientFile
     {
         $this->assertValidSession($sessionId);
         $t0 = microtime(true);
@@ -141,7 +149,7 @@ class UploadService
         $disk = Storage::disk('local');
         $extension = $this->sanitizeExtension($fileMetadata['extension'] ?? 'tmp');
 
-        $fileUuid = (string) Str::uuid();
+        // Use the pre-generated UUID passed from /complete endpoint
         $finalRelPath = "patients/{$patient->uuid}/{$fileUuid}.{$extension}";
         $patientDir = "patients/{$patient->uuid}";
         $this->ensureDir($patientDir);
@@ -227,34 +235,75 @@ class UploadService
             'hash' => $hash,
         ]);
 
-        // Bridge session_id → file_uuid so the client can follow the async
-        // merge + processing pipeline after a browser refresh.
-        Cache::put("upload:{$sessionId}", $fileUuid, now()->addHours(6));
-
+        // Note: The session→UUID mapping is already stored in /complete endpoint.
+        // The job updates the session status to 'processing' after this method returns.
         return $patientFile;
     }
 
     /**
      * Look up the PatientFile produced by a (now-merged) session, if any.
-     * Returns null until MergeChunksJob finishes.
+     * 
+     * This method checks TWO sources to avoid race conditions:
+     * 1. The session cache (contains UUID + status)
+     * 2. Direct PatientFile lookup by UUID (fallback if cache is stale)
+     * 
+     * Returns null ONLY when:
+     * - The session cache doesn't exist AND
+     * - No PatientFile with the UUID exists
      */
     public function sessionFile(string $sessionId): ?array
     {
         $this->assertValidSession($sessionId);
+        $sessionKey = "upload:{$sessionId}";
 
-        $uuid = Cache::get("upload:{$sessionId}");
-        if (!$uuid) return null;
+        // First, check the session cache
+        $sessionData = Cache::get($sessionKey);
+        
+        if ($sessionData) {
+            // Handle both old format (string UUID) and new format (array with metadata)
+            $uuid = is_array($sessionData) ? ($sessionData['uuid'] ?? null) : $sessionData;
+            
+            if ($uuid) {
+                $file = PatientFile::where('uuid', $uuid)->first();
+                if ($file) {
+                    return [
+                        'uuid' => $file->uuid,
+                        'upload_status' => $file->upload_status,
+                        'type' => $file->type,
+                        'thumbnail_url' => $file->thumbnail_url,
+                        'hls_url' => $file->hls_url,
+                    ];
+                }
+            }
+        }
 
-        $file = PatientFile::where('uuid', $uuid)->first();
-        if (!$file) return null;
+        return null;
+    }
 
-        return [
-            'uuid' => $file->uuid,
-            'upload_status' => $file->upload_status,
-            'type' => $file->type,
-            'thumbnail_url' => $file->thumbnail_url,
-            'hls_url' => $file->hls_url,
-        ];
+    /**
+     * Get the session data including status and UUID.
+     * Returns null if the session doesn't exist.
+     */
+    public function getSessionData(string $sessionId): ?array
+    {
+        $this->assertValidSession($sessionId);
+        $sessionKey = "upload:{$sessionId}";
+        
+        $sessionData = Cache::get($sessionKey);
+        
+        if (!$sessionData) {
+            return null;
+        }
+        
+        // Handle both old format (string UUID) and new format (array with metadata)
+        if (is_string($sessionData)) {
+            return [
+                'uuid' => $sessionData,
+                'status' => 'unknown',
+            ];
+        }
+        
+        return $sessionData;
     }
 
     /**

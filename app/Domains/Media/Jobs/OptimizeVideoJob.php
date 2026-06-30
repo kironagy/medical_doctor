@@ -8,6 +8,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use App\Domains\Media\Models\PatientFile;
 
 /**
@@ -50,6 +51,9 @@ class OptimizeVideoJob implements ShouldQueue
 
         $elapsed = round((microtime(true) - $t0) * 1000, 2);
 
+        // Update the session cache to reflect 'ready' status
+        $this->updateSessionStatus('ready');
+
         // Record timing — best-effort, never blocks marking the file ready.
         try {
             $times = $this->patientFile->processing_times ?? [];
@@ -69,11 +73,51 @@ class OptimizeVideoJob implements ShouldQueue
         GenerateThumbnailJob::dispatch($this->patientFile)->onQueue('video');
     }
 
+    /**
+     * Update the session cache to reflect the current status.
+     */
+    private function updateSessionStatus(string $status): void
+    {
+        // Find the session by looking for the file UUID in cache keys
+        // We store session→uuid mapping, so we need to find which session has this UUID
+        try {
+            $fileUuid = $this->patientFile->uuid;
+            
+            // Check a limited number of recent sessions (cache keys with upload: prefix)
+            // This is a best-effort update - the /status endpoint also checks PatientFile directly
+            $redis = Cache::getRedis();
+            $keys = $redis->keys('*upload:*');
+            
+            foreach ($keys as $key) {
+                $sessionData = Cache::get($key);
+                if (is_array($sessionData) && ($sessionData['uuid'] ?? null) === $fileUuid) {
+                    $sessionData['status'] = $status;
+                    $sessionData['ready_at'] = now()->toIso8601String();
+                    Cache::put($key, $sessionData, now()->addHours(6));
+                    
+                    Log::channel('upload')->debug('OptimizeVideoJob: updated session status', [
+                        'file_uuid' => $fileUuid,
+                        'status' => $status,
+                        'session_key' => $key,
+                    ]);
+                    break;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Session update is best-effort - don't fail the job
+            Log::channel('upload')->debug('OptimizeVideoJob: could not update session status', [
+                'file_uuid' => $this->patientFile->uuid,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
     public function failed(\Throwable $e): void
     {
         // Even if this job fails somehow, try to mark the file usable.
         try {
             $this->patientFile->update(['upload_status' => 'ready']);
+            $this->updateSessionStatus('ready');
         } catch (\Throwable) {
             // best effort
         }

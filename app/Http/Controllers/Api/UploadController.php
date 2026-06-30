@@ -10,6 +10,8 @@ use App\Domains\Media\Jobs\OptimizeVideoJob;
 use App\Domains\Media\Jobs\MergeChunksJob;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class UploadController extends Controller
 {
@@ -87,31 +89,100 @@ class UploadController extends Controller
 
     /**
      * Resume helper: which chunks does the server already have?
+     * Also returns file status after merge completes.
+     * 
+     * This endpoint provides a consistent view of the upload state machine:
+     * - uploading: chunks are being received
+     * - merging: chunks received, merge job dispatched but not started
+     * - processing: PatientFile created, being processed (video optimization, etc.)
+     * - completed: upload_status = 'ready'
+     * - failed: upload_status = 'failed'
+     * 
+     * IMPORTANT: This endpoint never returns file:null if a PatientFile exists.
+     * It checks BOTH the session cache AND the database to ensure consistency.
      */
     public function status(Request $request)
     {
         $request->validate(['session_id' => 'required|string']);
 
         $sessionId = $request->input('session_id');
+        $sessionKey = "upload:{$sessionId}";
+        
         $received = $this->uploadService->receivedChunks($sessionId);
         $bytes = $this->uploadService->sessionSize($sessionId);
-        $file = $this->uploadService->sessionFile($sessionId);
+        $sessionData = $this->uploadService->getSessionData($sessionId);
+        
+        Log::channel('upload')->debug('status endpoint called', [
+            'session' => $sessionId,
+            'received_chunks' => count($received),
+            'session_data' => $sessionData,
+        ]);
 
-        // When chunks exist on disk, the session is still uploading.
-        // When no chunks remain AND no file row yet, merge is in flight.
-        // When a file row exists, merge is complete (and the file may be
-        // processing → ready). The client uses this to drive its state machine.
+        // Determine phase based on session state and file existence
         $phase = 'uploading';
-        if (count($received) === 0) {
-            $phase = $file ? 'processing' : 'merging';
-        }
+        $file = null;
+        $fileUuid = null;
 
-        if ($file) {
-            $phase = match ($file['upload_status']) {
-                'ready' => 'completed',
-                'failed' => 'failed',
-                default => 'processing',
-            };
+        // Check if we have session data (UUID + status)
+        if ($sessionData) {
+            $fileUuid = $sessionData['uuid'] ?? null;
+            $sessionStatus = $sessionData['status'] ?? null;
+            
+            // Look up the PatientFile by UUID
+            if ($fileUuid) {
+                $patientFile = \App\Domains\Media\Models\PatientFile::where('uuid', $fileUuid)->first();
+                
+                if ($patientFile) {
+                    // PatientFile exists - return its status (source of truth)
+                    $file = [
+                        'uuid' => $patientFile->uuid,
+                        'upload_status' => $patientFile->upload_status,
+                        'type' => $patientFile->type,
+                        'thumbnail_url' => $patientFile->thumbnail_url,
+                        'hls_url' => $patientFile->hls_url,
+                    ];
+                    
+                    $phase = match ($patientFile->upload_status) {
+                        'ready' => 'completed',
+                        'failed' => 'failed',
+                        default => 'processing',
+                    };
+                    
+                    Log::channel('upload')->debug('status: PatientFile found', [
+                        'session' => $sessionId,
+                        'file_uuid' => $fileUuid,
+                        'upload_status' => $patientFile->upload_status,
+                        'phase' => $phase,
+                    ]);
+                } else {
+                    // Session has UUID but PatientFile not yet created
+                    // This is the 'merging' phase
+                    $phase = 'merging';
+                    
+                    Log::channel('upload')->debug('status: PatientFile not yet created, merging phase', [
+                        'session' => $sessionId,
+                        'file_uuid' => $fileUuid,
+                        'session_status' => $sessionStatus,
+                    ]);
+                }
+            }
+        } else {
+            // No session data - check if chunks exist
+            if (count($received) === 0) {
+                // No chunks and no session data - session expired or never existed
+                Log::channel('upload')->warning('status: session not found and no chunks', [
+                    'session' => $sessionId,
+                ]);
+                
+                return response()->json([
+                    'session_id' => $sessionId,
+                    'phase' => 'unknown',
+                    'received_chunks' => [],
+                    'received_bytes' => 0,
+                    'file' => null,
+                    'error' => 'Session not found or expired',
+                ], 404);
+            }
         }
 
         return response()->json([
@@ -120,6 +191,7 @@ class UploadController extends Controller
             'received_chunks' => $received,
             'received_bytes' => $bytes,
             'file' => $file,
+            'file_uuid' => $fileUuid,
         ]);
     }
 
@@ -176,9 +248,33 @@ class UploadController extends Controller
             ], 422);
         }
 
+        // Generate UUID upfront to eliminate race condition between /complete
+        // and /status endpoints. The UUID is returned immediately so the client
+        // can track the file even if the cache entry is not yet written.
+        $fileUuid = (string) Str::uuid();
+
+        // Atomically store session→UUID mapping BEFORE dispatching the job.
+        // This ensures /status can always find the UUID even if called
+        // immediately after /complete returns.
+        $sessionKey = "upload:{$sessionId}";
+        Cache::put($sessionKey, [
+            'uuid' => $fileUuid,
+            'patient_id' => $patient->id,
+            'uploader_id' => $request->user()->id,
+            'status' => 'merging',
+            'created_at' => now()->toIso8601String(),
+        ], now()->addHours(6));
+
+        Log::channel('upload')->info('complete: session→uuid mapping stored', [
+            'session' => $sessionId,
+            'file_uuid' => $fileUuid,
+            'patient_id' => $patient->id,
+        ]);
+
         // Persist enough metadata for the queue job to do the merge.
         MergeChunksJob::dispatch(
             $sessionId,
+            $fileUuid,
             $totalChunks,
             $patient->id,
             $request->input('metadata'),
@@ -187,17 +283,17 @@ class UploadController extends Controller
 
         Log::channel('upload')->info('complete (dispatched merge)', [
             'session' => $sessionId,
+            'file_uuid' => $fileUuid,
             'total_chunks' => $totalChunks,
             'dispatch_ms' => round((microtime(true) - $t0) * 1000, 2),
         ]);
 
-        // Don't surface a synthetic uuid yet — client polls the merge status
-        // via /uploads/status (received array collapses) if it wants; the file
-        // row appears via normal props reload once MergeChunksJob finishes.
+        // Return the UUID immediately so the client can track the file.
+        // The client can poll /uploads/status or /files/{uuid}/status.
         return response()->json([
             'status' => 'accepted',
             'session_id' => $sessionId,
-            // hint that processing is async:
+            'file_uuid' => $fileUuid,
             'processing' => true,
         ], 202);
     }

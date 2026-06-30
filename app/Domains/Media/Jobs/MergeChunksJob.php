@@ -8,6 +8,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use App\Domains\Media\Services\UploadService;
 use App\Domains\Patients\Models\Patient;
 use Exception;
@@ -36,6 +37,7 @@ class MergeChunksJob implements ShouldQueue
 
     public function __construct(
         public readonly string $sessionId,
+        public readonly string $fileUuid,
         public readonly int    $totalChunks,
         public readonly int    $patientId,
         public readonly array  $metadata,
@@ -45,12 +47,26 @@ class MergeChunksJob implements ShouldQueue
     public function handle(UploadService $uploadService): void
     {
         $t0 = microtime(true);
+        $sessionKey = "upload:{$this->sessionId}";
+
+        Log::channel('upload')->info('MergeChunksJob: started', [
+            'session'    => $this->sessionId,
+            'file_uuid'  => $this->fileUuid,
+            'total_chunks' => $this->totalChunks,
+        ]);
 
         $patient = Patient::findOrFail($this->patientId);
+
+        // Update session status to 'merging' before starting the merge
+        $sessionData = Cache::get($sessionKey, []);
+        $sessionData['status'] = 'merging';
+        $sessionData['merge_started_at'] = now()->toIso8601String();
+        Cache::put($sessionKey, $sessionData, now()->addHours(6));
 
         // Merge chunks → creates PatientFile row with upload_status = 'queued'.
         $file = $uploadService->mergeChunks(
             $this->sessionId,
+            $this->fileUuid,
             $this->totalChunks,
             $patient,
             $this->metadata,
@@ -66,10 +82,22 @@ class MergeChunksJob implements ShouldQueue
             'merge_ms'   => $mergeMs,
         ]);
 
+        // Update session status to 'processing' after PatientFile is created
+        $sessionData = Cache::get($sessionKey, []);
+        $sessionData['status'] = 'processing';
+        $sessionData['patient_file_created_at'] = now()->toIso8601String();
+        Cache::put($sessionKey, $sessionData, now()->addHours(6));
+
         if ($file->type === 'video') {
             OptimizeVideoJob::dispatch($file)->onQueue('video');
         } else {
             $file->update(['upload_status' => 'ready']);
+            
+            // Update session status to 'ready' for non-video files
+            $sessionData = Cache::get($sessionKey, []);
+            $sessionData['status'] = 'ready';
+            $sessionData['ready_at'] = now()->toIso8601String();
+            Cache::put($sessionKey, $sessionData, now()->addHours(6));
         }
 
         // Record timing — best-effort, never blocks the critical path.
@@ -87,8 +115,18 @@ class MergeChunksJob implements ShouldQueue
 
     public function failed(\Throwable $exception): void
     {
+        $sessionKey = "upload:{$this->sessionId}";
+        
+        // Update session status to 'failed'
+        $sessionData = Cache::get($sessionKey, []);
+        $sessionData['status'] = 'failed';
+        $sessionData['error'] = $exception->getMessage();
+        $sessionData['failed_at'] = now()->toIso8601String();
+        Cache::put($sessionKey, $sessionData, now()->addHours(6));
+        
         Log::channel('upload')->error('MergeChunksJob failed', [
             'session' => $this->sessionId,
+            'file_uuid' => $this->fileUuid,
             'error'   => $exception->getMessage(),
         ]);
     }
