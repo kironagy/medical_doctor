@@ -37,23 +37,171 @@ class FileAccessController extends Controller
      *
      * Supports HTTP Range requests (206 Partial Content) for byte-range seeks.
      */
-    public function streamDirect(Request $request, string $uuid)
-    {
-        // Signed-URL requests have no authenticated user, so we must bypass the
-        // DoctorIsolationScope (which would return nothing and trigger a 404).
-        // The signature is cryptographically tied to the UUID and expires, so
-        // skipping the scope here is safe — authorization already happened when
-        // the signed URL was generated.
-       logger()->info('STREAM DEBUG', [
-        'signed' => $request->hasValidSignature(),
-        'auth' => auth()->check(),
-        'user' => auth()->id(),
-        'url' => $request->fullUrl(),
-        'headers' => [
-            'cookie' => $request->header('cookie'),
-            'range' => $request->header('range'),
-        ],
-    ]);
+  public function streamDirect(Request $request, string $uuid)
+{
+    try {
+        logger()->info('STEP 1 - Request', [
+            'uuid' => $uuid,
+            'signed' => $request->hasValidSignature(),
+            'auth' => auth()->check(),
+            'user' => auth()->id(),
+            'url' => $request->fullUrl(),
+            'headers' => [
+                'cookie' => $request->header('cookie'),
+                'range' => $request->header('range'),
+            ],
+        ]);
+
+        $query = $request->hasValidSignature()
+            ? PatientFile::withoutGlobalScopes()->where('uuid', $uuid)
+            : PatientFile::where('uuid', $uuid);
+
+        logger()->info('STEP 2 - Query Built');
+
+        $file = $query->firstOrFail();
+
+        logger()->info('STEP 3 - File Found', [
+            'uuid' => $file->uuid,
+            'file_path' => $file->file_path,
+            'upload_status' => $file->upload_status,
+        ]);
+
+        $path = $file->file_path;
+
+        $storageExists = Storage::disk('local')->exists($path);
+
+        logger()->info('STEP 4 - Storage Check', [
+            'exists' => $storageExists,
+            'path' => $path,
+        ]);
+
+        if (!$storageExists) {
+            abort(404, 'File not found on disk.');
+        }
+
+        $absolutePath = Storage::disk('local')->path($path);
+
+        logger()->info('STEP 5 - Absolute Path', [
+            'absolute' => $absolutePath,
+            'file_exists' => file_exists($absolutePath),
+            'is_readable' => is_readable($absolutePath),
+        ]);
+
+        $fileSize = filesize($absolutePath);
+
+        logger()->info('STEP 6 - File Size', [
+            'size' => $fileSize,
+        ]);
+
+        $mime = mime_content_type($absolutePath) ?: 'application/octet-stream';
+
+        logger()->info('STEP 7 - Mime', [
+            'mime' => $mime,
+        ]);
+
+        $rangeHeader = $request->header('Range');
+
+        logger()->info('STEP 8 - Range', [
+            'range' => $rangeHeader,
+        ]);
+
+        if (!$rangeHeader) {
+            logger()->info('STEP 9 - Full File Response');
+
+            return response()->file($absolutePath, [
+                'Content-Type' => $mime,
+                'Accept-Ranges' => 'bytes',
+                'Content-Disposition' => 'inline; filename="' . $file->file_name . '"',
+            ]);
+        }
+
+        if (!preg_match('/bytes=(\d*)-(\d*)/', $rangeHeader, $m)) {
+            logger()->warning('STEP 10 - Invalid Range');
+
+            return response('', 416)
+                ->header('Content-Range', "bytes */{$fileSize}");
+        }
+
+        $start = $m[1] !== '' ? (int) $m[1] : null;
+        $end = $m[2] !== '' ? (int) $m[2] : null;
+
+        if ($start === null && $end !== null) {
+            $start = max(0, $fileSize - $end);
+            $end = $fileSize - 1;
+        } elseif ($start === null) {
+            $start = 0;
+            $end = $fileSize - 1;
+        }
+
+        if ($end === null || $end >= $fileSize) {
+            $end = $fileSize - 1;
+        }
+
+        if ($start > $end || $start >= $fileSize) {
+            logger()->warning('STEP 11 - Invalid Byte Range', [
+                'start' => $start,
+                'end' => $end,
+                'fileSize' => $fileSize,
+            ]);
+
+            return response('', 416)
+                ->header('Content-Range', "bytes */{$fileSize}");
+        }
+
+        $length = $end - $start + 1;
+
+        logger()->info('STEP 12 - Streaming', [
+            'start' => $start,
+            'end' => $end,
+            'length' => $length,
+        ]);
+
+        $fp = fopen($absolutePath, 'rb');
+
+        if (!$fp) {
+            throw new \RuntimeException('Unable to open file for reading.');
+        }
+
+        if ($start > 0) {
+            fseek($fp, $start);
+        }
+
+        logger()->info('STEP 13 - Returning Stream');
+
+        return new StreamedResponse(function () use ($fp, $length) {
+            $remaining = $length;
+            $buffer = 256 * 1024;
+
+            while (!feof($fp) && $remaining > 0) {
+                $read = min($buffer, $remaining);
+                echo fread($fp, $read);
+                $remaining -= $read;
+                flush();
+            }
+
+            fclose($fp);
+        }, 206, [
+            'Content-Type' => $mime,
+            'Accept-Ranges' => 'bytes',
+            'Content-Range' => "bytes {$start}-{$end}/{$fileSize}",
+            'Content-Length' => $length,
+            'Content-Disposition' => 'inline; filename="' . $file->file_name . '"',
+            'Cache-Control' => 'private, max-age=3600',
+        ]);
+
+    } catch (\Throwable $e) {
+
+        logger()->error('STREAM FAILED', [
+            'uuid' => $uuid,
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+
+        throw $e;
+    }
+}
 
     $query = $request->hasValidSignature()
         ? PatientFile::withoutGlobalScopes()->where('uuid', $uuid)
