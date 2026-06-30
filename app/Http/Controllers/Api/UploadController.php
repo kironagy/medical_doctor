@@ -8,6 +8,7 @@ use App\Domains\Media\Services\UploadService;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Jobs\OptimizeVideoJob;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 
 class UploadController extends Controller
 {
@@ -15,8 +16,43 @@ class UploadController extends Controller
 
     public function init(Request $request)
     {
+        $t0 = microtime(true);
+
+        $request->validate([
+            'filename' => 'sometimes|string|max:255',
+            'total_chunks' => 'sometimes|integer|min:1',
+            'resume' => 'sometimes|boolean',
+        ]);
+
+        $sessionId = (string) Str::uuid();
+
+        // Resume support: client may pass an existing session_id to recover an
+        // interrupted upload and learn which chunks are already on disk.
+        if ($request->boolean('resume') && $request->filled('session_id')) {
+            $sessionId = $request->input('session_id');
+            $received = $this->uploadService->receivedChunks($sessionId);
+
+            Log::channel('upload')->info('init-resume', [
+                'session' => $sessionId,
+                'received' => count($received),
+                'ms' => round((microtime(true) - $t0) * 1000, 2),
+            ]);
+
+            return response()->json([
+                'session_id' => $sessionId,
+                'received_chunks' => $received,
+            ]);
+        }
+
+        Log::channel('upload')->info('init', [
+            'session' => $sessionId,
+            'filename' => $request->input('filename'),
+            'ms' => round((microtime(true) - $t0) * 1000, 2),
+        ]);
+
         return response()->json([
-            'session_id' => (string) Str::uuid()
+            'session_id' => $sessionId,
+            'received_chunks' => [],
         ]);
     }
 
@@ -25,30 +61,52 @@ class UploadController extends Controller
         $request->validate([
             'session_id' => 'required|string',
             'chunk' => 'required|file',
-            'chunk_index' => 'required|integer',
+            'chunk_index' => 'required|integer|min:0',
         ]);
 
         $this->uploadService->storeChunk(
-            $request->session_id, 
-            $request->file('chunk'), 
-            $request->chunk_index
+            $request->session_id,
+            $request->file('chunk'),
+            (int) $request->chunk_index
         );
 
-        return response()->json(['status' => 'chunk_received']);
+        return response()->json([
+            'status' => 'chunk_received',
+            'chunk_index' => (int) $request->chunk_index,
+        ]);
+    }
+
+    /**
+     * Returns already-received chunk indexes for a session (used by the client
+     * to resume an interrupted upload after a refresh/crash).
+     */
+    public function status(Request $request)
+    {
+        $request->validate([
+            'session_id' => 'required|string',
+        ]);
+
+        $received = $this->uploadService->receivedChunks($request->input('session_id'));
+
+        return response()->json([
+            'session_id' => $request->input('session_id'),
+            'received_chunks' => $received,
+        ]);
     }
 
     public function complete(Request $request)
     {
+        $t0 = microtime(true);
+
         $request->validate([
             'session_id' => 'required|string',
-            'total_chunks' => 'required|integer',
+            'total_chunks' => 'required|integer|min:1',
             'patient_uuid' => 'required|string|exists:patients,uuid',
             'metadata' => 'required|array',
         ]);
 
         $patient = Patient::where('uuid', $request->patient_uuid)->firstOrFail();
-        
-        // Enforce Permissions (Primary Doctor or Read & Write Share)
+
         if ($request->user()->cannot('update', $patient)) {
             return response()->json(['message' => 'You do not have permission to upload files for this patient.'], 403);
         }
@@ -62,24 +120,23 @@ class UploadController extends Controller
         );
 
         if ($patientFile->type === 'video') {
-            // Dispatch the video processing pipeline
             OptimizeVideoJob::dispatch($patientFile)->onQueue('video');
         } else {
-            // If it's an image, dispatch to preview queue. Otherwise just mark ready.
-            if ($patientFile->type === 'image') {
-                // For now just mark ready, or dispatch GeneratePreviewJob if we had one.
-                $patientFile->update(['upload_status' => 'ready']);
-            } else {
-                $patientFile->update(['upload_status' => 'ready']);
-            }
+            $patientFile->update(['upload_status' => 'ready']);
         }
+
+        Log::channel('upload')->info('complete', [
+            'session' => $request->session_id,
+            'file_uuid' => $patientFile->uuid,
+            'total_ms' => round((microtime(true) - $t0) * 1000, 2),
+        ]);
 
         return response()->json([
             'status' => 'success',
             'file' => [
                 'uuid' => $patientFile->uuid,
-                'status' => $patientFile->upload_status
-            ]
+                'status' => $patientFile->upload_status,
+            ],
         ]);
     }
 }

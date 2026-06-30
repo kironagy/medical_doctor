@@ -82,6 +82,7 @@ Route::middleware('auth')->group(function () {
     Route::prefix('api/v1')->group(function () {
         Route::post('/uploads/init', [\App\Http\Controllers\Api\UploadController::class, 'init']);
         Route::post('/uploads/chunk', [\App\Http\Controllers\Api\UploadController::class, 'chunk']);
+        Route::get('/uploads/status', [\App\Http\Controllers\Api\UploadController::class, 'status']);
         Route::post('/uploads/complete', [\App\Http\Controllers\Api\UploadController::class, 'complete']);
         
         Route::get('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'streamDirect']);

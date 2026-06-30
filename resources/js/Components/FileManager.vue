@@ -22,12 +22,25 @@
     <div v-if="uploadingFiles.length > 0" class="mb-6 space-y-3">
       <h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300 border-b dark:border-slate-800 pb-2">{{ $t('files.uploading') }} ({{ uploadingFiles.length }})</h4>
       <div v-for="file in uploadingFiles" :key="file.id" class="bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-lg p-3">
-        <div class="flex justify-between text-sm mb-1">
-          <span class="font-medium text-slate-700 dark:text-slate-300 truncate me-4">{{ file.name }}</span>
-          <span class="text-slate-500 dark:text-slate-400 shrink-0">{{ file.progress }}%</span>
+        <div class="flex justify-between text-sm mb-1 gap-3">
+          <span class="font-medium text-slate-700 dark:text-slate-300 truncate flex items-center gap-2 min-w-0">
+            <span class="truncate">{{ file.name }}</span>
+            <span v-if="file.status === 'retrying'" class="text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300 px-1.5 py-0.5 rounded shrink-0">{{ $t('files.status_retrying') }} #{{ file.retryChunk }}</span>
+            <span v-else-if="file.status === 'failed'" class="text-[10px] font-bold uppercase tracking-wider text-rose-700 bg-rose-100 dark:bg-rose-900/30 dark:text-rose-300 px-1.5 py-0.5 rounded shrink-0">{{ $t('files.failed') }}</span>
+          </span>
+          <span class="text-slate-500 dark:text-slate-400 shrink-0 tabular-nums">{{ file.progress.toFixed(file.progress < 100 ? 1 : 0) }}%</span>
         </div>
-        <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2">
-          <div class="bg-primary-500 h-2 rounded-full transition-all duration-300" :style="{ width: `${file.progress}%` }"></div>
+        <div class="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+          <div class="h-2 rounded-full transition-[width] duration-150 ease-out"
+               :class="file.status === 'failed' ? 'bg-rose-500' : (file.status === 'merging' ? 'bg-amber-500' : 'bg-primary-500')"
+               :style="{ width: `${file.progress}%` }"></div>
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mt-2 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+          <span>{{ formatSize(file.uploadedBytes) }} / {{ formatSize(file.totalSize) }}</span>
+          <span>{{ $t('files.upload_speed') }}: {{ file.speed > 0 ? formatSpeed(file.speed) : '—' }}</span>
+          <span>{{ $t('files.eta') }}: {{ file.etaText }}</span>
+          <span class="ms-auto px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider"
+                :class="statusBadgeClass(file.status)">{{ statusLabel(file.status) }}</span>
         </div>
       </div>
     </div>
@@ -80,15 +93,22 @@
     </div>
 
     <!-- Mobile Bottom Sheet -->
-    <div v-if="activeMobileFile" class="fixed inset-0 z-50 flex flex-col justify-end md:hidden">
+    <div v-if="activeMobileFile" class="fixed inset-0 z-[70] flex flex-col justify-end md:hidden">
       <!-- Backdrop -->
       <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity" @click="activeMobileFile = null"></div>
-      
+
       <!-- Sheet -->
-      <div class="relative bg-white dark:bg-slate-900 rounded-t-2xl p-6 shadow-2xl transform transition-transform animate-slide-up">
-        <div class="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto mb-6"></div>
-        
-        <div class="flex items-center space-x-4 rtl:space-x-reverse mb-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+      <div class="relative bg-white dark:bg-slate-900 rounded-t-2xl p-5 pb-6 shadow-2xl transform transition-transform animate-slide-up max-h-[90vh] overflow-y-auto"
+           style="padding-bottom: calc(env(safe-area-inset-bottom) + 5rem);">
+        <!-- Drag handle + close (top) -->
+        <div class="flex items-center justify-between mb-4">
+          <div class="w-10 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full"></div>
+          <button @click="activeMobileFile = null" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shrink-0">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <div class="flex items-center space-x-4 rtl:space-x-reverse mb-5 pb-5 border-b border-slate-100 dark:border-slate-800">
           <div class="w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden shrink-0">
             <img v-if="activeMobileFile.thumbnail_url" :src="activeMobileFile.thumbnail_url" class="w-full h-full object-cover">
             <img v-else-if="activeMobileFile.mime_type?.startsWith('image/')" :src="activeMobileFile.url" class="w-full h-full object-cover">
@@ -100,31 +120,31 @@
           </div>
         </div>
         
-        <div class="space-y-2">
-          <button @click="handleMobilePreview(activeMobileFile)" class="w-full flex items-center space-x-3 rtl:space-x-reverse p-3 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700 transition-colors text-start">
-            <div class="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+        <div class="space-y-2.5">
+          <button @click="handleMobilePreview(activeMobileFile)" class="w-full flex items-center space-x-3 rtl:space-x-reverse p-3.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700 transition-colors text-start">
+            <div class="w-9 h-9 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
             </div>
             <span class="font-medium">{{ $t('common.preview') }}</span>
           </button>
 
-          <button v-if="canEdit" @click="handleMobileEdit(activeMobileFile)" class="w-full flex items-center space-x-3 rtl:space-x-reverse p-3 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700 transition-colors text-start">
-            <div class="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+          <button v-if="canEdit" @click="handleMobileEdit(activeMobileFile)" class="w-full flex items-center space-x-3 rtl:space-x-reverse p-3.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700 transition-colors text-start">
+            <div class="w-9 h-9 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
             </div>
             <span class="font-medium">{{ $t('common.edit') }}</span>
           </button>
-          
-          <button @click="handleMobileDownload(activeMobileFile)" class="w-full flex items-center space-x-3 rtl:space-x-reverse p-3 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700 transition-colors text-start">
-            <div class="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+
+          <button @click="handleMobileDownload(activeMobileFile)" class="w-full flex items-center space-x-3 rtl:space-x-reverse p-3.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700 transition-colors text-start">
+            <div class="w-9 h-9 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
             </div>
             <span class="font-medium">{{ $t('common.download') }}</span>
           </button>
 
-          <button v-if="canEdit" @click="handleMobileDelete(activeMobileFile)" class="w-full flex items-center space-x-3 rtl:space-x-reverse p-3 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 active:bg-rose-100 dark:active:bg-rose-900/40 transition-colors text-start">
-            <div class="w-8 h-8 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+          <button v-if="canEdit" @click="handleMobileDelete(activeMobileFile)" class="w-full flex items-center space-x-3 rtl:space-x-reverse p-3.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 active:bg-rose-100 dark:active:bg-rose-900/40 transition-colors text-start">
+            <div class="w-9 h-9 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
             </div>
             <span class="font-medium">{{ $t('common.delete') }}</span>
           </button>

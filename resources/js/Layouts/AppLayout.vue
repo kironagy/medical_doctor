@@ -54,10 +54,10 @@
     </aside>
 
     <!-- Mobile Drawer Overlay -->
-    <div v-if="mobileMenuOpen" class="fixed inset-0 bg-slate-900/50 z-40 md:hidden" @click="mobileMenuOpen = false"></div>
-    
+    <div v-if="mobileMenuOpen" class="fixed inset-0 bg-slate-900/50 z-[60] md:hidden" @click="mobileMenuOpen = false"></div>
+
     <!-- Mobile Drawer -->
-    <aside class="fixed inset-y-0 left-0 rtl:left-auto rtl:right-0 w-64 bg-white dark:bg-slate-900 shadow-xl z-50 transform transition-transform duration-300 md:hidden flex flex-col" :class="mobileMenuOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full'">
+    <aside class="fixed inset-y-0 left-0 rtl:left-auto rtl:right-0 w-64 bg-white dark:bg-slate-900 shadow-xl z-[70] transform transition-transform duration-300 md:hidden flex flex-col" :class="mobileMenuOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full'">
       <div class="p-6 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
         <div class="flex items-center space-x-3 rtl:space-x-reverse">
           <div class="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold">M</div>
