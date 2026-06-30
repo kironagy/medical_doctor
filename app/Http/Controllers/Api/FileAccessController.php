@@ -97,7 +97,7 @@ class FileAccessController extends Controller
                 $read = min($buf, $remaining);
                 echo fread($fp, $read);
                 $remaining -= $read;
-                fflush();
+                fflush($fp);
             }
             fclose($fp);
         }, 206, [
@@ -168,11 +168,12 @@ class FileAccessController extends Controller
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         return response()->json([
-            'uuid' => $file->uuid,
+            'uuid'          => $file->uuid,
             'upload_status' => $file->upload_status,
-            'type' => $file->type,
+            'type'          => $file->type,
             'thumbnail_url' => $file->thumbnail_url,
-            'hls_url' => $file->hls_url,
+            // hls_url is always null (HLS generation removed — not needed for document storage)
+            'hls_url'       => null,
         ]);
     }
 

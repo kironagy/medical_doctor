@@ -165,10 +165,11 @@ const initVideo = () => {
   }
   nextTick(() => {
     if (videoPlayer.value) {
-      // Prefer HLS for adaptive streaming on slow networks; fall back to progressive MP4.
-      const sources = hlsUrl.value
-        ? [{ src: hlsUrl.value, type: 'application/x-mpegURL' }]
-        : [{ src: fileUrl.value, type: props.file.mime_type || 'video/mp4' }];
+      // Always use direct progressive streaming with Range request support.
+      // HLS is no longer generated — this is a document storage system, not
+      // a video platform. The streamDirect endpoint supports 206 Partial Content
+      // so seeking works perfectly without any transcoding.
+      const sources = [{ src: fileUrl.value, type: props.file.mime_type || 'video/mp4' }];
 
       vjsPlayer = videojs(videoPlayer.value, {
         controls: true,
@@ -177,13 +178,6 @@ const initVideo = () => {
         fluid: false,
         playbackRates: [0.5, 1, 1.25, 1.5, 2],
         poster: posterUrl.value,
-        html5: {
-          vhs: {
-            overrideNative: true,
-            enableLowInitialPlaylist: true,
-            lowLatencyMode: false,
-          },
-        },
         sources,
       });
     }

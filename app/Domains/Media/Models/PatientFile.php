@@ -15,13 +15,14 @@ class PatientFile extends Model
     protected $fillable = [
         'uuid', 'patient_id', 'uploaded_by_id', 'title', 'desc', 'type', 'category',
         'date', 'file_name', 'file_path', 'hls_path', 'duration', 'width', 'height',
-        'thumbnail_path', 'upload_status', 'video_metadata',
-        'client_updated_at', 'mime_type', 'size'
+        'thumbnail_path', 'upload_status', 'video_metadata', 'processing_times',
+        'client_updated_at', 'mime_type', 'size',
     ];
 
     protected $casts = [
-        'date' => 'date',
-        'video_metadata' => 'array',
+        'date'             => 'date',
+        'video_metadata'   => 'array',
+        'processing_times' => 'array',
         'client_updated_at' => 'datetime',
     ];
 

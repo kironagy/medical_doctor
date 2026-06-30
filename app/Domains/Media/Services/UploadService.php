@@ -178,7 +178,9 @@ class UploadService
             }
 
             fclose($cf);
-            @unlink($chunkAbs);
+            // Do NOT unlink here. If the merge fails mid-way and the job is
+            // retried, chunks must still be present. The whole session directory
+            // is deleted atomically at the end only on full success.
         }
 
         // Always close before deciding failure so the temp file can be unlinked.
