@@ -44,11 +44,22 @@ class FileAccessController extends Controller
         // The signature is cryptographically tied to the UUID and expires, so
         // skipping the scope here is safe — authorization already happened when
         // the signed URL was generated.
-        $query = $request->hasValidSignature()
-            ? PatientFile::withoutGlobalScopes()->where('uuid', $uuid)
-            : PatientFile::where('uuid', $uuid);
+       logger()->info('STREAM DEBUG', [
+        'signed' => $request->hasValidSignature(),
+        'auth' => auth()->check(),
+        'user' => auth()->id(),
+        'url' => $request->fullUrl(),
+        'headers' => [
+            'cookie' => $request->header('cookie'),
+            'range' => $request->header('range'),
+        ],
+    ]);
 
-        $file = $query->firstOrFail();
+    $query = $request->hasValidSignature()
+        ? PatientFile::withoutGlobalScopes()->where('uuid', $uuid)
+        : PatientFile::where('uuid', $uuid);
+
+    $file = $query->firstOrFail();
 
         $path = $file->file_path;
         if (!Storage::disk('local')->exists($path)) {
