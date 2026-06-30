@@ -28,7 +28,7 @@
            class="group relative border dark:border-slate-800 rounded-xl p-2 hover:shadow-md transition-shadow bg-white dark:bg-slate-900 cursor-pointer md:cursor-default">
         <!-- Thumbnail -->
         <div class="aspect-square bg-slate-100 dark:bg-slate-800 rounded-lg mb-2 overflow-hidden flex items-center justify-center">
-          <img v-if="file.thumbnail_url" :src="file.thumbnail_url" class="object-cover w-full h-full">
+          <img v-if="file.thumbnail_url" :src="file.thumbnail_url" class="object-cover w-full h-full" @error="e => e.target.style.display='none'">
           <img v-else-if="file.mime_type?.startsWith('image/')" :src="file.url" class="object-cover w-full h-full">
           <div v-else-if="file.mime_type?.startsWith('video/')" class="text-slate-400 flex flex-col items-center">
             <svg class="w-10 h-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
@@ -86,7 +86,7 @@
 
         <div class="flex items-center space-x-4 rtl:space-x-reverse mb-5 pb-5 border-b border-slate-100 dark:border-slate-800">
           <div class="w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden shrink-0">
-            <img v-if="activeMobileFile.thumbnail_url" :src="activeMobileFile.thumbnail_url" class="w-full h-full object-cover">
+            <img v-if="activeMobileFile.thumbnail_url" :src="activeMobileFile.thumbnail_url" class="w-full h-full object-cover" @error="e => e.target.style.display='none'">
             <img v-else-if="activeMobileFile.mime_type?.startsWith('image/')" :src="activeMobileFile.url" class="w-full h-full object-cover">
             <svg v-else class="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
           </div>

@@ -176,6 +176,7 @@
     "status_completed": "Completed",
     "status_cancelled": "Cancelled",
     "status_retrying": "Retrying",
+    "status_failed": "Failed",
     "upload_speed": "Speed",
     "uploaded_size": "Uploaded",
     "eta": "Remaining",

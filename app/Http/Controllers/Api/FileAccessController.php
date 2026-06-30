@@ -145,18 +145,51 @@ class FileAccessController extends Controller
         ]);
     }
 
-    public function thumbnailDirect(string $uuid): BinaryFileResponse
+    public function thumbnailDirect(string $uuid)
     {
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         $path = $file->thumbnail_path;
-        if (!$path || !Storage::disk('local')->exists($path)) {
-            abort(404, 'Thumbnail not found.');
+
+        // Happy path — thumbnail already exists on disk.
+        if ($path && Storage::disk('local')->exists($path)) {
+            return response()->file(Storage::disk('local')->path($path), [
+                'Content-Type'  => 'image/jpeg',
+                'Cache-Control' => 'private, max-age=86400',
+            ]);
         }
 
-        return response()->file(Storage::disk('local')->path($path), [
-            'Content-Type' => 'image/jpeg'
-        ]);
+        // Thumbnail missing — try to generate it on-the-fly (takes ~50ms).
+        // This handles: files uploaded before thumbnail generation was added,
+        // files whose GenerateThumbnailJob hasn't run yet, and production deploys
+        // where the job queue wasn't running at upload time.
+        if ($file->file_path && Storage::disk('local')->exists($file->file_path)) {
+            $inputAbs = Storage::disk('local')->path($file->file_path);
+            $thumbRel  = substr($file->file_path, 0, strrpos($file->file_path, '.')) . '_thumb.jpg';
+            $thumbAbs  = Storage::disk('local')->path($thumbRel);
+
+            $process = new \Symfony\Component\Process\Process([
+                'ffmpeg', '-y', '-ss', '1', '-i', $inputAbs,
+                '-vframes', '1', '-vf', 'scale=-1:300', '-q:v', '5',
+                $thumbAbs,
+            ]);
+            $process->setTimeout(30);
+            $process->run();
+
+            if ($process->isSuccessful() && file_exists($thumbAbs) && filesize($thumbAbs) > 512) {
+                // Persist so next request is instant.
+                $file->update(['thumbnail_path' => $thumbRel]);
+
+                return response()->file($thumbAbs, [
+                    'Content-Type'  => 'image/jpeg',
+                    'Cache-Control' => 'private, max-age=86400',
+                ]);
+            }
+        }
+
+        // Nothing we can do — return 204 No Content so the browser doesn't
+        // show a broken-image icon. The frontend hides the <img> on error anyway.
+        return response()->noContent();
     }
 
     /**

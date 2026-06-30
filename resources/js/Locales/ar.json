@@ -176,6 +176,7 @@
     "status_completed": "اكتمل",
     "status_cancelled": "ملغي",
     "status_retrying": "إعادة المحاولة",
+    "status_failed": "فشل",
     "upload_speed": "السرعة",
     "uploaded_size": "تم رفعه",
     "eta": "الوقت المتبقي",
