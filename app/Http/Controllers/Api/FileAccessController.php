@@ -44,22 +44,15 @@ class FileAccessController extends Controller
         // The signature is cryptographically tied to the UUID and expires, so
         // skipping the scope here is safe — authorization already happened when
         // the signed URL was generated.
-       logger()->info('STREAM DEBUG', [
-        'signed' => $request->hasValidSignature(),
-        'auth' => auth()->check(),
-        'user' => auth()->id(),
-        'url' => $request->fullUrl(),
-        'headers' => [
-            'cookie' => $request->header('cookie'),
-            'range' => $request->header('range'),
-        ],
-    ]);
 
-    $query = $request->hasValidSignature()
-        ? PatientFile::withoutGlobalScopes()->where('uuid', $uuid)
-        : PatientFile::where('uuid', $uuid);
-
-    $file = $query->firstOrFail();
+        // Use if/else instead of ternary-with-method-chains; the ternary form
+        // produces a ParseError on PHP < 8.0 because the parser cannot resolve
+        // the method-chain precedence inside a ternary assignment.
+        if ($request->hasValidSignature()) {
+            $file = PatientFile::withoutGlobalScopes()->where('uuid', $uuid)->firstOrFail();
+        } else {
+            $file = PatientFile::where('uuid', $uuid)->firstOrFail();
+        }
 
         $path = $file->file_path;
         if (!Storage::disk('local')->exists($path)) {
@@ -148,7 +141,7 @@ class FileAccessController extends Controller
         $rel = $base . '/hls/' . ltrim($path, '/');
 
         // disallow ..
-        if (str_contains($path, '..')) {
+        if (strpos($path, '..') !== false) {
             abort(403);
         }
 

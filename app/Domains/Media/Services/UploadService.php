@@ -369,14 +369,12 @@ class UploadService
 
     private function typeFromMime(string $mimeType): string
     {
-        return match (true) {
-            str_starts_with($mimeType, 'image/') => 'image',
-            str_starts_with($mimeType, 'video/') => 'video',
-            str_starts_with($mimeType, 'audio/') => 'audio',
-            $mimeType === 'application/pdf' => 'pdf',
-            str_starts_with($mimeType, 'text/') => 'text',
-            default => 'document',
-        };
+        if (strncmp($mimeType, 'image/', 6) === 0) return 'image';
+        if (strncmp($mimeType, 'video/', 6) === 0) return 'video';
+        if (strncmp($mimeType, 'audio/', 6) === 0) return 'audio';
+        if ($mimeType === 'application/pdf')        return 'pdf';
+        if (strncmp($mimeType, 'text/', 5) === 0)  return 'text';
+        return 'document';
     }
 
     /**
