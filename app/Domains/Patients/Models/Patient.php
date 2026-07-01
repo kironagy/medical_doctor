@@ -15,7 +15,9 @@ class Patient extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'uuid', 'primary_doctor_id', 'code', 'name', 'phone', 'email', 'address', 'created_by_id', 'diagnosis', 'client_updated_at'
+        'uuid', 'primary_doctor_id', 'code', 'name', 'phone', 'email', 'address', 'created_by_id', 'diagnosis',
+        'client_updated_at', 'date_of_birth', 'gender', 'blood_group', 'weight', 'height',
+        'allergies', 'chronic_diseases', 'medical_status', 'medical_record_number',
     ];
 
     protected $casts = [
@@ -29,6 +31,12 @@ class Patient extends Model
         static::creating(function ($model) {
             if (empty($model->uuid)) $model->uuid = (string) \Illuminate\Support\Str::uuid();
         });
+    }
+
+    public function getAgeAttribute(): ?int
+    {
+        if (!$this->date_of_birth) return null;
+        return now()->diffInYears($this->date_of_birth);
     }
 
     public function primaryDoctor(): BelongsTo

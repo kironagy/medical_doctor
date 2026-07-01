@@ -169,6 +169,40 @@ class FileAccessController extends Controller
                     'Cache-Control' => 'private, max-age=86400',
                 ]);
             }
+
+            // On-the-fly thumbnail for images using GD
+            if ($file->mime_type && str_starts_with($file->mime_type, 'image/')) {
+                try {
+                    $imgInfo = @getimagesize($inputAbs);
+                    if ($imgInfo) {
+                        $srcW = $imgInfo[0];
+                        $srcH = $imgInfo[1];
+                        $maxDim = 300;
+                        $ratio = min($maxDim / max($srcW, 1), $maxDim / max($srcH, 1));
+                        if ($ratio < 1) {
+                            $dstW = (int)round($srcW * $ratio);
+                            $dstH = (int)round($srcH * $ratio);
+                            $srcImg = @imagecreatefromstring(file_get_contents($inputAbs));
+                            if ($srcImg) {
+                                $dstImg = imagecreatetruecolor($dstW, $dstH);
+                                imagecopyresampled($dstImg, $srcImg, 0, 0, 0, 0, $dstW, $dstH, $srcW, $srcH);
+                                imagejpeg($dstImg, $thumbAbs, 70);
+                                imagedestroy($srcImg);
+                                imagedestroy($dstImg);
+                                if (file_exists($thumbAbs) && filesize($thumbAbs) > 512) {
+                                    $file->update(['thumbnail_path' => $thumbRel]);
+                                    return response()->file($thumbAbs, [
+                                        'Content-Type' => 'image/jpeg',
+                                        'Cache-Control' => 'private, max-age=86400',
+                                    ]);
+                                }
+                            }
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    // GD not available or unsupported format — fall through to original
+                }
+            }
         }
 
         // Nothing we can do — return 204 No Content so the browser doesn't

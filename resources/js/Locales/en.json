@@ -88,7 +88,12 @@
     "language": "Language",
     "light_mode": "Light",
     "dark_mode": "Dark",
-    "system_mode": "System"
+    "system_mode": "System",
+    "categories": "Categories",
+    "add_category": "Add Category",
+    "category_name": "Name",
+    "new_category_name": "New category name...",
+    "saved": "Saved!"
   },
   "doctors": {
     "management": "Doctor Management",
@@ -154,7 +159,8 @@
     "actions": "Actions",
     "preview": "Preview",
     "download": "Download",
-    "revoke": "Revoke"
+    "revoke": "Revoke",
+    "add": "Add"
   },
   "editor": {
     "placeholder": "Write your note here...",

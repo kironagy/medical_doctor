@@ -31,6 +31,7 @@
           <ProfileForm v-if="activeTab === 'profile'" />
           <PasswordForm v-if="activeTab === 'password'" />
           <PreferencesForm v-if="activeTab === 'preferences'" />
+          <CategoryForm v-if="activeTab === 'categories'" />
         </div>
       </div>
     </div>
@@ -43,7 +44,8 @@ import AppLayout from '@/Layouts/AppLayout.vue';
 import ProfileForm from './Partials/ProfileForm.vue';
 import PasswordForm from './Partials/PasswordForm.vue';
 import PreferencesForm from './Partials/PreferencesForm.vue';
-import { UserIcon, KeyIcon, CogIcon } from '@heroicons/vue/24/outline'; // Or define inline SVGs
+import CategoryForm from './Partials/CategoryForm.vue';
+import { UserIcon, KeyIcon, CogIcon, TagIcon } from '@heroicons/vue/24/outline'; // Or define inline SVGs
 
 const activeTab = ref('profile');
 
@@ -51,5 +53,6 @@ const tabs = [
   { id: 'profile', name: 'settings.profile', icon: UserIcon },
   { id: 'password', name: 'settings.password', icon: KeyIcon },
   { id: 'preferences', name: 'settings.preferences', icon: CogIcon },
+  { id: 'categories', name: 'settings.categories', icon: TagIcon },
 ];
 </script>

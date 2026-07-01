@@ -5,6 +5,8 @@ export function useTheme() {
     const page = usePage();
     
     const getPreference = () => {
+        const stored = localStorage.getItem('theme')
+        if (stored) return stored
         return page.props.auth?.user?.preferences?.theme || 'system';
     };
 
@@ -16,6 +18,7 @@ export function useTheme() {
         } else {
             document.documentElement.classList.remove('dark');
         }
+        try { localStorage.setItem('theme', t) } catch (e) { /* noop */ }
     };
 
     onMounted(() => {

@@ -24,7 +24,7 @@ class PatientFile extends Model
         'size' => 'integer',
     ];
 
-    protected $appends = ['url', 'thumbnail_url', 'name'];
+    protected $appends = ['url', 'thumbnail_url', 'name', 'extension'];
 
     public function getUrlAttribute()
     {
@@ -33,12 +33,24 @@ class PatientFile extends Model
 
     public function getThumbnailUrlAttribute()
     {
-        return $this->thumbnail_path ? url('/api/v1/files/' . $this->uuid . '/thumbnail') : null;
+        if ($this->thumbnail_path) {
+            return url('/api/v1/files/' . $this->uuid . '/thumbnail');
+        }
+        if ($this->mime_type && str_starts_with($this->mime_type, 'image/')) {
+            return $this->url;
+        }
+        return null;
     }
 
     public function getNameAttribute()
     {
         return $this->file_name;
+    }
+
+    public function getExtensionAttribute()
+    {
+        $parts = $this->file_name ? explode('.', $this->file_name) : [];
+        return count($parts) > 1 ? strtolower(end($parts)) : null;
     }
 
     protected static function booted()

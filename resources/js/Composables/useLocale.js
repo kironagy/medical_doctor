@@ -16,6 +16,7 @@ export function useLocale() {
         i18nLocale.value = l;
         document.documentElement.lang = l;
         document.documentElement.dir = l === 'ar' ? 'rtl' : 'ltr';
+        try { localStorage.setItem('locale', l) } catch (e) { /* noop */ }
     };
 
     onMounted(() => {
@@ -24,7 +25,6 @@ export function useLocale() {
 
     watch(locale, (newLocale) => {
         applyLocale(newLocale);
-        // Persist to backend
         router.put('/settings/preferences', { locale: newLocale }, {
             preserveScroll: true,
             preserveState: true,

@@ -78,12 +78,14 @@ import BaseCard from '@/Components/BaseCard.vue';
 import BaseInput from '@/Components/BaseInput.vue';
 import BaseButton from '@/Components/BaseButton.vue';
 import GlobalDialog from '@/Components/GlobalDialog.vue';
+import { useDialog } from '@/Composables/useDialog';
 import { CameraIcon } from '@heroicons/vue/24/solid';
 import Cropper from 'cropperjs';
 import 'cropperjs/dist/cropper.css';
 
 const page = usePage();
 const user = page.props.auth.user;
+const dialog = useDialog();
 
 const form = useForm({
   name: user.name,
@@ -162,16 +164,21 @@ const applyCrop = () => {
   }, 'image/jpeg', 0.9);
 };
 
-const removeAvatar = () => {
-  if (confirm('Are you sure you want to remove your profile picture?')) {
-    router.delete('/settings/avatar', {
-      preserveScroll: true,
-      onSuccess: () => {
-        avatarPreview.value = null;
-        form.avatar = null;
-      }
-    });
-  }
+const removeAvatar = async () => {
+  const confirmed = await dialog.confirm({
+    title: 'Remove Avatar',
+    message: 'Are you sure you want to remove your profile picture?',
+    confirmText: 'Remove',
+    style: 'warning',
+  })
+  if (!confirmed) return
+  router.delete('/settings/avatar', {
+    preserveScroll: true,
+    onSuccess: () => {
+      avatarPreview.value = null;
+      form.avatar = null;
+    }
+  });
 };
 
 const submit = () => {

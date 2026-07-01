@@ -69,6 +69,9 @@ Route::middleware('auth')->group(function () {
         Route::get('doctors/{doctor}/files', [\App\Http\Controllers\Admin\DoctorController::class, 'files'])->name('doctors.files');
     });
 
+    // Doctor Workspace
+    Route::get('/workspace', [\App\Http\Controllers\WorkspaceController::class, 'index'])->name('workspace');
+
     // Settings Routes
     Route::group(['prefix' => 'settings', 'as' => 'settings.'], function () {
         Route::get('/', [\App\Http\Controllers\SettingsController::class, 'index'])->name('index');
@@ -103,6 +106,31 @@ Route::middleware('auth')->group(function () {
         // Global Search API
         Route::get('/search', [\App\Http\Controllers\Api\GlobalSearchController::class, 'search']);
         
+        // Category Management API
+        Route::get('/categories', [\App\Http\Controllers\Api\CategoryController::class, 'index']);
+        Route::put('/categories', [\App\Http\Controllers\Api\CategoryController::class, 'update']);
+        Route::post('/categories', [\App\Http\Controllers\Api\CategoryController::class, 'addCategory']);
+        Route::delete('/categories/{slug}', [\App\Http\Controllers\Api\CategoryController::class, 'deleteCategory']);
+
+        // Workspace API
+        Route::get('/workspace/patients-list', [\App\Http\Controllers\WorkspaceController::class, 'patientList']);
+        Route::get('/workspace/{patient:uuid}', [\App\Http\Controllers\WorkspaceController::class, 'patientData']);
+
+        // Inline Patient CRUD (JSON responses for Workspace)
+        Route::post('/workspace/patients', [\App\Http\Controllers\WorkspaceController::class, 'storePatient']);
+        Route::put('/workspace/patients/{patient:uuid}', [\App\Http\Controllers\WorkspaceController::class, 'updatePatient']);
+        Route::delete('/workspace/patients/{patient:uuid}', [\App\Http\Controllers\WorkspaceController::class, 'deletePatient']);
+        Route::delete('/workspace/patients/{patient:uuid}/force', [\App\Http\Controllers\WorkspaceController::class, 'forceDeletePatient']);
+        Route::post('/workspace/patients/{patient:uuid}/restore', [\App\Http\Controllers\WorkspaceController::class, 'restorePatient']);
+
+        // Visits API
+        Route::get('/patients/{patient:uuid}/visits', [\App\Http\Controllers\Api\VisitController::class, 'index']);
+        Route::post('/patients/{patient:uuid}/visits', [\App\Http\Controllers\Api\VisitController::class, 'store']);
+        Route::delete('/patients/{patient:uuid}/visits/{visitId}', [\App\Http\Controllers\Api\VisitController::class, 'destroy']);
+
+        // Notes API
+        Route::post('/patients/{patient:uuid}/notes', [\App\Http\Controllers\Api\NoteController::class, 'store']);
+
         // Sharing API
         Route::get('/doctors/search', [\App\Http\Controllers\Api\PatientShareController::class, 'searchDoctors']);
         Route::get('/patients/{patient:uuid}/shares', [\App\Http\Controllers\Api\PatientShareController::class, 'index']);

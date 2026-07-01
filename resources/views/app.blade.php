@@ -11,6 +11,22 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+        <script>
+          // Prevent dark mode flash — apply before Vue mounts
+          (function() {
+            try {
+              var theme = localStorage.getItem('theme');
+              if (!theme) {
+                var prefs = JSON.parse(localStorage.getItem('user_preferences') || '{}');
+                theme = prefs.theme || 'system';
+              }
+              if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+              }
+            } catch(e) {}
+          })();
+        </script>
+
         <!-- Scripts -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @inertiaHead
