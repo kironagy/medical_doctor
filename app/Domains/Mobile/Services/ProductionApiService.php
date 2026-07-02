@@ -30,12 +30,17 @@ class ProductionApiService
 
     public function login(string $email, string $password, ?string $deviceName = null): ?array
     {
-        $response = Http::timeout($this->timeout)
-            ->post("{$this->baseUrl}/auth/login", [
-                'email' => $email,
-                'password' => $password,
-                'device_name' => $deviceName ?? 'nativephp-android',
-            ]);
+        $url = "{$this->baseUrl}/auth/login";
+        $payload = [
+            'email' => $email,
+            'password' => $password,
+            'device_name' => $deviceName ?? 'nativephp-android',
+        ];
+        Log::info('Production API login request', ['url' => $url, 'payload' => ['email' => $email, 'device_name' => $payload['device_name']]]);
+
+        $response = Http::timeout($this->timeout)->post($url, $payload);
+
+        Log::info('Production API login response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
 
         if (!$response->successful()) {
             Log::error('Mobile sync login failed', ['status' => $response->status(), 'body' => $response->body()]);
@@ -47,15 +52,21 @@ class ProductionApiService
 
     public function pull(?string $lastSyncAt, array $entities = ['patients', 'files', 'visits', 'notes', 'categories', 'shares', 'doctors']): ?array
     {
+        $url = "{$this->baseUrl}/sync/pull";
+        $payload = [
+            'last_sync_at' => $lastSyncAt,
+            'entities' => $entities,
+        ];
+        Log::info('Production API pull request', ['url' => $url, 'payload' => $payload]);
+
         $response = Http::timeout($this->timeout)
             ->withToken($this->token)
-            ->post("{$this->baseUrl}/sync/pull", [
-                'last_sync_at' => $lastSyncAt,
-                'entities' => $entities,
-            ]);
+            ->post($url, $payload);
+
+        Log::info('Production API pull response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
 
         if (!$response->successful()) {
-            Log::error('Mobile sync pull failed', ['status' => $response->status()]);
+            Log::error('Mobile sync pull failed', ['status' => $response->status(), 'body' => $response->body()]);
             return null;
         }
 
@@ -73,12 +84,17 @@ class ProductionApiService
 
         if (empty($payload)) return null;
 
+        $url = "{$this->baseUrl}/sync/push";
+        Log::info('Production API push request', ['url' => $url, 'payload_keys' => array_keys($payload)]);
+
         $response = Http::timeout($this->timeout)
             ->withToken($this->token)
-            ->post("{$this->baseUrl}/sync/push", $payload);
+            ->post($url, $payload);
+
+        Log::info('Production API push response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
 
         if (!$response->successful()) {
-            Log::error('Mobile sync push failed', ['status' => $response->status()]);
+            Log::error('Mobile sync push failed', ['status' => $response->status(), 'body' => $response->body()]);
             return null;
         }
 
@@ -87,101 +103,171 @@ class ProductionApiService
 
     public function syncStatus(): ?array
     {
+        $url = "{$this->baseUrl}/sync/status";
+        Log::info('Production API syncStatus request', ['url' => $url]);
+
         $response = Http::timeout($this->timeout)
             ->withToken($this->token)
-            ->get("{$this->baseUrl}/sync/status");
+            ->get($url);
 
-        if (!$response->successful()) return null;
+        Log::info('Production API syncStatus response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
+
+        if (!$response->successful()) {
+            Log::error('Mobile sync status failed', ['status' => $response->status(), 'body' => $response->body()]);
+            return null;
+        }
 
         return $response->json();
     }
 
     public function getFileMetadata(string $fileUuid): ?array
     {
+        $url = "{$this->baseUrl}/media/{$fileUuid}/metadata";
+        Log::info('Production API getFileMetadata request', ['url' => $url, 'file_uuid' => $fileUuid]);
+
         $response = Http::timeout($this->timeout)
             ->withToken($this->token)
-            ->get("{$this->baseUrl}/media/{$fileUuid}/metadata");
+            ->get($url);
 
-        if (!$response->successful()) return null;
+        Log::info('Production API getFileMetadata response', ['url' => $url, 'status' => $response->status()]);
+
+        if (!$response->successful()) {
+            Log::error('Mobile get file metadata failed', ['status' => $response->status()]);
+            return null;
+        }
 
         return $response->json();
     }
 
     public function downloadFile(string $fileUuid, ?callable $onProgress = null): ?string
     {
+        $url = "{$this->baseUrl}/media/{$fileUuid}/download";
+        Log::info('Production API downloadFile request', ['url' => $url, 'file_uuid' => $fileUuid]);
+
         $response = Http::timeout(0)
             ->withToken($this->token)
-            ->get("{$this->baseUrl}/media/{$fileUuid}/download");
+            ->get($url);
 
-        if (!$response->successful()) return null;
+        Log::info('Production API downloadFile response', ['url' => $url, 'status' => $response->status()]);
+
+        if (!$response->successful()) {
+            Log::error('Mobile download file failed', ['status' => $response->status()]);
+            return null;
+        }
 
         return $response->body();
     }
 
     public function downloadFileRange(string $fileUuid, int $start, int $end): ?string
     {
+        $url = "{$this->baseUrl}/media/{$fileUuid}/download";
+        $headers = ['Range' => "bytes={$start}-{$end}"];
+        Log::info('Production API downloadFileRange request', ['url' => $url, 'file_uuid' => $fileUuid, 'headers' => $headers]);
+
         $response = Http::timeout(30)
             ->withToken($this->token)
-            ->withHeaders(['Range' => "bytes={$start}-{$end}"])
-            ->get("{$this->baseUrl}/media/{$fileUuid}/download");
+            ->withHeaders($headers)
+            ->get($url);
 
-        if (!$response->successful()) return null;
+        Log::info('Production API downloadFileRange response', ['url' => $url, 'status' => $response->status()]);
+
+        if (!$response->successful()) {
+            Log::error('Mobile download file range failed', ['status' => $response->status()]);
+            return null;
+        }
 
         return $response->body();
     }
 
     public function getThumbnail(string $fileUuid): ?string
     {
+        $url = "{$this->baseUrl}/media/{$fileUuid}/thumbnail";
+        Log::info('Production API getThumbnail request', ['url' => $url, 'file_uuid' => $fileUuid]);
+
         $response = Http::timeout(15)
             ->withToken($this->token)
-            ->get("{$this->baseUrl}/media/{$fileUuid}/thumbnail");
+            ->get($url);
 
-        if (!$response->successful()) return null;
+        Log::info('Production API getThumbnail response', ['url' => $url, 'status' => $response->status()]);
+
+        if (!$response->successful()) {
+            Log::error('Mobile get thumbnail failed', ['status' => $response->status()]);
+            return null;
+        }
 
         return $response->body();
     }
 
     public function initChunkUpload(array $data): ?array
     {
+        $url = "{$this->baseUrl}/chunk/init";
+        Log::info('Production API initChunkUpload request', ['url' => $url, 'data_keys' => array_keys($data)]);
+
         $response = Http::timeout($this->timeout)
             ->withToken($this->token)
-            ->post("{$this->baseUrl}/chunk/init", $data);
+            ->post($url, $data);
 
-        if (!$response->successful()) return null;
+        Log::info('Production API initChunkUpload response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
+
+        if (!$response->successful()) {
+            Log::error('Mobile init chunk upload failed', ['status' => $response->status(), 'body' => $response->body()]);
+            return null;
+        }
 
         return $response->json();
     }
 
     public function uploadChunk(string $sessionUuid, int $chunkIndex, $chunkData): bool
     {
+        $url = "{$this->baseUrl}/chunk/{$sessionUuid}/upload";
+        Log::info('Production API uploadChunk request', ['url' => $url, 'session_uuid' => $sessionUuid, 'chunk_index' => $chunkIndex]);
+
         $response = Http::timeout(60)
             ->withToken($this->token)
             ->attach('chunk', $chunkData, "chunk_{$chunkIndex}")
-            ->post("{$this->baseUrl}/chunk/{$sessionUuid}/upload", [
+            ->post($url, [
                 'chunk_index' => $chunkIndex,
             ]);
+
+        Log::info('Production API uploadChunk response', ['url' => $url, 'status' => $response->status()]);
 
         return $response->successful();
     }
 
     public function completeChunkUpload(string $sessionUuid): ?array
     {
+        $url = "{$this->baseUrl}/chunk/{$sessionUuid}/complete";
+        Log::info('Production API completeChunkUpload request', ['url' => $url, 'session_uuid' => $sessionUuid]);
+
         $response = Http::timeout($this->timeout)
             ->withToken($this->token)
-            ->post("{$this->baseUrl}/chunk/{$sessionUuid}/complete");
+            ->post($url);
 
-        if (!$response->successful()) return null;
+        Log::info('Production API completeChunkUpload response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
+
+        if (!$response->successful()) {
+            Log::error('Mobile complete chunk upload failed', ['status' => $response->status(), 'body' => $response->body()]);
+            return null;
+        }
 
         return $response->json();
     }
 
     public function checkChunkStatus(string $sessionUuid): ?array
     {
+        $url = "{$this->baseUrl}/chunk/{$sessionUuid}/status";
+        Log::info('Production API checkChunkStatus request', ['url' => $url, 'session_uuid' => $sessionUuid]);
+
         $response = Http::timeout($this->timeout)
             ->withToken($this->token)
-            ->get("{$this->baseUrl}/chunk/{$sessionUuid}/status");
+            ->get($url);
 
-        if (!$response->successful()) return null;
+        Log::info('Production API checkChunkStatus response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
+
+        if (!$response->successful()) {
+            Log::error('Mobile check chunk status failed', ['status' => $response->status(), 'body' => $response->body()]);
+            return null;
+        }
 
         return $response->json();
     }
@@ -189,9 +275,12 @@ class ProductionApiService
     public function isOnline(): bool
     {
         try {
-            $response = Http::timeout(5)->head($this->baseUrl);
+            Log::info('Checking if production server is online...', ['url' => "{$this->baseUrl}/sync/status"]);
+            $response = Http::timeout(5)->get("{$this->baseUrl}/sync/status");
+            Log::info('Production server check result', ['status' => $response->status(), 'success' => $response->successful()]);
             return $response->successful();
         } catch (\Exception $e) {
+            Log::error('Production server check failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             return false;
         }
     }

@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\UploadController;
 use App\Http\Controllers\Api\FileAccessController;
+use App\Http\Middleware\MobileApiLogger;
 
 Route::get('/files/{uuid}/stream', [FileAccessController::class, 'streamDirect'])
     ->middleware('signed')
@@ -20,4 +21,6 @@ Route::prefix('v1')->group(function () {
 });
 
 // Mobile sync API routes — loaded here so route:cache includes them reliably
-require __DIR__.'/mobile.php';
+Route::prefix('mobile/v1')->middleware(MobileApiLogger::class)->group(function () {
+    require __DIR__.'/mobile.php';
+});

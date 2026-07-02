@@ -135,6 +135,13 @@ return [
             'replace_placeholders' => true,
         ],
 
+        'mobile-api' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/mobile-api.log'),
+            'level' => env('LOG_LEVEL', 'debug'),
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];
