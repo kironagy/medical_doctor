@@ -98,6 +98,8 @@ return [
 
     'production_api_url' => env('PRODUCTION_API_URL', 'https://prof-hosam-fekry.online/api/mobile/v1'),
 
+    'auto_login' => env('NATIVE_AUTO_LOGIN', env('APP_ENV', 'production') !== 'production'),
+
     'permissions' => [
         'NSCameraUsageDescription' => 'Used to capture patient document photos.',
         'NSMicrophoneUsageDescription' => 'Used to record audio notes for patient records.',

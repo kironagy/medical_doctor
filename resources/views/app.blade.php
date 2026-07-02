@@ -16,6 +16,8 @@
         <link rel="preconnect" href="{{ url('/') }}">
 
         <script>
+          window.__NATIVE_MOBILE__ = {{ (app()->environment('nativephp') || request()->header('X-NativePHP') || request()->header('User-Agent') === 'NativePHP' ? 'true' : 'false') }};
+
           // Prevent dark mode flash — apply before Vue mounts
           (function() {
             try {
