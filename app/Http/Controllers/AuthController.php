@@ -26,53 +26,13 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
-        Log::channel('mobile-api')->info('AUTH CONTROLLER: login CALLED', ['is_nativephp' => app()->environment('nativephp')]);
-
-        // For NativePHP, use production API login via MobileSyncService
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: login CALLED (WEB ONLY)');
+        // Regular web login for web users - NEVER use this for NativePHP!
         if (app()->environment('nativephp')) {
-            Log::channel('mobile-api')->info('AUTH CONTROLLER: Handling NativePHP login');
-            $credentials = $request->validate([
-                'email' => ['required', 'email'],
-                'password' => ['required'],
-            ]);
-
-            $sync = new MobileSyncService();
-            $token = $sync->authenticate($credentials['email'], $credentials['password']);
-
-            if (!$token) {
-                Log::channel('mobile-api')->error('AUTH CONTROLLER: NativePHP login failed');
-                return back()->withErrors([
-                    'email' => 'Failed to authenticate with the production server.',
-                ])->onlyInput('email');
-            }
-
-            // Log the user in locally for the app
-            $storedUser = MobileSyncService::getStoredUser();
-            $localUser = \App\Domains\Users\Models\User::where('email', $storedUser['email'])->first();
-            if (!$localUser) {
-                $localUser = \App\Domains\Users\Models\User::create([
-                    'name' => $storedUser['name'] ?? $storedUser['email'],
-                    'email' => $storedUser['email'],
-                    'password' => bcrypt(str()->random(32)), // Random password since we use token auth
-                ]);
-
-                // Assign role if available
-                if (isset($storedUser['role'])) {
-                    try {
-                        $localUser->assignRole($storedUser['role']);
-                    } catch (\Exception $e) {
-                        Log::channel('mobile-api')->error('Failed to assign role', ['error' => $e->getMessage()]);
-                    }
-                }
-            }
-
-            Auth::login($localUser, true);
-            $request->session()->regenerate();
-
-            return redirect()->intended('dashboard');
+            Log::channel('mobile-api')->error('AUTH CONTROLLER: NativePHP app hit /login route (INTERNAL ERROR)');
+            abort(403, 'NativePHP apps must use /native/auth endpoints');
         }
 
-        // Regular web login for web users
         $credentials = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required'],
@@ -89,15 +49,33 @@ class AuthController extends Controller
     }
 
     /**
+     * Check if we have stored authentication data for NativePHP
+     */
+    public function checkNativeAuth(Request $request)
+    {
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: checkNativeAuth CALLED');
+        $hasToken = (bool) MobileSyncService::getStoredToken();
+        $storedUser = MobileSyncService::getStoredUser();
+
+        return response()->json([
+            'hasStoredAuth' => $hasToken && $storedUser,
+            'storedUser' => $storedUser,
+        ]);
+    }
+
+    /**
      * Store NativePHP authentication data (token and user)
      */
     public function storeNativeAuth(Request $request)
     {
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: storeNativeAuth CALLED');
         $validated = $request->validate([
             'token' => 'required|string',
             'user' => 'required|array',
             'server_time' => 'nullable|string',
         ]);
+
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: Storing authentication data');
 
         // Store in cache
         Cache::put('mobile_auth_token', encrypt($validated['token']), now()->addDays(30));
@@ -109,10 +87,11 @@ class AuthController extends Controller
         // Create or update local user
         $localUser = \App\Domains\Users\Models\User::where('email', $validated['user']['email'])->first();
         if (!$localUser) {
+            Log::channel('mobile-api')->info('AUTH CONTROLLER: Creating local user');
             $localUser = \App\Domains\Users\Models\User::create([
                 'name' => $validated['user']['name'] ?? $validated['user']['email'],
                 'email' => $validated['user']['email'],
-                'password' => bcrypt(str()->random(32)), // Random password since we use token auth
+                'password' => bcrypt(str()->random(32)), // Random password, never used for NativePHP auth
             ]);
         }
 
@@ -121,27 +100,73 @@ class AuthController extends Controller
             try {
                 $localUser->assignRole($validated['user']['role']);
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Failed to assign role', ['error' => $e->getMessage()]);
+                Log::channel('mobile-api')->error('AUTH CONTROLLER: Failed to assign role', ['error' => $e->getMessage()]);
             }
         }
 
-        // Log the user in locally
+        // Log the user in locally for the app
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: Logging in local user');
         Auth::login($localUser, true);
         $request->session()->regenerate();
 
         // Trigger initial sync
         try {
+            Log::channel('mobile-api')->info('AUTH CONTROLLER: Starting initial sync');
             $sync = new MobileSyncService();
             $sync->setToken($validated['token']);
             $sync->syncNow();
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Initial sync failed', ['error' => $e->getMessage()]);
+            Log::channel('mobile-api')->error('AUTH CONTROLLER: Initial sync failed', ['error' => $e->getMessage()]);
         }
 
         return response()->json([
             'success' => true,
             'message' => 'Authentication stored successfully',
         ]);
+    }
+
+    /**
+     * Handle offline login for NativePHP
+     */
+    public function offlineNativeLogin(Request $request)
+    {
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: offlineNativeLogin CALLED');
+
+        $storedToken = MobileSyncService::getStoredToken();
+        $storedUser = MobileSyncService::getStoredUser();
+
+        if (!$storedToken || !$storedUser) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No stored authentication data found. Please connect to the internet.'
+            ], 401);
+        }
+
+        // Verify email matches
+        $validated = $request->validate(['email' => 'required|email']);
+        if ($storedUser['email'] !== $validated['email']) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Email does not match stored user'
+            ], 401);
+        }
+
+        // Get or create local user
+        $localUser = \App\Domains\Users\Models\User::where('email', $storedUser['email'])->first();
+        if (!$localUser) {
+            $localUser = \App\Domains\Users\Models\User::create([
+                'name' => $storedUser['name'] ?? $storedUser['email'],
+                'email' => $storedUser['email'],
+                'password' => bcrypt(str()->random(32)),
+            ]);
+        }
+
+        // Log the user in locally
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: Offline login successful');
+        Auth::login($localUser, true);
+        $request->session()->regenerate();
+
+        return response()->json(['success' => true]);
     }
 
     public function logout(Request $request)

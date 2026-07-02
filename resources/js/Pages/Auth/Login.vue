@@ -82,9 +82,133 @@ const form = useForm({
 const PRODUCTION_API_BASE = 'https://prof-hosam-fekry.online/api/mobile/v1';
 
 const submit = async () => {
-  console.log('Submitting login form, isNative:', window.__NATIVE_MOBILE__);
-  form.post('/login', {
-    onFinish: () => form.reset('password'),
-  });
+  // Check if we're in NativePHP mode
+  if (window.__NATIVE_MOBILE__) {
+    console.log('[NativePHP] Starting login flow...');
+    form.processing = true;
+    form.clearErrors();
+
+    try {
+      console.log('[NativePHP] Step 1: Checking for stored auth data...');
+      // Check if we have stored auth for offline login
+      const checkStoredResponse = await fetch('/native/auth/check', {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+      const storedData = await checkStoredResponse.json();
+
+      if (storedData.hasStoredAuth) {
+        console.log('[NativePHP] Found stored auth data, checking online status...');
+        // Try online login first, if fails use offline
+        try {
+          await attemptOnlineLogin();
+        } catch (onlineError) {
+          console.log('[NativePHP] Online login failed, falling back to offline login');
+          await attemptOfflineLogin(storedData.storedUser);
+        }
+      } else {
+        console.log('[NativePHP] No stored auth data, requiring online login');
+        await attemptOnlineLogin();
+      }
+
+    } catch (error) {
+      console.error('[NativePHP] Login error:', error);
+      form.errors.email = error.message;
+    } finally {
+      form.processing = false;
+      form.reset('password');
+    }
+  } else {
+    // Regular web login
+    form.post('/login', {
+      onFinish: () => form.reset('password'),
+    });
+  }
 };
+
+async function attemptOnlineLogin() {
+  console.log('[NativePHP] Attempting online login with production API...');
+
+  // Step 1: Authenticate with production API
+  console.log(`[NativePHP] POST ${PRODUCTION_API_BASE}/auth/login`);
+  const prodResponse = await fetch(`${PRODUCTION_API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: form.email,
+      password: form.password,
+      device_name: 'nativephp-android',
+    }),
+  });
+
+  console.log('[NativePHP] Production login HTTP status:', prodResponse.status);
+  const prodData = await prodResponse.json();
+  console.log('[NativePHP] Production login response:', prodData);
+
+  if (!prodResponse.ok) {
+    throw new Error(prodData.message || 'Failed to authenticate with server');
+  }
+
+  if (!prodData.token) {
+    throw new Error('Server did not return an authentication token');
+  }
+
+  // Step 2: Store auth data locally and initialize sync
+  console.log('[NativePHP] Storing auth data locally...');
+  const localResponse = await fetch('/native/auth/store', {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    body: JSON.stringify({
+      token: prodData.token,
+      user: prodData.user,
+      server_time: prodData.server_time,
+    }),
+  });
+
+  console.log('[NativePHP] Local store HTTP status:', localResponse.status);
+  const localData = await localResponse.json();
+  console.log('[NativePHP] Local store response:', localData);
+
+  if (!localResponse.ok) {
+    throw new Error(localData.message || 'Failed to save authentication data');
+  }
+
+  // Step 3: Redirect to workspace
+  console.log('[NativePHP] Login successful, redirecting to workspace');
+  router.visit('/workspace');
+}
+
+async function attemptOfflineLogin(storedUser) {
+  console.log('[NativePHP] Attempting offline login...');
+
+  // Verify email matches stored user
+  if (storedUser.email !== form.email) {
+    throw new Error('Email does not match stored user. Please connect to the internet first.');
+  }
+
+  // For offline, we'll just use stored auth without verifying password
+  console.log('[NativePHP] Offline login accepted, redirecting to workspace');
+  const offlineResponse = await fetch('/native/auth/offline', {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    body: JSON.stringify({ email: form.email }),
+  });
+
+  if (!offlineResponse.ok) {
+    throw new Error('Failed to complete offline login');
+  }
+
+  router.visit('/workspace');
+}
 </script>

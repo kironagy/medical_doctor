@@ -39,6 +39,11 @@ Route::get('/native/diagnostics', function (Request $request) {
     return response()->json($diagnostics);
 });
 
+// NativePHP authentication endpoints
+Route::get('/native/auth/check', [WebAuthController::class, 'checkNativeAuth']);
+Route::post('/native/auth/store', [WebAuthController::class, 'storeNativeAuth']);
+Route::post('/native/auth/offline', [WebAuthController::class, 'offlineNativeLogin']);
+
 Route::prefix('v1')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
 
@@ -47,9 +52,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
     });
 });
-
-// NativePHP local endpoints to store auth data
-Route::post('/native/auth/store', [WebAuthController::class, 'storeNativeAuth']);
 
 // Mobile sync API routes — loaded here so route:cache includes them reliably
 Route::prefix('mobile/v1')->middleware(MobileApiLogger::class)->group(function () {
