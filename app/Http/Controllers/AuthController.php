@@ -16,36 +16,10 @@ class AuthController extends Controller
     {
         Log::channel('mobile-api')->info('AUTH CONTROLLER: showLogin CALLED');
         // Ensure SQLite is initialized before showing login (for NativePHP)
-        if (app()->environment('nativephp')) {
-            $initializer = new SQLiteInitializer();
-            $initializer->ensureInitialized();
-        }
+        $initializer = new SQLiteInitializer();
+        $initializer->ensureInitialized();
 
         return Inertia::render('Auth/Login');
-    }
-
-    public function login(Request $request)
-    {
-        Log::channel('mobile-api')->info('AUTH CONTROLLER: login CALLED (WEB ONLY)');
-        // Regular web login for web users - NEVER use this for NativePHP!
-        if (app()->environment('nativephp')) {
-            Log::channel('mobile-api')->error('AUTH CONTROLLER: NativePHP app hit /login route (INTERNAL ERROR)');
-            abort(403, 'NativePHP apps must use /native/auth endpoints');
-        }
-
-        $credentials = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required'],
-        ]);
-
-        if (Auth::attempt($credentials, $request->boolean('remember'))) {
-            $request->session()->regenerate();
-            return redirect()->intended('dashboard');
-        }
-
-        return back()->withErrors([
-            'email' => 'The provided credentials do not match our records.',
-        ])->onlyInput('email');
     }
 
     /**
@@ -85,13 +59,21 @@ class AuthController extends Controller
         }
 
         // Create or update local user
-        $localUser = \App\Domains\Users\Models\User::where('email', $validated['user']['email'])->first();
+        $localUser = \App\Domains\Users\Models\User::where('uuid', $validated['user']['uuid'] ?? null)
+                        ->orWhere('email', $validated['user']['email'])
+                        ->first();
         if (!$localUser) {
             Log::channel('mobile-api')->info('AUTH CONTROLLER: Creating local user');
             $localUser = \App\Domains\Users\Models\User::create([
+                'uuid' => $validated['user']['uuid'] ?? null,
                 'name' => $validated['user']['name'] ?? $validated['user']['email'],
                 'email' => $validated['user']['email'],
                 'password' => bcrypt(str()->random(32)), // Random password, never used for NativePHP auth
+            ]);
+        } else {
+            $localUser->update([
+                'uuid' => $validated['user']['uuid'] ?? $localUser->uuid,
+                'name' => $validated['user']['name'] ?? $localUser->name,
             ]);
         }
 
@@ -104,10 +86,18 @@ class AuthController extends Controller
             }
         }
 
-        // Log the user in locally for the app
-        Log::channel('mobile-api')->info('AUTH CONTROLLER: Logging in local user');
-        Auth::login($localUser, true);
-        $request->session()->regenerate();
+        // NO LOCAL WEB LOGIN - NativePHP uses stored token
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: Skipping web login (NativePHP mode)');
+
+        // GET /me from production API
+        try {
+            $api = new \App\Domains\Mobile\Services\ProductionApiService();
+            $api->setToken($validated['token']);
+            $me = $api->getMe();
+            Log::channel('mobile-api')->info('AUTH CONTROLLER: Fetched /me from production', ['me' => $me]);
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('AUTH CONTROLLER: Failed to fetch /me', ['error' => $e->getMessage()]);
+        }
 
         // Trigger initial sync
         try {
@@ -152,19 +142,20 @@ class AuthController extends Controller
         }
 
         // Get or create local user
-        $localUser = \App\Domains\Users\Models\User::where('email', $storedUser['email'])->first();
+        $localUser = \App\Domains\Users\Models\User::where('uuid', $storedUser['uuid'] ?? null)
+                        ->orWhere('email', $storedUser['email'])
+                        ->first();
         if (!$localUser) {
             $localUser = \App\Domains\Users\Models\User::create([
+                'uuid' => $storedUser['uuid'] ?? null,
                 'name' => $storedUser['name'] ?? $storedUser['email'],
                 'email' => $storedUser['email'],
                 'password' => bcrypt(str()->random(32)),
             ]);
         }
 
-        // Log the user in locally
-        Log::channel('mobile-api')->info('AUTH CONTROLLER: Offline login successful');
-        Auth::login($localUser, true);
-        $request->session()->regenerate();
+        // NO LOCAL WEB LOGIN
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: Offline login successful (no web auth)');
 
         return response()->json(['success' => true]);
     }
@@ -172,12 +163,9 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         Log::channel('mobile-api')->info('AUTH CONTROLLER: logout CALLED');
-        Auth::logout();
         Cache::forget('mobile_auth_token');
         Cache::forget('mobile_auth_user');
         Cache::forget('mobile_last_sync_at');
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
 
         return redirect('/login');
     }

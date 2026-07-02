@@ -22,13 +22,28 @@ class HandleInertiaRequests extends Middleware
             || $request->input('_native_mobile') === '1'
             || app()->environment('nativephp');
 
+        $authUser = null;
+        if ($isNativeMobile) {
+            // For NativePHP, get user from cache instead of web auth
+            $storedUser = \App\Domains\Mobile\Services\MobileSyncService::getStoredUser();
+            if ($storedUser) {
+                $authUser = array_merge($storedUser, [
+                    'roles' => [$storedUser['role'] ?? 'doctor'],
+                    'role' => $storedUser['role'] ?? 'doctor',
+                ]);
+            }
+        } else {
+            // For web, use regular web auth
+            $authUser = $request->user() ? array_merge($request->user()->toArray(), [
+                'roles' => $request->user()->roles->pluck('name'),
+                'role' => $request->user()->roles->first()?->name,
+            ]) : null;
+        }
+
         return [
             ...parent::share($request),
             'auth' => [
-                'user' => $request->user() ? array_merge($request->user()->toArray(), [
-                    'roles' => $request->user()->roles->pluck('name'),
-                    'role' => $request->user()->roles->first()?->name,
-                ]) : null,
+                'user' => $authUser,
             ],
             'is_native_mobile' => $isNativeMobile,
         ];

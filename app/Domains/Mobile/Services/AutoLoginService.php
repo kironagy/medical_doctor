@@ -21,7 +21,7 @@ class AutoLoginService
     public static function shouldAutoLogin(): bool
     {
         if (!static::isEnabled()) return false;
-        if (Auth::check()) return false;
+        if (\App\Domains\Mobile\Auth\NativeAuth::check()) return false;
 
         $seeded = Cache::get('mobile_demo_seeded', false);
         if (!$seeded) {
@@ -37,15 +37,14 @@ class AutoLoginService
     public static function autoLogin(): ?User
     {
         if (!static::isEnabled()) return null;
-        if (Auth::check()) return Auth::user();
+        if (\App\Domains\Mobile\Auth\NativeAuth::check()) return \App\Domains\Mobile\Auth\NativeAuth::user();
 
         static::seedIfNeeded();
 
         $user = User::where('email', 'doctor@demo.com')->first();
         if (!$user) return null;
 
-        Auth::login($user);
-
+        // No web auth login here
         return $user;
     }
 

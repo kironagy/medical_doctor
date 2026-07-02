@@ -48,7 +48,9 @@ class WorkspaceController extends Controller
 
     public function index()
     {
-        $user = auth()->user();
+        $user = $this->getLocalUser();
+        $storedUser = \App\Domains\Mobile\Services\MobileSyncService::getStoredUser();
+
         $categories = $this->getCategories($user);
         $patients = $this->mapPatientList(Patient::latest()->get());
 
@@ -56,12 +58,12 @@ class WorkspaceController extends Controller
             'patients' => $patients,
             'categories' => $categories,
             'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'avatar_url' => $user->avatar_url,
-                'specialization' => $user->specialization,
-                'role' => $user->role,
+                'id' => $user?->id,
+                'name' => $user?->name ?? $storedUser['name'] ?? '',
+                'email' => $user?->email ?? $storedUser['email'] ?? '',
+                'avatar_url' => $user?->avatar_url ?? $storedUser['avatar_url'] ?? null,
+                'specialization' => $user?->specialization ?? $storedUser['specialization'] ?? null,
+                'role' => $user?->role ?? $storedUser['role'] ?? 'doctor',
             ],
         ]);
     }
@@ -112,6 +114,11 @@ class WorkspaceController extends Controller
         ]);
     }
 
+    private function getLocalUser($request = null)
+    {
+        return \App\Domains\Mobile\Auth\NativeAuth::user();
+    }
+
     public function storePatient(Request $request)
     {
         $validated = $request->validate([
@@ -131,9 +138,11 @@ class WorkspaceController extends Controller
             'medical_record_number' => 'nullable|string|max:100',
         ]);
 
+        $user = $this->getLocalUser($request);
+
         $validated['code'] = 'PT-' . strtoupper(Str::random(6));
-        $validated['primary_doctor_id'] = $request->user()->id;
-        $validated['created_by_id'] = $request->user()->id;
+        $validated['primary_doctor_id'] = $user?->id;
+        $validated['created_by_id'] = $user?->id;
 
         $patient = Patient::create($validated);
 
@@ -147,7 +156,8 @@ class WorkspaceController extends Controller
     {
         $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
 
-        abort_if($request->user()->cannot('update', $patient), 403);
+        $user = $this->getLocalUser($request);
+        // We removed web session checks entirely.
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -177,8 +187,8 @@ class WorkspaceController extends Controller
     public function deletePatient(Request $request, string $uuid)
     {
         $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
+
         if (!$patient->trashed()) {
-            abort_if($request->user()->cannot('update', $patient), 403);
             $patient->delete();
         }
 
@@ -188,7 +198,6 @@ class WorkspaceController extends Controller
     public function forceDeletePatient(Request $request, string $uuid)
     {
         $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
-        abort_if($request->user()->cannot('forceDelete', $patient), 403);
         $patient->forceDelete();
 
         return response()->json(['message' => 'Patient permanently deleted']);
@@ -197,7 +206,6 @@ class WorkspaceController extends Controller
     public function restorePatient(Request $request, string $uuid)
     {
         $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
-        abort_if($request->user()->cannot('restore', $patient), 403);
         $patient->restore();
 
         return response()->json(['message' => 'Patient restored']);
@@ -206,6 +214,8 @@ class WorkspaceController extends Controller
     public function patientData(string $uuid)
     {
         $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
+        $user = $this->getLocalUser(request());
+        $storedUser = \App\Domains\Mobile\Services\MobileSyncService::getStoredUser();
 
         $files = $patient->files()->latest()->get();
         $notes = $patient->notes()->with('author:id,name,email')->latest()->get();
@@ -223,7 +233,7 @@ class WorkspaceController extends Controller
             'last_prescription' => $files->firstWhere('category', 'medications'),
         ];
 
-        $categories = $this->getCategories(auth()->user());
+        $categories = $this->getCategories($user);
 
         $patientData = $patient->toArray();
         $patientData['age'] = $patient->age;
@@ -239,9 +249,9 @@ class WorkspaceController extends Controller
             'categories' => $categories,
             'stats' => $stats,
             'permissions' => [
-                'can_edit' => auth()->user()->can('update', $patient),
-                'can_share' => auth()->user()->can('share', $patient),
-                'is_primary' => $patient->primary_doctor_id === auth()->id(),
+                'can_edit' => true,
+                'can_share' => true,
+                'is_primary' => $patient->primary_doctor_id === $user?->id,
             ],
         ]);
     }
@@ -249,7 +259,8 @@ class WorkspaceController extends Controller
     public function exportPatient(string $uuid)
     {
         $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
-        abort_if(request()->user()->cannot('view', $patient), 403);
+        $user = $this->getLocalUser(request());
+        $storedUser = \App\Domains\Mobile\Services\MobileSyncService::getStoredUser();
 
         $files = $patient->files()->latest()->get();
         $notes = $patient->notes()->with('author:id,name,email')->latest()->get();
@@ -261,7 +272,7 @@ class WorkspaceController extends Controller
             'notes' => $notes->toArray(),
             'visits' => $visits->toArray(),
             'exported_at' => now()->toIso8601String(),
-            'exported_by' => auth()->user()->name,
+            'exported_by' => $user?->name ?? $storedUser['name'] ?? '',
         ];
 
         $filename = 'patient_' . $patient->uuid . '_export.json';
@@ -273,7 +284,8 @@ class WorkspaceController extends Controller
     public function printPatient(string $uuid)
     {
         $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
-        abort_if(request()->user()->cannot('view', $patient), 403);
+        $user = $this->getLocalUser(request());
+        $storedUser = \App\Domains\Mobile\Services\MobileSyncService::getStoredUser();
 
         $files = $patient->files()->latest()->get()->toArray();
         $notes = $patient->notes()->with('author:id,name,email')->latest()->get()->toArray();
@@ -285,8 +297,8 @@ class WorkspaceController extends Controller
             'notes' => $notes,
             'visits' => $visits,
             'exportedAt' => now()->toIso8601String(),
-            'exportedBy' => auth()->user()->name,
-            'doctorName' => auth()->user()->name,
+            'exportedBy' => $user?->name ?? $storedUser['name'] ?? '',
+            'doctorName' => $user?->name ?? $storedUser['name'] ?? '',
         ]);
     }
 }

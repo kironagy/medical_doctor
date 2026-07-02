@@ -176,6 +176,44 @@ class ProductionApiService
         }
     }
 
+    public function getMe(): ?array
+    {
+        Log::channel('mobile-api')->info('=== GET ME START ===');
+        $url = "{$this->baseUrl}/auth/me";
+        Log::channel('mobile-api')->info('Creating get me request', [
+            'url' => $url,
+            'method' => 'GET',
+        ]);
+
+        try {
+            Log::channel('mobile-api')->info('Sending get me request...');
+            $response = Http::timeout($this->timeout)
+                ->withToken($this->token)
+                ->get($url);
+
+            Log::channel('mobile-api')->info('=== GET ME RESPONSE RECEIVED ===', [
+                'url' => $url,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Get me FAILED', ['status' => $response->status(), 'body' => $response->body()]);
+                return null;
+            }
+
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Get me EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return null;
+        }
+    }
+
     public function syncStatus(): ?array
     {
         Log::channel('mobile-api')->info('=== SYNC STATUS START ===');

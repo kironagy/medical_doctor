@@ -10,14 +10,13 @@ Route::get('/', function () {
 });
 
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+// POST /login and POST /logout for session authentication are COMPLETELY REMOVED.
 
 use App\Http\Controllers\PatientController;
 
-Route::middleware('auth')->group(function () {
+Route::middleware([\App\Http\Middleware\NativeAuthMiddleware::class])->group(function () {
     Route::get('/dashboard', function () {
-        $user = auth()->user();
+        $user = \App\Domains\Mobile\Auth\NativeAuth::user();
 
         // Doctor role renders the full workspace directly as the dashboard
         if ($user->hasRole('doctor')) {
@@ -51,19 +50,17 @@ Route::middleware('auth')->group(function () {
             'category' => 'required',
             'content' => 'required'
         ]);
-        
+
+        $user = \App\Domains\Mobile\Auth\NativeAuth::user();
         $patient = \App\Domains\Patients\Models\Patient::findOrFail($request->patient_id);
-        if ($request->user()->cannot('update', $patient)) {
-            abort(403, 'Unauthorized to add notes.');
-        }
 
         $note = \App\Domains\Patients\Models\PatientNote::create([
             'patient_id' => $request->patient_id,
-            'author_id' => $request->user()->id,
+            'author_id' => $user->id,
             'category' => $request->category,
             'content' => $request->content
         ]);
-        
+
         return response()->json($note);
     });
 
@@ -98,7 +95,7 @@ Route::middleware('auth')->group(function () {
 
         // Simplified direct upload endpoint - use UUID instead of ID
         Route::post('/patients/{patient:uuid}/files', [\App\Http\Controllers\Api\UploadController::class, 'store']);
-        
+
         // Optional progress endpoint for compatibility
         Route::get('/uploads/progress', [\App\Http\Controllers\Api\UploadController::class, 'progress']);
 
@@ -108,10 +105,10 @@ Route::middleware('auth')->group(function () {
         Route::get('/files/{uuid}/thumbnail', [\App\Http\Controllers\Api\FileAccessController::class, 'thumbnailDirect']);
         Route::delete('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'destroy']);
         Route::put('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'update']);
-        
+
         // Global Search API
         Route::get('/search', [\App\Http\Controllers\Api\GlobalSearchController::class, 'search']);
-        
+
         // Category Management API
         Route::get('/categories', [\App\Http\Controllers\Api\CategoryController::class, 'index']);
         Route::put('/categories', [\App\Http\Controllers\Api\CategoryController::class, 'update']);
