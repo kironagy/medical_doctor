@@ -67,10 +67,11 @@
 </template>
 
 <script setup>
-import { useForm, Head } from '@inertiajs/vue3';
+import { useForm, Head, router } from '@inertiajs/vue3';
 import BaseCard from '@/Components/BaseCard.vue';
 import BaseInput from '@/Components/BaseInput.vue';
 import BaseButton from '@/Components/BaseButton.vue';
+import { ref } from 'vue';
 
 const form = useForm({
   email: '',
@@ -78,9 +79,84 @@ const form = useForm({
   remember: false,
 });
 
-const submit = () => {
-  form.post('/login', {
-    onFinish: () => form.reset('password'),
-  });
+const PRODUCTION_API_BASE = 'https://prof-hosam-fekry.online/api/mobile/v1';
+
+const submit = async () => {
+  // Check if we're in NativePHP mode
+  if (window.__NATIVE_MOBILE__) {
+    console.log('[NativePHP] Submitting login to production API...');
+
+    try {
+      form.processing = true;
+      form.clearErrors();
+
+      // Step 1: Authenticate with production API
+      console.log(`[NativePHP] Step 1: POST ${PRODUCTION_API_BASE}/auth/login`);
+      const prodResponse = await fetch(`${PRODUCTION_API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
+          device_name: 'nativephp-android',
+        }),
+      });
+
+      console.log('[NativePHP] Production login status:', prodResponse.status);
+      const prodData = await prodResponse.json();
+      console.log('[NativePHP] Production login data:', prodData);
+
+      if (!prodResponse.ok) {
+        throw new Error(prodData.message || 'Login failed');
+      }
+
+      if (!prodData.token) {
+        throw new Error('No token received from production');
+      }
+
+      // Step 2: Store auth data locally via /native/auth/store endpoint
+      console.log('[NativePHP] Step 2: POST /native/auth/store');
+      const localResponse = await fetch('/native/auth/store', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({
+          token: prodData.token,
+          user: prodData.user,
+          server_time: prodData.server_time,
+        }),
+      });
+
+      console.log('[NativePHP] Local store status:', localResponse.status);
+      const localData = await localResponse.json();
+      console.log('[NativePHP] Local store data:', localData);
+
+      if (!localResponse.ok) {
+        throw new Error(localData.message || 'Failed to store auth locally');
+      }
+
+      // Step 3: Redirect to workspace
+      console.log('[NativePHP] Step 3: Redirecting to workspace');
+      router.visit('/workspace');
+
+    } catch (error) {
+      console.error('[NativePHP] Login error:', error);
+      form.errors.email = error.message;
+    } finally {
+      form.processing = false;
+      form.reset('password');
+    }
+  } else {
+    // Regular web login
+    form.post('/login', {
+      onFinish: () => form.reset('password'),
+    });
+  }
 };
 </script>

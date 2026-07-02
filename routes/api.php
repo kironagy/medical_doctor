@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\UploadController;
 use App\Http\Controllers\Api\FileAccessController;
+use App\Http\Controllers\AuthController as WebAuthController;
 use App\Http\Middleware\MobileApiLogger;
 
 Route::get('/files/{uuid}/stream', [FileAccessController::class, 'streamDirect'])
@@ -19,6 +20,9 @@ Route::prefix('v1')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
     });
 });
+
+// NativePHP local endpoints to store auth data
+Route::post('/native/auth/store', [WebAuthController::class, 'storeNativeAuth']);
 
 // Mobile sync API routes — loaded here so route:cache includes them reliably
 Route::prefix('mobile/v1')->middleware(MobileApiLogger::class)->group(function () {

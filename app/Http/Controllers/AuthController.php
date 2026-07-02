@@ -36,55 +36,6 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
-        // Check if we're in NativePHP mode
-        $isNative = $request->hasHeader('X-NativePHP') || $request->header('User-Agent') === 'NativePHP' || app()->environment('nativephp');
-
-        if ($isNative) {
-            // First authenticate with production server
-            $api = new ProductionApiService();
-            $result = $api->login($credentials['email'], $credentials['password'], 'nativephp-android');
-
-            if (!$result || !isset($result['token'])) {
-                return back()->withErrors([
-                    'email' => 'Failed to authenticate with production server.',
-                ])->onlyInput('email');
-            }
-
-            // Store the token and user info
-            $token = $result['token'];
-            Cache::put('mobile_auth_user', $result['user'], now()->addDays(30));
-            Cache::put('mobile_auth_token', encrypt($token), now()->addDays(30));
-
-            // Now do local auth (if user exists locally, or create a dummy user for NativePHP)
-            $localUser = \App\Domains\Users\Models\User::where('email', $credentials['email'])->first();
-            if (!$localUser) {
-                // Create a local dummy user for NativePHP mode
-                $localUser = \App\Domains\Users\Models\User::create([
-                    'name' => $result['user']['name'] ?? $credentials['email'],
-                    'email' => $credentials['email'],
-                    'password' => bcrypt($credentials['password']),
-                ]);
-                // Assign a role if needed
-                if (isset($result['user']['role'])) {
-                    $localUser->assignRole($result['user']['role']);
-                }
-            }
-
-            Auth::login($localUser, $request->boolean('remember'));
-            $request->session()->regenerate();
-
-            // Trigger initial sync
-            try {
-                $sync = new MobileSyncService();
-                $sync->setToken($token);
-                $sync->syncNow();
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Initial sync failed after login', ['error' => $e->getMessage()]);
-            }
-
-            return redirect()->intended('dashboard');
-        }
-
         // Regular web login
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
@@ -94,6 +45,62 @@ class AuthController extends Controller
         return back()->withErrors([
             'email' => 'The provided credentials do not match our records.',
         ])->onlyInput('email');
+    }
+
+    /**
+     * Store NativePHP authentication data (token and user)
+     */
+    public function storeNativeAuth(Request $request)
+    {
+        $validated = $request->validate([
+            'token' => 'required|string',
+            'user' => 'required|array',
+            'server_time' => 'nullable|string',
+        ]);
+
+        // Store in cache
+        Cache::put('mobile_auth_token', encrypt($validated['token']), now()->addDays(30));
+        Cache::put('mobile_auth_user', $validated['user'], now()->addDays(30));
+        if ($validated['server_time']) {
+            Cache::put('mobile_last_sync_at', $validated['server_time'], now()->addDays(7));
+        }
+
+        // Create or update local user
+        $localUser = \App\Domains\Users\Models\User::where('email', $validated['user']['email'])->first();
+        if (!$localUser) {
+            $localUser = \App\Domains\Users\Models\User::create([
+                'name' => $validated['user']['name'] ?? $validated['user']['email'],
+                'email' => $validated['user']['email'],
+                'password' => bcrypt(str()->random(32)), // Random password since we use token auth
+            ]);
+        }
+
+        // Assign role if available
+        if (isset($validated['user']['role'])) {
+            try {
+                $localUser->assignRole($validated['user']['role']);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to assign role', ['error' => $e->getMessage()]);
+            }
+        }
+
+        // Log the user in locally
+        Auth::login($localUser, true);
+        $request->session()->regenerate();
+
+        // Trigger initial sync
+        try {
+            $sync = new MobileSyncService();
+            $sync->setToken($validated['token']);
+            $sync->syncNow();
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Initial sync failed', ['error' => $e->getMessage()]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Authentication stored successfully',
+        ]);
     }
 
     public function logout(Request $request)
