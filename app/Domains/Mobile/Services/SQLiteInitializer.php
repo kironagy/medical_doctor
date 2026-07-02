@@ -23,29 +23,45 @@ class SQLiteInitializer
     {
         $logger = Log::channel('mobile-api');
 
-        $logger->info('[SQLite Initializer] Starting initialization check...');
+        $logger->info('=== SQLITE INITIALIZER START ===');
 
         $databasePath = database_path('database.sqlite');
+        $logger->info('Checking database file', ['path' => $databasePath, 'exists' => File::exists($databasePath)]);
 
         if (!File::exists($databasePath)) {
-            $logger->info('[SQLite Initializer] Creating database file...');
+            $logger->info('Creating database file...');
             File::put($databasePath, '');
+            $logger->info('Database file created successfully');
         }
 
+        $logger->info('Checking required tables...');
+        $existingTables = DB::select('SELECT name FROM sqlite_master WHERE type = "table"');
+        $existingTableNames = array_map(fn($t) => $t->name, $existingTables);
+        $logger->info('Existing tables', ['tables' => $existingTableNames]);
+
         // Check if tables exist
-        if ($this->tablesExist()) {
-            $logger->info('[SQLite Initializer] Tables already exist, skipping...');
+        $allTablesExist = true;
+        foreach (self::REQUIRED_TABLES as $table) {
+            if (!in_array($table, $existingTableNames)) {
+                $allTablesExist = false;
+                $logger->info('Table missing', ['table' => $table]);
+                break;
+            }
+        }
+
+        if ($allTablesExist) {
+            $logger->info('All required tables exist, skipping initialization');
             return;
         }
 
-        $logger->info('[SQLite Initializer] Running migrations...');
-        Artisan::call('migrate', ['--force' => true]);
-        $logger->info('[SQLite Initializer] Migrations complete. Output: ' . Artisan::output());
+        $logger->info('Running migrations...');
+        $exitCode = Artisan::call('migrate', ['--force' => true]);
+        $logger->info('Migrations complete', ['exit_code' => $exitCode, 'output' => Artisan::output()]);
 
         // Seed data
-        $logger->info('[SQLite Initializer] Running seeders...');
+        $logger->info('Running seeders...');
         $this->seedData();
-        $logger->info('[SQLite Initializer] Seeding complete!');
+        $logger->info('=== SQLITE INITIALIZER COMPLETE ===');
     }
 
     public function tablesExist(): bool
@@ -64,10 +80,13 @@ class SQLiteInitializer
 
     protected function seedData(): void
     {
-        // Run DatabaseSeeder first
-        Artisan::call('db:seed', ['--class' => 'DatabaseSeeder', '--force' => true]);
+        $logger = Log::channel('mobile-api');
+        $logger->info('Seeding DatabaseSeeder...');
+        $exitCode1 = Artisan::call('db:seed', ['--class' => 'DatabaseSeeder', '--force' => true]);
+        $logger->info('DatabaseSeeder complete', ['exit_code' => $exitCode1, 'output' => Artisan::output()]);
 
-        // Then run MobileDemoSeeder
-        Artisan::call('db:seed', ['--class' => 'MobileDemoSeeder', '--force' => true]);
+        $logger->info('Seeding MobileDemoSeeder...');
+        $exitCode2 = Artisan::call('db:seed', ['--class' => 'MobileDemoSeeder', '--force' => true]);
+        $logger->info('MobileDemoSeeder complete', ['exit_code' => $exitCode2, 'output' => Artisan::output()]);
     }
 }

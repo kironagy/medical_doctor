@@ -13,68 +13,121 @@ class ProductionApiService
 
     public function __construct()
     {
+        Log::channel('mobile-api')->info('=== PRODUCTION API SERVICE INITIALIZED ===');
         $this->baseUrl = config('nativephp.production_api_url', env('PRODUCTION_API_URL', 'https://prof-hosam-fekry.online/api/mobile/v1'));
+        Log::channel('mobile-api')->info('Base URL configured', ['base_url' => $this->baseUrl]);
+        Log::channel('mobile-api')->info('Environment variables checked', [
+            'PRODUCTION_API_URL' => env('PRODUCTION_API_URL'),
+            'config_nativephp_production_api_url' => config('nativephp.production_api_url'),
+        ]);
     }
 
     public function setToken(string $token): self
     {
+        Log::channel('mobile-api')->info('Setting authentication token', ['token_length' => strlen($token)]);
         $this->token = $token;
         return $this;
     }
 
     public function setTimeout(int $seconds): self
     {
+        Log::channel('mobile-api')->info('Setting timeout', ['timeout_seconds' => $seconds]);
         $this->timeout = $seconds;
         return $this;
     }
 
     public function login(string $email, string $password, ?string $deviceName = null): ?array
     {
+        Log::channel('mobile-api')->info('=== LOGIN START ===');
         $url = "{$this->baseUrl}/auth/login";
         $payload = [
             'email' => $email,
             'password' => $password,
             'device_name' => $deviceName ?? 'nativephp-android',
         ];
-        Log::info('Production API login request', ['url' => $url, 'payload' => ['email' => $email, 'device_name' => $payload['device_name']]]);
+        Log::channel('mobile-api')->info('Creating login request', [
+            'url' => $url,
+            'method' => 'POST',
+            'email' => $email,
+            'device_name' => $payload['device_name'],
+        ]);
 
-        $response = Http::timeout($this->timeout)->post($url, $payload);
+        try {
+            Log::channel('mobile-api')->info('HTTP CLIENT CREATED, sending request...');
+            $response = Http::timeout($this->timeout)->post($url, $payload);
+            Log::channel('mobile-api')->info('=== RESPONSE RECEIVED ===', [
+                'url' => $url,
+                'status' => $response->status(),
+                'headers' => $response->headers(),
+                'body' => $response->body(),
+            ]);
 
-        Log::info('Production API login response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Login FAILED', ['status' => $response->status(), 'body' => $response->body()]);
+                return null;
+            }
 
-        if (!$response->successful()) {
-            Log::error('Mobile sync login failed', ['status' => $response->status(), 'body' => $response->body()]);
+            $data = $response->json();
+            Log::channel('mobile-api')->info('Login SUCCESS', ['has_token' => isset($data['token'])]);
+            return $data;
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Login EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return null;
         }
-
-        return $response->json();
     }
 
     public function pull(?string $lastSyncAt, array $entities = ['patients', 'files', 'visits', 'notes', 'categories', 'shares', 'doctors']): ?array
     {
+        Log::channel('mobile-api')->info('=== PULL START ===');
         $url = "{$this->baseUrl}/sync/pull";
         $payload = [
             'last_sync_at' => $lastSyncAt,
             'entities' => $entities,
         ];
-        Log::info('Production API pull request', ['url' => $url, 'payload' => $payload]);
+        Log::channel('mobile-api')->info('Creating pull request', [
+            'url' => $url,
+            'method' => 'POST',
+            'last_sync_at' => $lastSyncAt,
+            'entities' => $entities,
+        ]);
 
-        $response = Http::timeout($this->timeout)
-            ->withToken($this->token)
-            ->post($url, $payload);
+        try {
+            Log::channel('mobile-api')->info('Sending pull request with token...');
+            $response = Http::timeout($this->timeout)
+                ->withToken($this->token)
+                ->post($url, $payload);
 
-        Log::info('Production API pull response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
+            Log::channel('mobile-api')->info('=== PULL RESPONSE RECEIVED ===', [
+                'url' => $url,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
 
-        if (!$response->successful()) {
-            Log::error('Mobile sync pull failed', ['status' => $response->status(), 'body' => $response->body()]);
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Pull FAILED', ['status' => $response->status(), 'body' => $response->body()]);
+                return null;
+            }
+
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Pull EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return null;
         }
-
-        return $response->json();
     }
 
     public function push(array $patients = [], array $visits = [], array $notes = [], array $shares = [], array $files = []): ?array
     {
+        Log::channel('mobile-api')->info('=== PUSH START ===');
         $payload = [];
         if (!empty($patients)) $payload['patients'] = $patients;
         if (!empty($visits)) $payload['visits'] = $visits;
@@ -82,205 +135,352 @@ class ProductionApiService
         if (!empty($shares)) $payload['shares'] = $shares;
         if (!empty($files)) $payload['files'] = $files;
 
-        if (empty($payload)) return null;
-
-        $url = "{$this->baseUrl}/sync/push";
-        Log::info('Production API push request', ['url' => $url, 'payload_keys' => array_keys($payload)]);
-
-        $response = Http::timeout($this->timeout)
-            ->withToken($this->token)
-            ->post($url, $payload);
-
-        Log::info('Production API push response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
-
-        if (!$response->successful()) {
-            Log::error('Mobile sync push failed', ['status' => $response->status(), 'body' => $response->body()]);
+        if (empty($payload)) {
+            Log::channel('mobile-api')->info('Push cancelled - empty payload');
             return null;
         }
 
-        return $response->json();
+        $url = "{$this->baseUrl}/sync/push";
+        Log::channel('mobile-api')->info('Creating push request', [
+            'url' => $url,
+            'method' => 'POST',
+            'payload_keys' => array_keys($payload),
+        ]);
+
+        try {
+            Log::channel('mobile-api')->info('Sending push request...');
+            $response = Http::timeout($this->timeout)
+                ->withToken($this->token)
+                ->post($url, $payload);
+
+            Log::channel('mobile-api')->info('=== PUSH RESPONSE RECEIVED ===', [
+                'url' => $url,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Push FAILED', ['status' => $response->status(), 'body' => $response->body()]);
+                return null;
+            }
+
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Push EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return null;
+        }
     }
 
     public function syncStatus(): ?array
     {
+        Log::channel('mobile-api')->info('=== SYNC STATUS START ===');
         $url = "{$this->baseUrl}/sync/status";
-        Log::info('Production API syncStatus request', ['url' => $url]);
+        Log::channel('mobile-api')->info('Creating sync status request', [
+            'url' => $url,
+            'method' => 'GET',
+        ]);
 
-        $response = Http::timeout($this->timeout)
-            ->withToken($this->token)
-            ->get($url);
+        try {
+            Log::channel('mobile-api')->info('Sending sync status request...');
+            $response = Http::timeout($this->timeout)
+                ->withToken($this->token)
+                ->get($url);
 
-        Log::info('Production API syncStatus response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
+            Log::channel('mobile-api')->info('=== SYNC STATUS RESPONSE RECEIVED ===', [
+                'url' => $url,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
 
-        if (!$response->successful()) {
-            Log::error('Mobile sync status failed', ['status' => $response->status(), 'body' => $response->body()]);
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Sync status FAILED', ['status' => $response->status(), 'body' => $response->body()]);
+                return null;
+            }
+
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Sync status EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return null;
         }
-
-        return $response->json();
     }
 
     public function getFileMetadata(string $fileUuid): ?array
     {
+        Log::channel('mobile-api')->info('=== GET FILE METADATA START ===', ['file_uuid' => $fileUuid]);
         $url = "{$this->baseUrl}/media/{$fileUuid}/metadata";
-        Log::info('Production API getFileMetadata request', ['url' => $url, 'file_uuid' => $fileUuid]);
 
-        $response = Http::timeout($this->timeout)
-            ->withToken($this->token)
-            ->get($url);
+        try {
+            $response = Http::timeout($this->timeout)
+                ->withToken($this->token)
+                ->get($url);
 
-        Log::info('Production API getFileMetadata response', ['url' => $url, 'status' => $response->status()]);
+            Log::channel('mobile-api')->info('=== GET FILE METADATA RESPONSE ===', [
+                'status' => $response->status(),
+            ]);
 
-        if (!$response->successful()) {
-            Log::error('Mobile get file metadata failed', ['status' => $response->status()]);
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Get file metadata FAILED', ['status' => $response->status()]);
+                return null;
+            }
+
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Get file metadata EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
             return null;
         }
-
-        return $response->json();
     }
 
     public function downloadFile(string $fileUuid, ?callable $onProgress = null): ?string
     {
+        Log::channel('mobile-api')->info('=== DOWNLOAD FILE START ===', ['file_uuid' => $fileUuid]);
         $url = "{$this->baseUrl}/media/{$fileUuid}/download";
-        Log::info('Production API downloadFile request', ['url' => $url, 'file_uuid' => $fileUuid]);
 
-        $response = Http::timeout(0)
-            ->withToken($this->token)
-            ->get($url);
+        try {
+            $response = Http::timeout(0)
+                ->withToken($this->token)
+                ->get($url);
 
-        Log::info('Production API downloadFile response', ['url' => $url, 'status' => $response->status()]);
+            Log::channel('mobile-api')->info('=== DOWNLOAD FILE RESPONSE ===', [
+                'status' => $response->status(),
+            ]);
 
-        if (!$response->successful()) {
-            Log::error('Mobile download file failed', ['status' => $response->status()]);
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Download file FAILED', ['status' => $response->status()]);
+                return null;
+            }
+
+            return $response->body();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Download file EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
             return null;
         }
-
-        return $response->body();
     }
 
     public function downloadFileRange(string $fileUuid, int $start, int $end): ?string
     {
+        Log::channel('mobile-api')->info('=== DOWNLOAD FILE RANGE START ===', ['file_uuid' => $fileUuid, 'start' => $start, 'end' => $end]);
         $url = "{$this->baseUrl}/media/{$fileUuid}/download";
         $headers = ['Range' => "bytes={$start}-{$end}"];
-        Log::info('Production API downloadFileRange request', ['url' => $url, 'file_uuid' => $fileUuid, 'headers' => $headers]);
 
-        $response = Http::timeout(30)
-            ->withToken($this->token)
-            ->withHeaders($headers)
-            ->get($url);
+        try {
+            $response = Http::timeout(30)
+                ->withToken($this->token)
+                ->withHeaders($headers)
+                ->get($url);
 
-        Log::info('Production API downloadFileRange response', ['url' => $url, 'status' => $response->status()]);
+            Log::channel('mobile-api')->info('=== DOWNLOAD FILE RANGE RESPONSE ===', [
+                'status' => $response->status(),
+            ]);
 
-        if (!$response->successful()) {
-            Log::error('Mobile download file range failed', ['status' => $response->status()]);
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Download file range FAILED', ['status' => $response->status()]);
+                return null;
+            }
+
+            return $response->body();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Download file range EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
             return null;
         }
-
-        return $response->body();
     }
 
     public function getThumbnail(string $fileUuid): ?string
     {
+        Log::channel('mobile-api')->info('=== GET THUMBNAIL START ===', ['file_uuid' => $fileUuid]);
         $url = "{$this->baseUrl}/media/{$fileUuid}/thumbnail";
-        Log::info('Production API getThumbnail request', ['url' => $url, 'file_uuid' => $fileUuid]);
 
-        $response = Http::timeout(15)
-            ->withToken($this->token)
-            ->get($url);
+        try {
+            $response = Http::timeout(15)
+                ->withToken($this->token)
+                ->get($url);
 
-        Log::info('Production API getThumbnail response', ['url' => $url, 'status' => $response->status()]);
+            Log::channel('mobile-api')->info('=== GET THUMBNAIL RESPONSE ===', [
+                'status' => $response->status(),
+            ]);
 
-        if (!$response->successful()) {
-            Log::error('Mobile get thumbnail failed', ['status' => $response->status()]);
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Get thumbnail FAILED', ['status' => $response->status()]);
+                return null;
+            }
+
+            return $response->body();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Get thumbnail EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
             return null;
         }
-
-        return $response->body();
     }
 
     public function initChunkUpload(array $data): ?array
     {
+        Log::channel('mobile-api')->info('=== INIT CHUNK UPLOAD START ===');
         $url = "{$this->baseUrl}/chunk/init";
-        Log::info('Production API initChunkUpload request', ['url' => $url, 'data_keys' => array_keys($data)]);
 
-        $response = Http::timeout($this->timeout)
-            ->withToken($this->token)
-            ->post($url, $data);
+        try {
+            Log::channel('mobile-api')->info('Sending init chunk upload request...');
+            $response = Http::timeout($this->timeout)
+                ->withToken($this->token)
+                ->post($url, $data);
 
-        Log::info('Production API initChunkUpload response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
+            Log::channel('mobile-api')->info('=== INIT CHUNK UPLOAD RESPONSE ===', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
 
-        if (!$response->successful()) {
-            Log::error('Mobile init chunk upload failed', ['status' => $response->status(), 'body' => $response->body()]);
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Init chunk upload FAILED', ['status' => $response->status(), 'body' => $response->body()]);
+                return null;
+            }
+
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Init chunk upload EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
             return null;
         }
-
-        return $response->json();
     }
 
     public function uploadChunk(string $sessionUuid, int $chunkIndex, $chunkData): bool
     {
+        Log::channel('mobile-api')->info('=== UPLOAD CHUNK START ===', ['session_uuid' => $sessionUuid, 'chunk_index' => $chunkIndex]);
         $url = "{$this->baseUrl}/chunk/{$sessionUuid}/upload";
-        Log::info('Production API uploadChunk request', ['url' => $url, 'session_uuid' => $sessionUuid, 'chunk_index' => $chunkIndex]);
 
-        $response = Http::timeout(60)
-            ->withToken($this->token)
-            ->attach('chunk', $chunkData, "chunk_{$chunkIndex}")
-            ->post($url, [
-                'chunk_index' => $chunkIndex,
+        try {
+            $response = Http::timeout(60)
+                ->withToken($this->token)
+                ->attach('chunk', $chunkData, "chunk_{$chunkIndex}")
+                ->post($url, [
+                    'chunk_index' => $chunkIndex,
+                ]);
+
+            Log::channel('mobile-api')->info('=== UPLOAD CHUNK RESPONSE ===', [
+                'status' => $response->status(),
             ]);
 
-        Log::info('Production API uploadChunk response', ['url' => $url, 'status' => $response->status()]);
-
-        return $response->successful();
+            return $response->successful();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Upload chunk EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            return false;
+        }
     }
 
     public function completeChunkUpload(string $sessionUuid): ?array
     {
+        Log::channel('mobile-api')->info('=== COMPLETE CHUNK UPLOAD START ===', ['session_uuid' => $sessionUuid]);
         $url = "{$this->baseUrl}/chunk/{$sessionUuid}/complete";
-        Log::info('Production API completeChunkUpload request', ['url' => $url, 'session_uuid' => $sessionUuid]);
 
-        $response = Http::timeout($this->timeout)
-            ->withToken($this->token)
-            ->post($url);
+        try {
+            $response = Http::timeout($this->timeout)
+                ->withToken($this->token)
+                ->post($url);
 
-        Log::info('Production API completeChunkUpload response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
+            Log::channel('mobile-api')->info('=== COMPLETE CHUNK UPLOAD RESPONSE ===', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
 
-        if (!$response->successful()) {
-            Log::error('Mobile complete chunk upload failed', ['status' => $response->status(), 'body' => $response->body()]);
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Complete chunk upload FAILED', ['status' => $response->status(), 'body' => $response->body()]);
+                return null;
+            }
+
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Complete chunk upload EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
             return null;
         }
-
-        return $response->json();
     }
 
     public function checkChunkStatus(string $sessionUuid): ?array
     {
+        Log::channel('mobile-api')->info('=== CHECK CHUNK STATUS START ===', ['session_uuid' => $sessionUuid]);
         $url = "{$this->baseUrl}/chunk/{$sessionUuid}/status";
-        Log::info('Production API checkChunkStatus request', ['url' => $url, 'session_uuid' => $sessionUuid]);
 
-        $response = Http::timeout($this->timeout)
-            ->withToken($this->token)
-            ->get($url);
+        try {
+            $response = Http::timeout($this->timeout)
+                ->withToken($this->token)
+                ->get($url);
 
-        Log::info('Production API checkChunkStatus response', ['url' => $url, 'status' => $response->status(), 'body' => $response->body()]);
+            Log::channel('mobile-api')->info('=== CHECK CHUNK STATUS RESPONSE ===', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
 
-        if (!$response->successful()) {
-            Log::error('Mobile check chunk status failed', ['status' => $response->status(), 'body' => $response->body()]);
+            if (!$response->successful()) {
+                Log::channel('mobile-api')->error('Check chunk status FAILED', ['status' => $response->status(), 'body' => $response->body()]);
+                return null;
+            }
+
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('Check chunk status EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
             return null;
         }
-
-        return $response->json();
     }
 
     public function isOnline(): bool
     {
+        Log::channel('mobile-api')->info('=== IS ONLINE CHECK START ===');
         try {
-            Log::info('Checking if production server is online...', ['url' => "{$this->baseUrl}/sync/status"]);
-            $response = Http::timeout(5)->get("{$this->baseUrl}/sync/status");
-            Log::info('Production server check result', ['status' => $response->status(), 'success' => $response->successful()]);
+            $url = "{$this->baseUrl}/sync/status";
+            Log::channel('mobile-api')->info('Checking server online status', ['url' => $url]);
+
+            Log::channel('mobile-api')->info('Creating HTTP client...');
+            $response = Http::timeout(5)->get($url);
+            Log::channel('mobile-api')->info('=== IS ONLINE RESPONSE RECEIVED ===', [
+                'url' => $url,
+                'status' => $response->status(),
+                'success' => $response->successful(),
+            ]);
+
             return $response->successful();
         } catch (\Exception $e) {
-            Log::error('Production server check failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::channel('mobile-api')->error('Is online check EXCEPTION', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return false;
         }
     }
