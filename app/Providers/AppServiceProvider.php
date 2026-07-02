@@ -19,6 +19,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        if (app()->environment('nativephp')) {
+            config(['database.default' => 'sqlite']);
+            config(['cache.default' => 'file']);
+        }
     }
 }

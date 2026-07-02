@@ -17,6 +17,7 @@ class SQLiteInitializer
         'file_categories',
         'patient_visits',
         'patient_shares',
+        'cache',
     ];
 
     public function ensureInitialized(): void
@@ -35,7 +36,7 @@ class SQLiteInitializer
         }
 
         $logger->info('Checking required tables...');
-        $existingTables = DB::select('SELECT name FROM sqlite_master WHERE type = "table"');
+        $existingTables = DB::connection('sqlite')->select('SELECT name FROM sqlite_master WHERE type = "table"');
         $existingTableNames = array_map(fn($t) => $t->name, $existingTables);
         $logger->info('Existing tables', ['tables' => $existingTableNames]);
 
@@ -55,7 +56,7 @@ class SQLiteInitializer
         }
 
         $logger->info('Running migrations...');
-        $exitCode = Artisan::call('migrate', ['--force' => true]);
+        $exitCode = Artisan::call('migrate', ['--database' => 'sqlite', '--force' => true]);
         $logger->info('Migrations complete', ['exit_code' => $exitCode, 'output' => Artisan::output()]);
 
         // Seed data
@@ -66,7 +67,7 @@ class SQLiteInitializer
 
     public function tablesExist(): bool
     {
-        $existingTables = DB::select('SELECT name FROM sqlite_master WHERE type = "table"');
+        $existingTables = DB::connection('sqlite')->select('SELECT name FROM sqlite_master WHERE type = "table"');
         $existingTableNames = array_map(fn($t) => $t->name, $existingTables);
 
         foreach (self::REQUIRED_TABLES as $table) {
@@ -82,11 +83,11 @@ class SQLiteInitializer
     {
         $logger = Log::channel('mobile-api');
         $logger->info('Seeding DatabaseSeeder...');
-        $exitCode1 = Artisan::call('db:seed', ['--class' => 'DatabaseSeeder', '--force' => true]);
+        $exitCode1 = Artisan::call('db:seed', ['--database' => 'sqlite', '--class' => 'DatabaseSeeder', '--force' => true]);
         $logger->info('DatabaseSeeder complete', ['exit_code' => $exitCode1, 'output' => Artisan::output()]);
 
         $logger->info('Seeding MobileDemoSeeder...');
-        $exitCode2 = Artisan::call('db:seed', ['--class' => 'MobileDemoSeeder', '--force' => true]);
+        $exitCode2 = Artisan::call('db:seed', ['--database' => 'sqlite', '--class' => 'MobileDemoSeeder', '--force' => true]);
         $logger->info('MobileDemoSeeder complete', ['exit_code' => $exitCode2, 'output' => Artisan::output()]);
     }
 }
