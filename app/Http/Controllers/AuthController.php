@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
-use App\Domains\Mobile\Services\ProductionApiService;
 use App\Domains\Mobile\Services\MobileSyncService;
 use App\Domains\Mobile\Services\SQLiteInitializer;
 
@@ -14,6 +14,7 @@ class AuthController extends Controller
 {
     public function showLogin()
     {
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: showLogin CALLED');
         // Ensure SQLite is initialized before showing login (for NativePHP)
         if (app()->environment('nativephp')) {
             $initializer = new SQLiteInitializer();
@@ -25,18 +26,58 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
-        // Ensure SQLite is initialized before attempting login (for NativePHP)
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: login CALLED', ['is_nativephp' => app()->environment('nativephp')]);
+
+        // For NativePHP, use production API login via MobileSyncService
         if (app()->environment('nativephp')) {
-            $initializer = new SQLiteInitializer();
-            $initializer->ensureInitialized();
+            Log::channel('mobile-api')->info('AUTH CONTROLLER: Handling NativePHP login');
+            $credentials = $request->validate([
+                'email' => ['required', 'email'],
+                'password' => ['required'],
+            ]);
+
+            $sync = new MobileSyncService();
+            $token = $sync->authenticate($credentials['email'], $credentials['password']);
+
+            if (!$token) {
+                Log::channel('mobile-api')->error('AUTH CONTROLLER: NativePHP login failed');
+                return back()->withErrors([
+                    'email' => 'Failed to authenticate with the production server.',
+                ])->onlyInput('email');
+            }
+
+            // Log the user in locally for the app
+            $storedUser = MobileSyncService::getStoredUser();
+            $localUser = \App\Domains\Users\Models\User::where('email', $storedUser['email'])->first();
+            if (!$localUser) {
+                $localUser = \App\Domains\Users\Models\User::create([
+                    'name' => $storedUser['name'] ?? $storedUser['email'],
+                    'email' => $storedUser['email'],
+                    'password' => bcrypt(str()->random(32)), // Random password since we use token auth
+                ]);
+
+                // Assign role if available
+                if (isset($storedUser['role'])) {
+                    try {
+                        $localUser->assignRole($storedUser['role']);
+                    } catch (\Exception $e) {
+                        Log::channel('mobile-api')->error('Failed to assign role', ['error' => $e->getMessage()]);
+                    }
+                }
+            }
+
+            Auth::login($localUser, true);
+            $request->session()->regenerate();
+
+            return redirect()->intended('dashboard');
         }
 
+        // Regular web login for web users
         $credentials = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required'],
         ]);
 
-        // Regular web login
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
             return redirect()->intended('dashboard');
@@ -105,6 +146,7 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
+        Log::channel('mobile-api')->info('AUTH CONTROLLER: logout CALLED');
         Auth::logout();
         Cache::forget('mobile_auth_token');
         Cache::forget('mobile_auth_user');

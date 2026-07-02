@@ -29,38 +29,36 @@ class MobileSyncServiceProvider extends ServiceProvider
 
         if ($this->app->environment('nativephp')) {
             Log::channel('mobile-api')->info('=== NATIVE PHP ENVIRONMENT DETECTED ===');
-            
+
             // Initialize SQLite database first
             Log::channel('mobile-api')->info('Initializing SQLite database...');
             $initializer = new SQLiteInitializer();
             $initializer->ensureInitialized();
 
-            if ($this->app->runningInConsole()) {
-                Log::channel('mobile-api')->info('Running in console, checking for stored token...');
-                $token = MobileSyncService::getStoredToken();
-                Log::channel('mobile-api')->info('Stored token check complete', ['has_token' => !is_null($token)]);
-                
-                if ($token) {
-                    try {
-                        Log::channel('mobile-api')->info('Creating sync service and setting token...');
-                        $sync = $this->app->make(MobileSyncService::class);
-                        $sync->setToken($token);
-                        
-                        Log::channel('mobile-api')->info('Checking online status...');
-                        if ($sync->isOnline()) {
-                            Log::channel('mobile-api')->info('Online, starting sync now...');
-                            $sync->syncNow();
-                        } else {
-                            Log::channel('mobile-api')->info('Offline, skipping auto-sync');
-                        }
-                    } catch (\Throwable $e) {
-                        Log::channel('mobile-api')->error('Mobile auto-sync failed on boot', [
-                            'error' => $e->getMessage(),
-                            'file' => $e->getFile(),
-                            'line' => $e->getLine(),
-                            'trace' => $e->getTraceAsString(),
-                        ]);
+            Log::channel('mobile-api')->info('Checking for stored token...');
+            $token = MobileSyncService::getStoredToken();
+            Log::channel('mobile-api')->info('Stored token check complete', ['has_token' => !is_null($token)]);
+
+            if ($token) {
+                try {
+                    Log::channel('mobile-api')->info('Creating sync service and setting token...');
+                    $sync = $this->app->make(MobileSyncService::class);
+                    $sync->setToken($token);
+
+                    Log::channel('mobile-api')->info('Checking online status...');
+                    if ($sync->isOnline()) {
+                        Log::channel('mobile-api')->info('Online, starting sync now...');
+                        $sync->syncNow();
+                    } else {
+                        Log::channel('mobile-api')->info('Offline, skipping auto-sync');
                     }
+                } catch (\Throwable $e) {
+                    Log::channel('mobile-api')->error('Mobile auto-sync failed on boot', [
+                        'error' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
+                        'trace' => $e->getTraceAsString(),
+                    ]);
                 }
             }
         }

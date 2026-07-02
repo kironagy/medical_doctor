@@ -10,7 +10,6 @@ use App\Domains\Media\Models\PatientFile;
 use App\Domains\Media\Models\FileCategory;
 use App\Domains\Users\Models\User;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class MobileSyncService
@@ -20,12 +19,14 @@ class MobileSyncService
 
     public function __construct()
     {
+        Log::channel('mobile-api')->info('=== MOBILE SYNC SERVICE INITIALIZED ===');
         $this->api = new ProductionApiService;
         $this->lastSyncAt = Cache::get('mobile_last_sync_at');
     }
 
     public function setToken(string $token): self
     {
+        Log::channel('mobile-api')->info('MOBILE SYNC: Setting authentication token');
         $this->api->setToken($token);
         return $this;
     }
@@ -37,25 +38,44 @@ class MobileSyncService
 
     public function authenticate(string $email, string $password): ?string
     {
+        Log::channel('mobile-api')->info('=== MOBILE SYNC: AUTHENTICATION START ===', ['email' => $email]);
+
         $result = $this->api->login($email, $password, 'nativephp-android');
-        if (!$result || !isset($result['token'])) return null;
+
+        if (!$result || !isset($result['token'])) {
+            Log::channel('mobile-api')->error('MOBILE SYNC: AUTHENTICATION FAILED');
+            return null;
+        }
 
         $token = $result['token'];
         $this->api->setToken($token);
 
         Cache::put('mobile_auth_user', $result['user'], now()->addDays(30));
         Cache::put('mobile_auth_token', encrypt($token), now()->addDays(30));
+        Log::channel('mobile-api')->info('MOBILE SYNC: AUTHENTICATION SUCCESS, TOKEN STORED');
+
+        // After login, get /me and sync immediately
+        try {
+            $this->api->syncStatus(); // Verify token works
+            $this->syncNow();
+        } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('MOBILE SYNC: POST-LOGIN SYNC FAILED', ['error' => $e->getMessage()]);
+        }
 
         return $token;
     }
 
     public static function getStoredToken(): ?string
     {
+        Log::channel('mobile-api')->info('MOBILE SYNC: Retrieving stored token');
         $encrypted = Cache::get('mobile_auth_token');
         if (!$encrypted) return null;
         try {
-            return decrypt($encrypted);
+            $token = decrypt($encrypted);
+            Log::channel('mobile-api')->info('MOBILE SYNC: Token retrieved successfully');
+            return $token;
         } catch (\Exception $e) {
+            Log::channel('mobile-api')->error('MOBILE SYNC: Token decryption failed', ['error' => $e->getMessage()]);
             Cache::forget('mobile_auth_token');
             return null;
         }
@@ -63,13 +83,16 @@ class MobileSyncService
 
     public static function getStoredUser(): ?array
     {
+        Log::channel('mobile-api')->info('MOBILE SYNC: Retrieving stored user');
         return Cache::get('mobile_auth_user');
     }
 
     public static function clearAuth(): void
     {
+        Log::channel('mobile-api')->info('MOBILE SYNC: Clearing authentication data');
         Cache::forget('mobile_auth_token');
         Cache::forget('mobile_auth_user');
+        Cache::forget('mobile_last_sync_at');
     }
 
     public function isOnline(): bool
@@ -79,24 +102,30 @@ class MobileSyncService
 
     public function syncNow(): array
     {
+        Log::channel('mobile-api')->info('=== MOBILE SYNC: SYNC START ===');
+        $startTime = microtime(true);
         $results = ['pulled' => 0, 'pushed' => 0, 'errors' => []];
 
         try {
             if (!$this->api->isOnline()) {
+                Log::channel('mobile-api')->error('MOBILE SYNC: No internet connection');
                 return ['error' => 'No internet connection'];
             }
 
             $token = static::getStoredToken();
             if (!$token) {
+                Log::channel('mobile-api')->error('MOBILE SYNC: Not authenticated');
                 return ['error' => 'Not authenticated'];
             }
 
             $this->api->setToken($token);
 
+            Log::channel('mobile-api')->info('MOBILE SYNC: Gathering local changes');
             $localChanges = $this->gatherLocalChanges();
 
             if (!empty($localChanges['patients']) || !empty($localChanges['visits']) ||
                 !empty($localChanges['notes']) || !empty($localChanges['shares'])) {
+                Log::channel('mobile-api')->info('MOBILE SYNC: Pushing changes to server', ['changes' => array_keys(array_filter($localChanges))]);
                 $pushResult = $this->api->push(
                     $localChanges['patients'],
                     $localChanges['visits'],
@@ -108,72 +137,110 @@ class MobileSyncService
                     $results['pushed'] = count($localChanges['patients']) + count($localChanges['visits']) +
                                          count($localChanges['notes']) + count($localChanges['shares']);
                     $results['push_results'] = $pushResult['results'] ?? [];
+                    Log::channel('mobile-api')->info('MOBILE SYNC: PUSH SUCCESS', ['records_pushed' => $results['pushed']]);
+                } else {
+                    Log::channel('mobile-api')->error('MOBILE SYNC: PUSH FAILED');
                 }
+            } else {
+                Log::channel('mobile-api')->info('MOBILE SYNC: No local changes to push');
             }
 
+            Log::channel('mobile-api')->info('MOBILE SYNC: Pulling changes from server');
             $pullResult = $this->api->pull($this->lastSyncAt);
+
             if ($pullResult && isset($pullResult['data'])) {
                 $applied = $this->applyRemoteChanges($pullResult['data']);
                 $results['pulled'] = $applied;
+                Log::channel('mobile-api')->info('MOBILE SYNC: PULL SUCCESS', ['records_pulled' => $applied]);
 
                 if (isset($pullResult['server_time'])) {
                     $this->lastSyncAt = $pullResult['server_time'];
                     Cache::put('mobile_last_sync_at', $this->lastSyncAt, now()->addDays(7));
+                    Log::channel('mobile-api')->info('MOBILE SYNC: Last sync time updated');
                 }
+            } else {
+                Log::channel('mobile-api')->error('MOBILE SYNC: PULL FAILED');
             }
 
             Cache::put('mobile_last_sync_result', $results, now()->addDay());
 
         } catch (\Exception $e) {
-            Log::error('Mobile sync failed', ['error' => $e->getMessage()]);
+            Log::channel('mobile-api')->error('MOBILE SYNC: SYNC FAILED', ['error' => $e->getMessage(), 'file' => $e->getFile(), 'line' => $e->getLine()]);
             $results['errors'][] = $e->getMessage();
         }
 
+        $endTime = microtime(true);
+        Log::channel('mobile-api')->info('=== MOBILE SYNC: SYNC COMPLETE ===', ['execution_time' => round(($endTime - $startTime) * 1000, 2) . 'ms']);
         return $results;
     }
 
     protected function gatherLocalChanges(): array
     {
+        Log::channel('mobile-api')->info('MOBILE SYNC: GATHER LOCAL CHANGES START');
         $changes = ['patients' => [], 'visits' => [], 'notes' => [], 'shares' => []];
 
-        if ($this->lastSyncAt) {
-            $user = request()->user();
-            $userId = $user?->id;
-            if (!$userId) return $changes;
-
-            Patient::where('primary_doctor_id', $userId)
-                ->withTrashed()
-                ->where(function ($q) {
-                    $q->where('updated_at', '>', $this->lastSyncAt)
-                      ->orWhere('client_updated_at', '>', $this->lastSyncAt);
-                })
-                ->each(function ($patient) use (&$changes) {
-                    $data = $patient->toArray();
-                    $data['_deleted'] = $patient->trashed();
-                    $changes['patients'][] = $data;
-                });
+        if (!$this->lastSyncAt) {
+            Log::channel('mobile-api')->info('MOBILE SYNC: No last sync time, skipping local changes');
+            return $changes;
         }
 
+        // Get user from stored auth instead of request()
+        $storedUser = self::getStoredUser();
+        if (!$storedUser) {
+            Log::channel('mobile-api')->info('MOBILE SYNC: No stored user, skipping local changes');
+            return $changes;
+        }
+
+        // Get local user by UUID or email
+        $localUser = User::where('uuid', $storedUser['uuid'] ?? null)
+                        ->orWhere('email', $storedUser['email'])
+                        ->first();
+
+        if (!$localUser) {
+            Log::channel('mobile-api')->info('MOBILE SYNC: No local user found, skipping local changes');
+            return $changes;
+        }
+
+        $userId = $localUser->id;
+
+        Log::channel('mobile-api')->info('MOBILE SYNC: Gathering changes for user', ['user_id' => $userId]);
+
+        Patient::where('primary_doctor_id', $userId)
+            ->withTrashed()
+            ->where(function ($q) {
+                $q->where('updated_at', '>', $this->lastSyncAt)
+                  ->orWhere('client_updated_at', '>', $this->lastSyncAt);
+            })
+            ->each(function ($patient) use (&$changes) {
+                $data = $patient->toArray();
+                $data['_deleted'] = $patient->trashed();
+                $changes['patients'][] = $data;
+            });
+
+        Log::channel('mobile-api')->info('MOBILE SYNC: GATHER LOCAL CHANGES COMPLETE', ['counts' => array_map('count', $changes)]);
         return $changes;
     }
 
     protected function applyRemoteChanges(array $data): int
     {
+        Log::channel('mobile-api')->info('MOBILE SYNC: APPLY REMOTE CHANGES START');
         $count = 0;
 
         foreach ($data as $entity => $items) {
             if (empty($items)) continue;
+            Log::channel('mobile-api')->info('MOBILE SYNC: Processing entity', ['entity' => $entity, 'count' => count($items)]);
 
             foreach ($items as $item) {
                 try {
                     $this->upsertLocal($entity, $item);
                     $count++;
                 } catch (\Exception $e) {
-                    Log::warning("Failed to upsert local {$entity}", ['uuid' => $item['uuid'] ?? 'unknown', 'error' => $e->getMessage()]);
+                    Log::channel('mobile-api')->warning("MOBILE SYNC: Failed to upsert local {$entity}", ['uuid' => $item['uuid'] ?? 'unknown', 'error' => $e->getMessage()]);
                 }
             }
         }
 
+        Log::channel('mobile-api')->info('MOBILE SYNC: APPLY REMOTE CHANGES COMPLETE', ['records_applied' => $count]);
         return $count;
     }
 

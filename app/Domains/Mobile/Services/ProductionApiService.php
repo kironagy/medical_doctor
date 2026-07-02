@@ -470,12 +470,12 @@ class ProductionApiService
             Log::channel('mobile-api')->info('=== IS ONLINE RESPONSE RECEIVED ===', [
                 'url' => $url,
                 'status' => $response->status(),
-                'success' => $response->successful(),
             ]);
 
-            return $response->successful();
+            // Any response means server is online (DNS, TLS, socket all worked)
+            return true;
         } catch (\Exception $e) {
-            Log::channel('mobile-api')->error('Is online check EXCEPTION', [
+            Log::channel('mobile-api')->error('Is online check EXCEPTION (OFFLINE)', [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
