@@ -35,5 +35,10 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule): void {
         $schedule->command('uploads:purge-expired --hours=6')->hourly();
+        $schedule->command('mobile:sync --once')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->environments('nativephp')
+            ->appendOutputTo(storage_path('logs/mobile-sync.log'));
     })
     ->create();
