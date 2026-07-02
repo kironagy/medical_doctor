@@ -11,6 +11,10 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+        <!-- Preconnect to app domain for faster video/asset loading -->
+        <link rel="dns-prefetch" href="{{ url('/') }}">
+        <link rel="preconnect" href="{{ url('/') }}">
+
         <script>
           // Prevent dark mode flash — apply before Vue mounts
           (function() {

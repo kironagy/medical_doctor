@@ -147,8 +147,8 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
+let videojs = null
 
 const props = defineProps({
   src: { type: String, required: true },
@@ -184,7 +184,7 @@ const supportsPiP = typeof document !== 'undefined' && 'pictureInPictureEnabled'
 const speedOptions = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]
 
 let hideControlsTimer = null
-let idleTimer = null
+let isMounted = false
 
 function formatTime(seconds) {
   if (!seconds || !isFinite(seconds)) return '0:00'
@@ -195,11 +195,17 @@ function formatTime(seconds) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-function initPlayer() {
+async function initPlayer() {
   if (!videoEl.value) return
   if (vjsPlayer) {
     vjsPlayer.dispose()
+    vjsPlayer = null
   }
+
+  if (!videojs) {
+    videojs = (await import('video.js')).default
+  }
+  if (!isMounted || !videoEl.value) return
 
   vjsPlayer = videojs(videoEl.value, {
     controls: false,
@@ -421,6 +427,7 @@ watch(() => props.src, () => {
 })
 
 onMounted(() => {
+  isMounted = true
   initPlayer()
   document.addEventListener('dblclick', handleDoubleTap)
   if (playerContainer.value) {
@@ -429,6 +436,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  isMounted = false
   if (vjsPlayer) {
     vjsPlayer.dispose()
     vjsPlayer = null

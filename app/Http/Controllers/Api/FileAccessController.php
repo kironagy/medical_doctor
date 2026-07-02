@@ -83,10 +83,15 @@ class FileAccessController extends Controller
 
         // No Range header — stream whole file with 200
         if (!$rangeHeader) {
+            @ini_set('output_handler', '');
+            @ini_set('zlib.output_compression', 0);
+            @ini_set('max_execution_time', 3600);
+            while (ob_get_level()) ob_end_clean();
+
             $fp = fopen($absolutePath, 'rb');
             $this->logStream($uuid, 'GET', null, 200, $fileSize);
             return new StreamedResponse(function () use ($fp) {
-                $buf = 256 * 1024;
+                $buf = 1024 * 1024;
                 while (!feof($fp)) {
                     echo fread($fp, $buf);
                     fflush($fp);
@@ -127,6 +132,11 @@ class FileAccessController extends Controller
         $headers['Content-Range'] = "bytes {$start}-{$end}/{$fileSize}";
         $headers['Content-Length'] = (string) $length;
 
+        @ini_set('output_handler', '');
+        @ini_set('zlib.output_compression', 0);
+        @ini_set('max_execution_time', 3600);
+        while (ob_get_level()) ob_end_clean();
+
         $fp = fopen($absolutePath, 'rb');
         if ($start > 0) {
             fseek($fp, $start);
@@ -136,7 +146,7 @@ class FileAccessController extends Controller
 
         return new StreamedResponse(function () use ($fp, $length) {
             $remaining = $length;
-            $buf = 256 * 1024;
+            $buf = 1024 * 1024;
             while (!feof($fp) && $remaining > 0) {
                 $read = min($buf, $remaining);
                 echo fread($fp, $read);
