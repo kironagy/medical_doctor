@@ -1,7 +1,7 @@
 <template>
   <div
     ref="playerContainer"
-    class="video-player-wrapper relative bg-black rounded-lg overflow-hidden group"
+    class="video-player-wrapper relative bg-black rounded-lg overflow-hidden group min-h-[200px]"
     :class="{ 'video-player--fullscreen': isFullscreen }"
     @keydown="handleKeydown"
     tabindex="0"
@@ -9,7 +9,7 @@
     <!-- Video element (video.js) -->
     <video
       ref="videoEl"
-      class="video-js vjs-big-play-centered w-full h-full"
+      class="video-js vjs-big-play-centered w-full object-contain"
       :poster="poster"
       preload="metadata"
     ></video>
@@ -451,8 +451,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .video-player-wrapper {
-  aspect-ratio: 16 / 9;
   outline: none;
+  max-height: 85vh;
 }
 
 .video-player-wrapper:fullscreen {
