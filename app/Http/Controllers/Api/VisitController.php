@@ -41,6 +41,30 @@ class VisitController extends Controller
         return response()->json($visit, 201);
     }
 
+    public function update(Request $request, Patient $patient, string $visitId)
+    {
+        Gate::authorize('update', $patient);
+
+        $visit = PatientVisit::where('patient_id', $patient->id)
+            ->where('uuid', $visitId)
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'visit_type' => 'sometimes|string|max:255',
+            'visit_date' => 'nullable|date',
+            'visit_time' => 'nullable|string|max:255',
+            'reason' => 'nullable|string|max:1000',
+            'diagnosis' => 'nullable|string|max:1000',
+            'prescription' => 'nullable|string|max:1000',
+            'next_visit_date' => 'nullable|date|after_or_equal:today',
+            'cost' => 'nullable|numeric|min:0',
+        ]);
+
+        $visit->update($validated);
+
+        return response()->json($visit);
+    }
+
     public function destroy(Patient $patient, string $visitId)
     {
         Gate::authorize('update', $patient);

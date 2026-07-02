@@ -21,9 +21,9 @@
         <span class="text-[10px] font-medium">Records</span>
       </button>
 
-      <button v-if="selectedPatient" @click="$emit('scroll-to', 'sharing')" class="flex flex-col items-center justify-center w-full h-full text-slate-500 dark:text-slate-400 active:text-primary-600 dark:active:text-primary-400 transition-colors">
-        <svg class="w-5 h-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
-        <span class="text-[10px] font-medium">Sharing</span>
+      <button v-if="selectedPatient" @click="$emit('scroll-to', 'timeline')" class="flex flex-col items-center justify-center w-full h-full text-slate-500 dark:text-slate-400 active:text-primary-600 dark:active:text-primary-400 transition-colors">
+        <svg class="w-5 h-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        <span class="text-[10px] font-medium">Timeline</span>
       </button>
     </div>
   </nav>

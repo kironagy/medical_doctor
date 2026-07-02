@@ -115,6 +115,8 @@ Route::middleware('auth')->group(function () {
         // Workspace API
         Route::get('/workspace/patients-list', [\App\Http\Controllers\WorkspaceController::class, 'patientList']);
         Route::get('/workspace/{patient:uuid}', [\App\Http\Controllers\WorkspaceController::class, 'patientData']);
+        Route::get('/workspace/{patient:uuid}/export', [\App\Http\Controllers\WorkspaceController::class, 'exportPatient']);
+        Route::get('/workspace/{patient:uuid}/print', [\App\Http\Controllers\WorkspaceController::class, 'printPatient']);
 
         // Inline Patient CRUD (JSON responses for Workspace)
         Route::post('/workspace/patients', [\App\Http\Controllers\WorkspaceController::class, 'storePatient']);
@@ -129,6 +131,7 @@ Route::middleware('auth')->group(function () {
         // Visits API
         Route::get('/patients/{patient:uuid}/visits', [\App\Http\Controllers\Api\VisitController::class, 'index']);
         Route::post('/patients/{patient:uuid}/visits', [\App\Http\Controllers\Api\VisitController::class, 'store']);
+        Route::put('/patients/{patient:uuid}/visits/{visitId}', [\App\Http\Controllers\Api\VisitController::class, 'update']);
         Route::delete('/patients/{patient:uuid}/visits/{visitId}', [\App\Http\Controllers\Api\VisitController::class, 'destroy']);
 
         // Notes API

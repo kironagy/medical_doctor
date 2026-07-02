@@ -13,11 +13,11 @@
           <div class="flex gap-4">
             <label class="flex items-center p-4 border rounded-xl cursor-pointer transition-all" :class="locale === 'en' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'">
               <input type="radio" v-model="locale" value="en" class="hidden" />
-              <span class="font-medium dark:text-white">English (LTR)</span>
+              <span class="font-medium dark:text-white">{{ $t('settings.lang_en') }}</span>
             </label>
             <label class="flex items-center p-4 border rounded-xl cursor-pointer transition-all" :class="locale === 'ar' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'">
               <input type="radio" v-model="locale" value="ar" class="hidden" />
-              <span class="font-medium dark:text-white font-heading">العربية (RTL)</span>
+              <span class="font-medium dark:text-white font-heading">{{ $t('settings.lang_ar') }}</span>
             </label>
           </div>
         </div>

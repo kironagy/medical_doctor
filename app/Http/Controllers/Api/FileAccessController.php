@@ -239,8 +239,11 @@ class FileAccessController extends Controller
         $validated = $request->validate([
             'title' => 'sometimes|string|max:255',
             'desc' => 'sometimes|string|nullable',
+            'notes' => 'sometimes|string|nullable',
+            'tags' => 'sometimes|string|nullable',
             'file_name' => 'sometimes|string|max:255',
             'category' => 'sometimes|string|max:255',
+            'date' => 'sometimes|date|nullable',
         ]);
 
         $file->update($validated);

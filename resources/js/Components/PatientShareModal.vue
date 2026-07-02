@@ -135,6 +135,7 @@
 import { ref, watch, onMounted } from 'vue';
 import axios from 'axios';
 import { useDialog } from '@/Composables/useDialog';
+import { useToast } from '@/Composables/useToast';
 
 const props = defineProps({
   show: Boolean,
@@ -150,6 +151,7 @@ const accessLevel = ref('read');
 const activeShares = ref([]);
 const isSharing = ref(false);
 const dialog = useDialog();
+const toast = useToast();
 
 let searchTimeout = null;
 
@@ -221,17 +223,14 @@ const revokeAccess = async (share) => {
   });
 
   if (!confirmed) return;
-  
+
   try {
     await axios.delete(`/api/v1/patients/${props.patientUuid}/shares/${share.id}`);
     activeShares.value = activeShares.value.filter(s => s.id !== share.id);
+    toast.success('Access revoked');
   } catch (e) {
     console.error(e);
-    dialog.alert({
-      title: 'Error',
-      message: 'Failed to revoke access.',
-      style: 'danger'
-    });
+    toast.error('Failed to revoke access');
   }
 };
 

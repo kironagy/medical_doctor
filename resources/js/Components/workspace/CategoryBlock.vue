@@ -49,7 +49,7 @@
                 <div class="flex gap-1">
                   <div v-for="c in colorOptions.slice(0,5)" :key="c" class="w-3 h-3 rounded-full" :style="{ backgroundColor: c }"></div>
                 </div>
-                <span class="ms-1">Change Color</span>
+                <span class="ms-1">{{ $t('workspace.change_color') }}</span>
               </button>
               <hr class="my-1 border-slate-100 dark:border-slate-700" />
               <button @click="deleteCategory" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors text-left">
@@ -69,7 +69,7 @@
 
           <!-- Upload Progress -->
           <div v-if="activeUploads.length > 0" class="space-y-2">
-            <h4 class="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Uploading</h4>
+            <h4 class="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">{{ $t('files.uploading') }}</h4>
             <div v-for="job in activeUploads" :key="job.id" class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-100 dark:border-slate-700">
               <div class="flex items-center justify-between mb-1.5">
                 <span class="text-xs font-medium text-slate-700 dark:text-slate-300 truncate max-w-[70%]">{{ job.file.name }}</span>
@@ -83,10 +83,10 @@
                   {{ job.status === 'uploading' ? formatSpeed(job.speed) : job.status === 'failed' ? (job.error || 'Failed') : job.status }}
                 </span>
                 <div class="flex gap-1">
-                  <button v-if="job.status === 'uploading'" @click.stop="pauseJob(job)" class="text-[10px] text-amber-600 hover:text-amber-700 font-medium">Pause</button>
-                  <button v-if="job.status === 'paused'" @click.stop="resumeJob(job)" class="text-[10px] text-emerald-600 hover:text-emerald-700 font-medium">Resume</button>
-                  <button v-if="job.status === 'failed'" @click.stop="retryJob(job)" class="text-[10px] text-primary-600 hover:text-primary-700 font-medium">Retry</button>
-                  <button @click.stop="cancelJob(job)" class="text-[10px] text-rose-600 hover:text-rose-700 font-medium">Cancel</button>
+                  <button v-if="job.status === 'uploading'" @click.stop="pauseJob(job)" class="text-[10px] text-amber-600 hover:text-amber-700 font-medium">{{ $t('files.pause') }}</button>
+                  <button v-if="job.status === 'paused'" @click.stop="resumeJob(job)" class="text-[10px] text-emerald-600 hover:text-emerald-700 font-medium">{{ $t('files.resume') }}</button>
+                  <button v-if="job.status === 'failed'" @click.stop="retryJob(job)" class="text-[10px] text-primary-600 hover:text-primary-700 font-medium">{{ $t('files.retry') }}</button>
+                  <button @click.stop="cancelJob(job)" class="text-[10px] text-rose-600 hover:text-rose-700 font-medium">{{ $t('files.cancel') }}</button>
                 </div>
               </div>
             </div>
@@ -97,60 +97,60 @@
             <div class="flex items-center gap-2 flex-wrap">
               <div class="relative flex-1 min-w-[200px]">
                 <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                <input
-                  v-model="searchQuery"
-                  type="text"
-                  placeholder="Search files..."
-                  class="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 text-slate-700 dark:text-slate-300"
-                />
+                  <input
+                    v-model="searchQuery"
+                    type="text"
+                    :placeholder="$t('category.search_placeholder')"
+                    class="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 text-slate-700 dark:text-slate-300"
+                  />
                 <svg v-if="searching" class="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
               </div>
               <div class="relative">
-                <select v-model="dateFilter" @change="onDateFilterChange" class="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 pr-8">
-                  <option value="">All Dates</option>
-                  <option value="today">Today</option>
-                  <option value="yesterday">Yesterday</option>
-                  <option value="last7">Last 7 Days</option>
-                  <option value="last30">Last 30 Days</option>
-                  <option value="this_month">This Month</option>
-                  <option value="last_month">Last Month</option>
-                  <option value="this_year">This Year</option>
-                  <option value="custom">Custom Range</option>
-                </select>
+                  <select v-model="dateFilter" @change="onDateFilterChange" class="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 pr-8">
+                    <option value="">{{ $t('category.all_dates') }}</option>
+                    <option value="today">{{ $t('category.today') }}</option>
+                    <option value="yesterday">{{ $t('category.yesterday') }}</option>
+                    <option value="last7">{{ $t('category.last_7_days') }}</option>
+                    <option value="last30">{{ $t('category.last_30_days') }}</option>
+                    <option value="this_month">{{ $t('category.this_month') }}</option>
+                    <option value="last_month">{{ $t('category.last_month') }}</option>
+                    <option value="this_year">{{ $t('category.this_year') }}</option>
+                    <option value="custom">{{ $t('category.custom_range') }}</option>
+                  </select>
                 <svg class="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
               </div>
               <div class="relative">
-                <select v-model="timeFilter" @change="onTimeFilterChange" class="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 pr-8">
-                  <option value="">All Times</option>
-                  <option value="morning">Morning (08:00-12:00)</option>
-                  <option value="afternoon">Afternoon (13:00-16:00)</option>
-                  <option value="evening">Evening (18:00-23:00)</option>
-                  <option value="custom">Custom Time</option>
-                </select>
+                  <select v-model="timeFilter" @change="onTimeFilterChange" class="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 pr-8">
+                    <option value="">{{ $t('category.all_times') }}</option>
+                    <option value="morning">{{ $t('category.morning') }}</option>
+                    <option value="afternoon">{{ $t('category.afternoon') }}</option>
+                    <option value="evening">{{ $t('category.evening') }}</option>
+                    <option value="custom">{{ $t('category.custom_time') }}</option>
+                  </select>
                 <svg class="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
               </div>
               <div class="relative">
-                <select v-model="sortBy" @change="onSortChange" class="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 pr-8">
-                  <option value="newest">Newest</option>
-                  <option value="oldest">Oldest</option>
-                  <option value="name_asc">Name A-Z</option>
-                  <option value="name_desc">Name Z-A</option>
-                  <option value="largest">Largest Size</option>
-                  <option value="smallest">Smallest Size</option>
-                  <option value="recently_updated">Recently Updated</option>
-                </select>
+                  <select v-model="sortBy" @change="onSortChange" class="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 pr-8">
+                    <option value="newest">{{ $t('category.newest') }}</option>
+                    <option value="oldest">{{ $t('category.oldest') }}</option>
+                    <option value="name_asc">{{ $t('category.name_az') }}</option>
+                    <option value="name_desc">{{ $t('category.name_za') }}</option>
+                    <option value="largest">{{ $t('category.largest') }}</option>
+                    <option value="smallest">{{ $t('category.smallest') }}</option>
+                    <option value="recently_updated">{{ $t('category.recently_updated') }}</option>
+                  </select>
                 <svg class="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
               </div>
-              <button v-if="hasActiveFilters" @click="clearFilters" class="text-[11px] text-rose-600 hover:text-rose-700 font-medium px-2 py-1">Clear</button>
+              <button v-if="hasActiveFilters" @click="clearFilters" class="text-[11px] text-rose-600 hover:text-rose-700 font-medium px-2 py-1">{{ $t('category.clear') }}</button>
             </div>
             <div v-if="dateFilter === 'custom'" class="flex items-center gap-2">
               <input v-model="customDateFrom" type="date" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
-              <span class="text-xs text-slate-400">to</span>
+              <span class="text-xs text-slate-400">{{ $t('category.to') }}</span>
               <input v-model="customDateTo" type="date" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
             </div>
             <div v-if="timeFilter === 'custom'" class="flex items-center gap-2">
               <input v-model="customTimeFrom" type="time" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
-              <span class="text-xs text-slate-400">to</span>
+              <span class="text-xs text-slate-400">{{ $t('category.to') }}</span>
               <input v-model="customTimeTo" type="time" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
             </div>
           </div>
@@ -164,20 +164,21 @@
           <div v-if="!loading && files.length > 0">
             <div class="flex items-center justify-between mb-2">
               <h4 class="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
-                Files
-                <span v-if="searchQuery" class="text-slate-400 font-normal lowercase ms-1">({{ meta.total }} results)</span>
+                {{ $t('category.files') }}
+                <span v-if="searchQuery" class="text-slate-400 font-normal lowercase ms-1">({{ meta.total }} {{ $t('category.results') }})</span>
               </h4>
               <button v-if="canEdit && !showUploadArea" @click="showUploadArea = true" class="text-[11px] font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 flex items-center gap-1">
                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-                Upload
+                {{ $t('workspace.upload_files') }}
               </button>
             </div>
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
               <div
                 v-for="file in files" :key="file.id"
                 class="group relative bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden hover:shadow-sm transition-shadow cursor-pointer"
+                @click="isMobile ? (activeSheetFile = file) : undefined"
               >
-                <div @click="openPreview(file)" class="aspect-[4/3] flex items-center justify-center overflow-hidden">
+                <div @click="!isMobile ? openPreview(file) : undefined" class="aspect-[4/3] flex items-center justify-center overflow-hidden">
                   <img v-if="file.thumbnail_url" :src="file.thumbnail_url" class="object-cover w-full h-full" @error="e => e.target.style.display='none'" loading="lazy" />
                   <div v-else-if="file.mime_type?.startsWith('image/')" class="text-slate-400 flex items-center justify-center">
                     <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
@@ -190,27 +191,20 @@
                   </div>
                 </div>
                 <div class="p-1.5">
-                  <div class="flex items-center justify-between gap-1">
-                    <p class="text-[11px] font-medium text-slate-800 dark:text-slate-200 truncate flex-1">{{ file.title || file.file_name }}</p>
-                    <div class="relative" @click.stop>
-                      <button @click="toggleFileMenu(file)" class="p-0.5 text-slate-300 hover:text-slate-500 transition-colors opacity-0 group-hover:opacity-100">
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
-                      </button>
-                    </div>
-                  </div>
+                  <p class="text-[11px] font-medium text-slate-800 dark:text-slate-200 truncate">{{ file.title || file.file_name }}</p>
                   <p class="text-[10px] text-slate-400">{{ formatSize(file.size) }}</p>
                 </div>
-                <div class="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-2 backdrop-blur-sm">
-                  <button @click.stop="openPreview(file)" class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 hover:text-primary-600 transition-colors" title="Preview">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                  </button>
-                  <a v-if="file.url" :href="file.url" target="_blank" @click.stop class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 hover:text-primary-600 transition-colors" title="Download">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                  </a>
-                  <button @click.stop="deleteFile(file)" class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 hover:text-rose-600 transition-colors" title="Delete">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                  </button>
-                </div>
+                <FileActions
+                  v-if="!isMobile"
+                  :file="file"
+                  :canEdit="canEdit"
+                  mode="overlay"
+                  :categories="allCategories"
+                  @preview="openPreview"
+                  @file-updated="fetchFiles(currentPage)"
+                  @file-moved="fetchFiles(currentPage)"
+                  @file-deleted="fetchFiles(currentPage)"
+                />
               </div>
             </div>
 
@@ -222,7 +216,7 @@
                 class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
                 :class="currentPage <= 1 ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'"
               >
-                Previous
+                {{ $t('category.previous') }}
               </button>
               <template v-for="p in displayedPages" :key="p">
                 <span v-if="p === '...'" class="px-2 py-1.5 text-xs text-slate-400">...</span>
@@ -241,18 +235,32 @@
                 class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
                 :class="currentPage >= meta.last_page ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'"
               >
-                Next
+                {{ $t('category.next') }}
               </button>
             </div>
           </div>
+
+          <!-- Mobile Bottom Sheet -->
+          <FileActions
+            v-if="activeSheetFile"
+            :file="activeSheetFile"
+            :canEdit="canEdit"
+            mode="sheet"
+            :categories="allCategories"
+            @preview="openPreview"
+            @file-updated="fetchFiles(currentPage); activeSheetFile = null"
+            @file-moved="fetchFiles(currentPage); activeSheetFile = null"
+            @file-deleted="fetchFiles(currentPage); activeSheetFile = null"
+            @close="activeSheetFile = null"
+          />
 
           <!-- Search Empty State -->
           <div v-if="!loading && searchQuery && files.length === 0 && notes.length === 0 && !showUploadArea" class="text-center py-8 px-4">
             <div class="w-16 h-16 mx-auto mb-4 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center">
               <svg class="w-8 h-8 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             </div>
-            <p class="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">No results found</p>
-            <p class="text-xs text-slate-400 dark:text-slate-500">Try a different search term or clear filters</p>
+            <p class="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">{{ $t('category.no_results') }}</p>
+            <p class="text-xs text-slate-400 dark:text-slate-500">{{ $t('category.no_results_desc') }}</p>
           </div>
 
           <!-- Upload Area -->
@@ -267,8 +275,8 @@
             >
               <input type="file" ref="fileInput" multiple class="hidden" accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.7z,audio/*" @change="handleFileSelect" />
               <svg class="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-              <p class="text-sm font-medium text-slate-600 dark:text-slate-400">Drop files here or click to upload</p>
-              <p class="text-xs text-slate-400 mt-0.5">Images, Videos, PDF, Documents, Audio, ZIP</p>
+              <p class="text-sm font-medium text-slate-600 dark:text-slate-400">{{ $t('files.click_to_upload') }}</p>
+              <p class="text-xs text-slate-400 mt-0.5">{{ $t('files.upload_hint') }}</p>
             </div>
           </div>
 
@@ -277,16 +285,16 @@
             <div class="w-16 h-16 mx-auto mb-4 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center">
               <svg class="w-8 h-8 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
             </div>
-            <p class="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">This category is empty</p>
-            <p class="text-xs text-slate-400 dark:text-slate-500 mb-4">Upload files or add notes to get started</p>
+            <p class="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">{{ $t('category.empty_category') }}</p>
+            <p class="text-xs text-slate-400 dark:text-slate-500 mb-4">{{ $t('category.empty_category_desc') }}</p>
             <div class="flex items-center justify-center gap-2">
               <button v-if="canEdit" @click="showUploadArea = true" class="inline-flex items-center gap-1.5 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-medium transition-colors">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-                Upload Files
+                {{ $t('workspace.upload_files') }}
               </button>
               <button @click="addNote" class="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium transition-colors">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                Add Note
+                {{ $t('workspace.add_note') }}
               </button>
             </div>
           </div>
@@ -321,47 +329,47 @@
     <form @submit.prevent="submitNote" class="space-y-4">
       <textarea v-model="noteContent" class="input-field w-full" rows="4" placeholder="Enter note content..." required></textarea>
       <div class="flex justify-end gap-3">
-        <button type="button" @click="showNoteModal = false" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
-        <BaseButton type="submit">Add Note</BaseButton>
+        <button type="button" @click="showNoteModal = false" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">{{ $t('common.cancel') }}</button>
+        <BaseButton type="submit">{{ $t('workspace.add_note') }}</BaseButton>
       </div>
     </form>
   </WorkspaceModal>
 
   <!-- Add Visit Modal -->
-  <WorkspaceModal :modelValue="showVisitModal" @update:modelValue="showVisitModal = false" title="Add Visit" size="sm">
+  <WorkspaceModal :modelValue="showVisitModal" @update:modelValue="showVisitModal = false" :title="$t('workspace.add_visit')" size="sm">
     <form @submit.prevent="submitVisit" class="space-y-4">
-      <input v-model="visitType" class="input-field w-full" placeholder="Visit type (e.g. Checkup, Follow-up)" required />
+      <input v-model="visitType" class="input-field w-full" :placeholder="$t('workspace.visit_type_placeholder')" required />
       <div class="flex justify-end gap-3">
-        <button type="button" @click="showVisitModal = false" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
-        <BaseButton type="submit">Add Visit</BaseButton>
+        <button type="button" @click="showVisitModal = false" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">{{ $t('common.cancel') }}</button>
+        <BaseButton type="submit">{{ $t('workspace.add_visit') }}</BaseButton>
       </div>
     </form>
   </WorkspaceModal>
 
   <!-- Rename Category Modal -->
-  <WorkspaceModal :modelValue="showRenameModal" @update:modelValue="showRenameModal = false" title="Rename Category" size="sm">
+  <WorkspaceModal :modelValue="showRenameModal" @update:modelValue="showRenameModal = false" :title="$t('workspace.rename_category')" size="sm">
     <form @submit.prevent="submitRename" class="space-y-4">
-      <input v-model="renameValue" class="input-field w-full" placeholder="Category name" required />
+      <input v-model="renameValue" class="input-field w-full" :placeholder="$t('settings.category_name')" required />
       <div class="flex justify-end gap-3">
-        <button type="button" @click="showRenameModal = false" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
-        <BaseButton type="submit">Rename</BaseButton>
+        <button type="button" @click="showRenameModal = false" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">{{ $t('common.cancel') }}</button>
+        <BaseButton type="submit">{{ $t('workspace.rename_category') }}</BaseButton>
       </div>
     </form>
   </WorkspaceModal>
 
   <!-- Change Color Modal -->
-  <WorkspaceModal :modelValue="showColorModal" @update:modelValue="showColorModal = false" title="Change Color" size="sm">
+  <WorkspaceModal :modelValue="showColorModal" @update:modelValue="showColorModal = false" :title="$t('workspace.change_color')" size="sm">
     <form @submit.prevent="submitColor" class="space-y-4">
       <div class="flex items-center gap-3">
         <input v-model="colorValue" type="color" class="w-12 h-12 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer" />
-        <input v-model="colorValue" class="input-field flex-1" placeholder="#3b82f6" required />
+        <input v-model="colorValue" class="input-field flex-1" :placeholder="$t('workspace.color_placeholder')" required />
       </div>
       <div class="flex gap-2">
         <button v-for="c in colorOptions" :key="c" type="button" @click="colorValue = c" class="w-7 h-7 rounded-full border-2 transition-all" :class="colorValue === c ? 'border-slate-900 dark:border-white scale-110' : 'border-transparent'" :style="{ backgroundColor: c }"></button>
       </div>
       <div class="flex justify-end gap-3 pt-2">
-        <button type="button" @click="showColorModal = false" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Cancel</button>
-        <BaseButton type="submit">Save Color</BaseButton>
+        <button type="button" @click="showColorModal = false" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">{{ $t('common.cancel') }}</button>
+        <BaseButton type="submit">{{ $t('workspace.save_color') }}</BaseButton>
       </div>
     </form>
   </WorkspaceModal>
@@ -377,14 +385,17 @@ import WorkspaceModal from './WorkspaceModal.vue'
 import BaseButton from '@/Components/BaseButton.vue'
 import axios from 'axios'
 
+import FileActions from './FileActions.vue'
+
 const props = defineProps({
   slug: String,
   name: String,
   icon: { type: String, default: '📁' },
   color: { type: String, default: '#6b7280' },
+  allCategories: { type: Array, default: () => [] },
 })
 
-const { toggleCategory, isCategoryExpanded, canEdit, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded } = useWorkspace()
+const { toggleCategory, isCategoryExpanded, canEdit, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile } = useWorkspace()
 const { uploadFile, cancelUpload, pauseUpload, resumeUpload, retryUpload, uploads } = useUploads()
 const dialog = useDialog()
 const toast = useToast()
@@ -625,7 +636,7 @@ const dragging = ref(false)
 const fileInput = ref(null)
 const menuRef = ref(null)
 const menuStyle = ref({})
-const activeFileMenu = ref(null)
+const activeSheetFile = ref(null)
 const colorOptions = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6', '#6b7280']
 
 const showNoteModal = ref(false)
@@ -656,10 +667,6 @@ function toggleCategoryMenu(e) {
   }
 }
 
-function toggleFileMenu(file) {
-  activeFileMenu.value = activeFileMenu.value?.id === file.id ? null : file
-}
-
 function triggerFileInput() { fileInput.value?.click() }
 
 function handleFileSelect(e) {
@@ -684,14 +691,6 @@ function pauseJob(job) { pauseUpload(job.id) }
 function resumeJob(job) { resumeUpload(job.id) }
 function retryJob(job) { retryUpload(job.id) }
 function cancelJob(job) { cancelUpload(job.id) }
-
-async function deleteFile(file) {
-  try {
-    await axios.delete(`/api/v1/files/${file.uuid}`)
-    fetchFiles(currentPage.value)
-    toast.success('File deleted')
-  } catch (e) { console.error('Delete failed', e) }
-}
 
 async function addNote() {
   showNoteModal.value = true

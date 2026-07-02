@@ -30,7 +30,7 @@
 
         <div class="flex-1 flex items-center justify-center p-2 md:p-6 overflow-hidden relative" @wheel="onWheel">
           <div v-if="file?.mime_type?.startsWith('image/')"
-            class="flex items-center justify-center w-full h-full overflow-auto cursor-zoom-in"
+            class="flex items-center justify-center w-full h-full overflow-auto overscroll-contain cursor-zoom-in"
             :class="{ 'cursor-zoom-out': isZoomed }"
             @click="toggleZoom"
           >

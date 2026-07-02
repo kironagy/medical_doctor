@@ -8,7 +8,7 @@ const workspaceData = ref(null)
 const loading = ref(false)
 const loadingPatient = ref(false)
 const searchQuery = ref('')
-const sidebarOpen = ref(true)
+const sidebarOpen = ref(typeof window !== 'undefined' ? localStorage.getItem('sidebarOpen') !== 'false' : true)
 const mobilePatientListOpen = ref(false)
 const activeSection = ref('overview')
 const expandedCategories = ref({})
@@ -20,6 +20,7 @@ const showAddPatient = ref(false)
 const showEditPatient = ref(false)
 const showCategoryManager = ref(false)
 const showActionMenu = ref(false)
+const showSettings = ref(false)
 
 const lazyLoadedCategories = ref({})
 
@@ -31,7 +32,9 @@ if (typeof window !== 'undefined') {
 
 const selectedPatient = computed(() => {
   if (!selectedPatientId.value) return null
-  return patients.value.find(p => p.uuid === selectedPatientId.value) || null
+  return patients.value.find(p => p.uuid === selectedPatientId.value)
+    || archivedPatients.value.find(p => p.uuid === selectedPatientId.value)
+    || null
 })
 
 const filteredPatients = computed(() => {
@@ -95,6 +98,13 @@ const notesByCategory = computed(() => {
 const visits = computed(() => workspaceData.value?.visits || [])
 const shares = computed(() => workspaceData.value?.shares || [])
 const stats = computed(() => workspaceData.value?.stats || {})
+
+function toggleSidebar() {
+  sidebarOpen.value = !sidebarOpen.value
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('sidebarOpen', sidebarOpen.value)
+  }
+}
 
 function toggleCategory(slug) {
   expandedCategories.value[slug] = !expandedCategories.value[slug]
@@ -198,6 +208,9 @@ async function updatePatient(uuid, formData) {
   }
 }
 
+const archivedPatients = ref([])
+const showArchived = ref(false)
+
 async function refreshPatientList() {
   try {
     const res = await axios.get('/api/v1/workspace/patients-list')
@@ -209,17 +222,58 @@ async function refreshPatientList() {
   }
 }
 
+async function fetchArchivedPatients() {
+  try {
+    const res = await axios.get('/api/v1/workspace/patients-list?status=archived')
+    if (res.data?.patients) {
+      archivedPatients.value = res.data.patients
+    }
+  } catch {
+    console.error('Failed to fetch archived patients')
+  }
+}
+
 async function archivePatient(uuid) {
   try {
-    await axios.delete(`/patients/${uuid}`)
+    await axios.delete(`/api/v1/workspace/patients/${uuid}`)
     selectedPatientId.value = null
     workspaceData.value = null
     expandedCategories.value = {}
     await refreshPatientList()
+    await fetchArchivedPatients()
     return { success: true }
   } catch (e) {
     return { success: false }
   }
+}
+
+async function restorePatient(uuid) {
+  try {
+    await axios.post(`/api/v1/workspace/patients/${uuid}/restore`)
+    await refreshPatientList()
+    await fetchArchivedPatients()
+    return { success: true }
+  } catch (e) {
+    return { success: false }
+  }
+}
+
+async function forceDeletePatient(uuid) {
+  try {
+    await axios.delete(`/api/v1/workspace/patients/${uuid}/force`)
+    await fetchArchivedPatients()
+    return { success: true }
+  } catch (e) {
+    return { success: false }
+  }
+}
+
+function openSettings() {
+  showSettings.value = true
+}
+
+function closeSettings() {
+  showSettings.value = false
 }
 
 export function useWorkspace() {
@@ -254,8 +308,12 @@ export function useWorkspace() {
     showEditPatient,
     showCategoryManager,
     showActionMenu,
+    showSettings,
+    openSettings,
+    closeSettings,
     setPatients,
     selectPatient,
+    toggleSidebar,
     toggleCategory,
     isCategoryExpanded,
     markCategoryLoaded,
@@ -269,5 +327,10 @@ export function useWorkspace() {
     updatePatient,
     archivePatient,
     refreshPatientList,
+    archivedPatients,
+    showArchived,
+    fetchArchivedPatients,
+    restorePatient,
+    forceDeletePatient,
   }
 }

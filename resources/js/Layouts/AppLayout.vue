@@ -160,9 +160,6 @@
       </div>
     </nav>
 
-    <!-- Global Dialog System -->
-    <GlobalDialog />
-    <ToastContainer />
   </div>
 </template>
 
@@ -171,8 +168,6 @@ import { ref } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import { Head } from '@inertiajs/vue3';
 import GlobalSearch from '@/Components/GlobalSearch.vue';
-import GlobalDialog from '@/Components/GlobalDialog.vue';
-import ToastContainer from '@/Components/ToastContainer.vue';
 import { useTheme } from '@/Composables/useTheme';
 import { useLocale } from '@/Composables/useLocale';
 

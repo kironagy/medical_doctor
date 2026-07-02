@@ -103,8 +103,12 @@ class WorkspaceController extends Controller
 
     public function patientList()
     {
+        $query = Patient::latest();
+        if (request()->query('status') === 'archived') {
+            $query->onlyTrashed();
+        }
         return response()->json([
-            'patients' => $this->mapPatientList(Patient::latest()->get()),
+            'patients' => $this->mapPatientList($query->get()),
         ]);
     }
 
@@ -141,7 +145,7 @@ class WorkspaceController extends Controller
 
     public function updatePatient(Request $request, string $uuid)
     {
-        $patient = Patient::where('uuid', $uuid)->firstOrFail();
+        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
 
         abort_if($request->user()->cannot('update', $patient), 403);
 
@@ -172,16 +176,18 @@ class WorkspaceController extends Controller
 
     public function deletePatient(Request $request, string $uuid)
     {
-        $patient = Patient::where('uuid', $uuid)->firstOrFail();
-        abort_if($request->user()->cannot('update', $patient), 403);
-        $patient->delete();
+        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
+        if (!$patient->trashed()) {
+            abort_if($request->user()->cannot('update', $patient), 403);
+            $patient->delete();
+        }
 
         return response()->json(['message' => 'Patient archived']);
     }
 
     public function forceDeletePatient(Request $request, string $uuid)
     {
-        $patient = Patient::where('uuid', $uuid)->firstOrFail();
+        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
         abort_if($request->user()->cannot('forceDelete', $patient), 403);
         $patient->forceDelete();
 
@@ -199,7 +205,7 @@ class WorkspaceController extends Controller
 
     public function patientData(string $uuid)
     {
-        $patient = Patient::where('uuid', $uuid)->firstOrFail();
+        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
 
         $files = $patient->files()->latest()->get();
         $notes = $patient->notes()->with('author:id,name,email')->latest()->get();
@@ -237,6 +243,50 @@ class WorkspaceController extends Controller
                 'can_share' => auth()->user()->can('share', $patient),
                 'is_primary' => $patient->primary_doctor_id === auth()->id(),
             ],
+        ]);
+    }
+
+    public function exportPatient(string $uuid)
+    {
+        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
+        abort_if(request()->user()->cannot('view', $patient), 403);
+
+        $files = $patient->files()->latest()->get();
+        $notes = $patient->notes()->with('author:id,name,email')->latest()->get();
+        $visits = $patient->visits()->latest()->get();
+
+        $data = [
+            'patient' => $patient->toArray(),
+            'files' => $files->toArray(),
+            'notes' => $notes->toArray(),
+            'visits' => $visits->toArray(),
+            'exported_at' => now()->toIso8601String(),
+            'exported_by' => auth()->user()->name,
+        ];
+
+        $filename = 'patient_' . $patient->uuid . '_export.json';
+        return response()->streamDownload(function () use ($data) {
+            echo json_encode($data, JSON_PRETTY_PRINT);
+        }, $filename, ['Content-Type' => 'application/json']);
+    }
+
+    public function printPatient(string $uuid)
+    {
+        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
+        abort_if(request()->user()->cannot('view', $patient), 403);
+
+        $files = $patient->files()->latest()->get()->toArray();
+        $notes = $patient->notes()->with('author:id,name,email')->latest()->get()->toArray();
+        $visits = $patient->visits()->latest()->get()->toArray();
+
+        return Inertia::render('PatientPrint', [
+            'patient' => $patient->toArray(),
+            'files' => $files,
+            'notes' => $notes,
+            'visits' => $visits,
+            'exportedAt' => now()->toIso8601String(),
+            'exportedBy' => auth()->user()->name,
+            'doctorName' => auth()->user()->name,
         ]);
     }
 }

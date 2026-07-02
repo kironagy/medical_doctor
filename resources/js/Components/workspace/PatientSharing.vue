@@ -86,7 +86,12 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useWorkspace } from '@/Composables/useWorkspace'
+import { useDialog } from '@/Composables/useDialog'
+import { useToast } from '@/Composables/useToast'
 import axios from 'axios'
+
+const dialog = useDialog()
+const toast = useToast()
 
 const { workspaceData, selectedPatient, canShare } = useWorkspace()
 
@@ -136,19 +141,30 @@ async function sharePatient() {
     showSharePanel.value = false
     const { selectPatient } = useWorkspace()
     selectPatient(selectedPatient.value.uuid)
+    toast.success('Patient shared successfully')
   } catch (e) {
     console.error('Share failed', e)
+    toast.error('Failed to share patient')
   }
 }
 
 async function revokeShare(share) {
   if (!selectedPatient.value) return
+  const confirmed = await dialog.confirm({
+    title: 'Revoke Access',
+    message: `Revoke ${share.doctor?.name || 'doctor'}'s access to this patient?`,
+    confirmText: 'Revoke',
+    style: 'warning',
+  })
+  if (!confirmed) return
   try {
     await axios.delete(`/api/v1/patients/${selectedPatient.value.uuid}/shares/${share.id}`)
     const { selectPatient } = useWorkspace()
     selectPatient(selectedPatient.value.uuid)
+    toast.success('Access revoked')
   } catch (e) {
     console.error('Revoke failed', e)
+    toast.error('Failed to revoke access')
   }
 }
 </script>

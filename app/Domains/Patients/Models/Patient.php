@@ -33,6 +33,11 @@ class Patient extends Model
         });
     }
 
+    public function resolveRouteBinding($value, $field = null)
+    {
+        return $this->withTrashed()->where($field ?? $this->getRouteKeyName(), $value)->firstOrFail();
+    }
+
     public function getAgeAttribute(): ?int
     {
         if (!$this->date_of_birth) return null;

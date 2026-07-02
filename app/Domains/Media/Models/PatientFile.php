@@ -13,7 +13,7 @@ class PatientFile extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'uuid', 'patient_id', 'uploaded_by_id', 'title', 'desc', 'type', 'category',
+        'uuid', 'patient_id', 'uploaded_by_id', 'title', 'desc', 'notes', 'tags', 'type', 'category',
         'date', 'file_name', 'file_path', 'thumbnail_path', 'upload_status',
         'client_updated_at', 'mime_type', 'size',
     ];

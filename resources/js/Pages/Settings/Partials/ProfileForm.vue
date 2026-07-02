@@ -31,15 +31,15 @@
       </div>
 
       <!-- Cropper Modal -->
-      <GlobalDialog :show="showCropper" @close="cancelCrop" :title="$t('settings.upload_avatar')">
-        <div class="w-full max-h-[60vh] bg-black rounded-lg overflow-hidden flex items-center justify-center">
+      <BaseDialog v-model="showCropper" :title="$t('settings.upload_avatar')" size="md">
+        <div class="w-full bg-black rounded-lg overflow-hidden flex items-center justify-center">
           <img ref="cropperImage" :src="rawImageUrl" class="max-w-full max-h-full block" />
         </div>
         <div class="mt-4 flex justify-end space-x-3 rtl:space-x-reverse">
           <BaseButton type="button" variant="ghost" @click="cancelCrop">{{ $t('common.cancel') }}</BaseButton>
           <BaseButton type="button" @click="applyCrop">{{ $t('settings.upload_avatar') }}</BaseButton>
         </div>
-      </GlobalDialog>
+      </BaseDialog>
 
       <!-- Profile Form -->
       <BaseInput
@@ -74,15 +74,17 @@
 <script setup>
 import { ref, onUnmounted } from 'vue';
 import { useForm, usePage, router } from '@inertiajs/vue3';
+import { useI18n } from 'vue-i18n';
 import BaseCard from '@/Components/BaseCard.vue';
 import BaseInput from '@/Components/BaseInput.vue';
 import BaseButton from '@/Components/BaseButton.vue';
-import GlobalDialog from '@/Components/GlobalDialog.vue';
+import BaseDialog from '@/Components/BaseDialog.vue';
 import { useDialog } from '@/Composables/useDialog';
 import { CameraIcon } from '@heroicons/vue/24/solid';
 import Cropper from 'cropperjs';
 import 'cropperjs/dist/cropper.css';
 
+const { t } = useI18n();
 const page = usePage();
 const user = page.props.auth.user;
 const dialog = useDialog();
@@ -166,9 +168,9 @@ const applyCrop = () => {
 
 const removeAvatar = async () => {
   const confirmed = await dialog.confirm({
-    title: 'Remove Avatar',
-    message: 'Are you sure you want to remove your profile picture?',
-    confirmText: 'Remove',
+    title: t('settings.remove_avatar_title'),
+    message: t('settings.remove_avatar_confirm'),
+    confirmText: t('settings.remove_avatar'),
     style: 'warning',
   })
   if (!confirmed) return
