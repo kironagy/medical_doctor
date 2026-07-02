@@ -18,6 +18,12 @@ use App\Http\Controllers\PatientController;
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', function () {
         $user = auth()->user();
+
+        // Doctor role renders the full workspace directly as the dashboard
+        if ($user->hasRole('doctor')) {
+            return (new \App\Http\Controllers\WorkspaceController())->index();
+        }
+
         $isSuperAdmin = $user->hasRole('super-admin');
 
         $stats = [
