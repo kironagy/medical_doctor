@@ -309,9 +309,33 @@ const visitType = ref('')
 const renameValue = ref('')
 const colorValue = ref('')
 
+// Pagination state for files
+const filesPerPage = ref(12)
+const filesPage = ref(1)
+
+const displayedFiles = computed(() => {
+  return categoryFiles.value.slice(0, filesPage.value * filesPerPage.value)
+})
+
+const hasMoreFiles = computed(() => {
+  return categoryFiles.value.length > filesPage.value * filesPerPage.value
+})
+
+function loadMoreFiles() {
+  filesPage.value++
+}
+
+function resetFilesPagination() {
+  filesPage.value = 1
+}
+
 watch(expanded, (val) => {
   if (val && !hasLoaded.value) {
     markCategoryLoaded(props.slug)
+  }
+  // Reset pagination when category is collapsed/expanded
+  if (!val) {
+    resetFilesPagination()
   }
 }, { immediate: true })
 

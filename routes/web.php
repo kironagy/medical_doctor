@@ -130,6 +130,9 @@ Route::middleware('auth')->group(function () {
 
         // Notes API
         Route::post('/patients/{patient:uuid}/notes', [\App\Http\Controllers\Api\NoteController::class, 'store']);
+        Route::get('/patients/{patient:uuid}/notes', [\App\Http\Controllers\Api\NoteController::class, 'index']);
+        Route::put('/patients/{patient:uuid}/notes/{uuid}', [\App\Http\Controllers\Api\NoteController::class, 'update']);
+        Route::delete('/patients/{patient:uuid}/notes/{uuid}', [\App\Http\Controllers\Api\NoteController::class, 'destroy']);
 
         // Sharing API
         Route::get('/doctors/search', [\App\Http\Controllers\Api\PatientShareController::class, 'searchDoctors']);

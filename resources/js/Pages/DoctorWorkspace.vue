@@ -5,7 +5,7 @@
 
     <!-- Sidebar -->
     <div
-      class="flex-shrink-0 z-50 transition-all duration-300"
+      class="flex-shrink-0 z-5000000 transition-all duration-300"
       :class="[
         isMobile ? 'fixed inset-y-0 left-0' : 'w-[300px] lg:w-[320px] hidden md:block'
       ]"
@@ -129,22 +129,59 @@
                 </div>
                 <h3 class="text-sm font-bold font-heading text-slate-900 dark:text-white">Patient Sharing</h3>
               </div>
-              <button v-if="canShare" @click="showShareForm = !showShareForm" class="text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 flex items-center gap-1">
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-                Share
-              </button>
-            </div>
-            <div v-if="showShareForm && canShare" class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-              <div class="flex gap-2">
-                <input v-model="searchDoctorQuery" @input="debouncedDoctorSearch" type="text" placeholder="Search doctor..." class="flex-1 px-3 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+      <button v-if="canShare" @click="openShareSelectModal" class="text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 flex items-center gap-1">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+        Share
+      </button>
+    </div>
+    <div v-if="showShareForm && canShare" class="px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+      <div class="flex gap-2">
+        <input v-model="searchDoctorQuery" @input="debouncedDoctorSearch" type="text" placeholder="Search doctor..." class="flex-1 px-3 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+      </div>
+      <div v-if="doctorResults.length > 0" class="mt-2 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+        <button v-for="doc in doctorResults" :key="doc.id" @click="showShareSelectModal = true" class="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-left text-xs">
+          <span class="font-medium text-slate-900 dark:text-white">{{ doc.name }}</span>
+          <span class="text-primary-600">Share</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Share Permission Modal -->
+    <WorkspaceModal :modelValue="showShareSelectModal" @update:modelValue="showShareSelectModal = false" title="Share Patient" size="sm">
+      <div class="space-y-3">
+        <div class="text-xs text-slate-500 dark:text-slate-400 mb-3">Select access level for this doctor</div>
+        <div class="space-y-2">
+          <button @click="shareAccessLevel = 'read'" class="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-left transition-colors">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-sm font-medium text-slate-900 dark:text-white">Read Only</div>
+                <div class="text-xs text-slate-500 dark:text-slate-400">Can view records only</div>
               </div>
-              <div v-if="doctorResults.length > 0" class="mt-2 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
-                <button v-for="doc in doctorResults" :key="doc.id" @click="shareWithDoctor(doc)" class="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-left text-xs">
-                  <span class="font-medium text-slate-900 dark:text-white">{{ doc.name }}</span>
-                  <span class="text-primary-600">Share</span>
-                </button>
+              <div class="w-4 h-4 rounded-full border-2 border-primary-600" v-if="shareAccessLevel === 'read'">
+                <div class="w-2 h-2 rounded-full bg-primary-600 mx-auto mt-0.5"></div>
               </div>
+              <div class="w-4 h-4 rounded-full border-2 border-slate-300 dark:border-slate-600" v-else></div>
             </div>
+          </button>
+          <button @click="shareAccessLevel = 'read_write'" class="w-full p-3 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-left transition-colors">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-sm font-medium text-slate-900 dark:text-white">Read & Write</div>
+                <div class="text-xs text-slate-500 dark:text-slate-400">Can view and edit records</div>
+              </div>
+              <div class="w-4 h-4 rounded-full border-2 border-primary-600" v-if="shareAccessLevel === 'read_write'">
+                <div class="w-2 h-2 rounded-full bg-primary-600 mx-auto mt-0.5"></div>
+              </div>
+              <div class="w-4 h-4 rounded-full border-2 border-slate-300 dark:border-slate-600" v-else></div>
+            </div>
+          </button>
+        </div>
+        <div class="flex gap-3 pt-3">
+          <button type="button" @click="showShareSelectModal = false" class="flex-1 px-4 py-2.5 text-sm border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">Cancel</button>
+          <button type="button" @click="showShareForm = true; showShareSelectModal = false" class="flex-1 px-4 py-2.5 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors">Continue</button>
+        </div>
+      </div>
+    </WorkspaceModal>
             <div class="divide-y divide-slate-100 dark:divide-slate-800">
               <div v-for="share in shares" :key="share.id" class="px-4 py-3 flex items-center justify-between">
                 <div class="flex items-center gap-3">
@@ -347,6 +384,7 @@ import InlineFilePreview from '@/Components/workspace/InlineFilePreview.vue'
 import AddPatientModal from '@/Components/workspace/AddPatientModal.vue'
 import EditPatientModal from '@/Components/workspace/EditPatientModal.vue'
 import CategoryManagerModal from '@/Components/workspace/CategoryManagerModal.vue'
+import WorkspaceModal from '@/Components/workspace/WorkspaceModal.vue'
 
 const props = defineProps({
   patients: Array,
@@ -400,6 +438,7 @@ const archiveRef = ref(null)
 const historyCollapsed = ref(false)
 const showShareForm = ref(false)
 const showShareSelectModal = ref(false)
+const selectedShareDoctor = ref(null)
 const shareAccessLevel = ref('read')
 const searchDoctorQuery = ref('')
 const doctorResults = ref([])
