@@ -27,14 +27,15 @@
     <!-- Viewer Area -->
     <div class="flex-1 relative flex items-center justify-center overflow-hidden">
       
-      <!-- Video Player (Video.js) -->
-      <div v-if="type === 'video'" class="w-full h-full flex items-center justify-center bg-black">
-        <video
-          ref="videoPlayer"
-          class="video-js vjs-big-play-centered w-full h-full max-h-screen"
+      <!-- Video Player -->
+      <div v-if="type === 'video'" class="w-full h-full flex items-center justify-center bg-black p-4">
+        <VideoPlayer
+          :src="fileUrl"
+          :type="file?.mime_type || 'video/mp4'"
           :poster="posterUrl"
-          preload="metadata"
-        ></video>
+          class="w-full h-full rounded-lg overflow-hidden"
+          style="max-height: calc(100vh - 100px);"
+        />
       </div>
       
       <!-- Image Viewer (v-viewer) -->
@@ -90,10 +91,9 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
 import axios from 'axios';
-import videojs from 'video.js';
-import 'video.js/dist/video-js.css';
+import VideoPlayer from '@/Components/VideoPlayer.vue';
 
 import { component as Viewer } from 'v-viewer';
 import 'viewerjs/dist/viewer.css';
@@ -107,9 +107,6 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close']);
-const videoPlayer = ref(null);
-let vjsPlayer = null;
-
 const textContent = ref('');
 const loadingText = ref(false);
 const codeBlock = ref(null);
@@ -178,30 +175,6 @@ const fetchSignedUrl = async () => {
   }
 };
 
-const initVideo = () => {
-  if (vjsPlayer) {
-    vjsPlayer.dispose();
-    vjsPlayer = null;
-  }
-  nextTick(() => {
-    if (videoPlayer.value) {
-      // Use the signed URL so the browser's media engine can fetch the file
-      // independently of the session cookie (Range requests work correctly).
-      const sources = [{ src: fileUrl.value, type: props.file.mime_type || 'video/mp4' }];
-
-      vjsPlayer = videojs(videoPlayer.value, {
-        controls: true,
-        autoplay: true,
-        preload: 'metadata',
-        fluid: false,
-        playbackRates: [0.5, 1, 1.25, 1.5, 2],
-        poster: posterUrl.value,
-        sources,
-      });
-    }
-  });
-};
-
 const initText = async () => {
   loadingText.value = true;
   textContent.value = '';
@@ -229,31 +202,17 @@ watch(() => props.show, async (newVal) => {
       await fetchSignedUrl();
     }
 
-    if (type.value === 'video') {
-      initVideo();
-    } else if (type.value === 'text') {
+    if (type.value === 'text') {
       initText();
     }
   } else {
-    if (vjsPlayer) {
-      vjsPlayer.pause();
-    }
     signedUrl.value = '';
   }
 });
 
 const close = () => {
-  if (vjsPlayer) {
-    vjsPlayer.pause();
-  }
   emit('close');
 };
-
-onBeforeUnmount(() => {
-  if (vjsPlayer) {
-    vjsPlayer.dispose();
-  }
-});
 
 const formatBytes = (bytes, decimals = 2) => {
   if (!+bytes) return '0 Bytes';
@@ -265,12 +224,4 @@ const formatBytes = (bytes, decimals = 2) => {
 };
 </script>
 
-<style>
-/* Video.js City Theme tweaks */
-.video-js .vjs-big-play-button {
-  border-radius: 50% !important;
-  width: 80px !important;
-  height: 80px !important;
-  line-height: 80px !important;
-}
-</style>
+<style></style>

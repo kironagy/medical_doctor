@@ -5,20 +5,53 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Domains\Media\Models\PatientFile;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FileAccessController extends Controller
 {
-    /**
-     * Generate a signed URL for an authorized user to access a file
-     */
+    private function resolveFile(Request $request, string $uuid): PatientFile
+    {
+        if ($request->hasValidSignature()) {
+            return PatientFile::withoutGlobalScopes()->where('uuid', $uuid)->firstOrFail();
+        }
+        return PatientFile::where('uuid', $uuid)->firstOrFail();
+    }
+
+    private function commonHeaders(PatientFile $file): array
+    {
+        $absolutePath = Storage::disk('local')->path($file->file_path);
+        $mime = mime_content_type($absolutePath) ?: 'application/octet-stream';
+        $lastModified = gmdate('D, d M Y H:i:s', filemtime($absolutePath)) . ' GMT';
+        $etag = '"' . md5($file->file_path . $file->size . filemtime($absolutePath)) . '"';
+
+        return [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline; filename="' . $file->file_name . '"',
+            'Accept-Ranges' => 'bytes',
+            'Cache-Control' => 'private, no-transform, max-age=3600',
+            'ETag' => $etag,
+            'Last-Modified' => $lastModified,
+        ];
+    }
+
+    private function logStream(string $uuid, string $method, ?string $range, int $status, int $bytes): void
+    {
+        if (!config('app.debug')) return;
+        Log::channel('daily')->info('STREAM', [
+            'uuid' => $uuid,
+            'method' => $method,
+            'range' => $range,
+            'status' => $status,
+            'bytes' => $bytes,
+        ]);
+    }
+
     public function generateSignedUrl(Request $request, string $uuid)
     {
-        // Global scope ensures that if they don't have access to the patient, it throws 404
-        $file = PatientFile::where('uuid', $uuid)->firstOrFail();
+        $file = $this->resolveFile($request, $uuid);
 
         $url = URL::temporarySignedRoute(
             'api.files.stream', now()->addHours(6), ['uuid' => $file->uuid]
@@ -27,32 +60,9 @@ class FileAccessController extends Controller
         return response()->json(['url' => $url]);
     }
 
-    /**
-     * Stream the actual file.
-     *
-     * Accessible via two paths:
-     *  1. Web session (SPA) — user is authenticated, DoctorIsolationScope applies.
-     *  2. Temporary signed URL (/api/files/{uuid}/stream?signature=…) — no session,
-     *     so we bypass the global scope; the signature itself proves prior authorization.
-     *
-     * Supports HTTP Range requests (206 Partial Content) for byte-range seeks.
-     */
     public function streamDirect(Request $request, string $uuid)
     {
-        // Signed-URL requests have no authenticated user, so we must bypass the
-        // DoctorIsolationScope (which would return nothing and trigger a 404).
-        // The signature is cryptographically tied to the UUID and expires, so
-        // skipping the scope here is safe — authorization already happened when
-        // the signed URL was generated.
-
-        // Use if/else instead of ternary-with-method-chains; the ternary form
-        // produces a ParseError on PHP < 8.0 because the parser cannot resolve
-        // the method-chain precedence inside a ternary assignment.
-        if ($request->hasValidSignature()) {
-            $file = PatientFile::withoutGlobalScopes()->where('uuid', $uuid)->firstOrFail();
-        } else {
-            $file = PatientFile::where('uuid', $uuid)->firstOrFail();
-        }
+        $file = $this->resolveFile($request, $uuid);
 
         $path = $file->file_path;
         if (!Storage::disk('local')->exists($path)) {
@@ -61,17 +71,28 @@ class FileAccessController extends Controller
 
         $absolutePath = Storage::disk('local')->path($path);
         $fileSize = filesize($absolutePath);
-        $mime = mime_content_type($absolutePath) ?: 'application/octet-stream';
+        $headers = $this->commonHeaders($file);
+        $headers['Content-Length'] = (string) $fileSize;
+
+        // HEAD request — return metadata only
+        if ($request->isMethod('HEAD')) {
+            return response('', 200, $headers);
+        }
 
         $rangeHeader = $request->header('Range');
 
-        // No Range header -> serve whole file with 200 + disable
+        // No Range header — stream whole file with 200
         if (!$rangeHeader) {
-            return response()->file($absolutePath, [
-                'Content-Type' => $mime,
-                'Accept-Ranges' => 'bytes',
-                'Content-Disposition' => 'inline; filename="' . $file->file_name . '"',
-            ]);
+            $fp = fopen($absolutePath, 'rb');
+            $this->logStream($uuid, 'GET', null, 200, $fileSize);
+            return new StreamedResponse(function () use ($fp) {
+                $buf = 256 * 1024;
+                while (!feof($fp)) {
+                    echo fread($fp, $buf);
+                    fflush($fp);
+                }
+                fclose($fp);
+            }, 200, $headers);
         }
 
         // Parse Range header: "bytes=start-end"
@@ -84,7 +105,6 @@ class FileAccessController extends Controller
         $end = $m[2] !== '' ? (int) $m[2] : null;
 
         if ($start === null && $end !== null) {
-            // suffix range: last $end bytes
             $start = max(0, $fileSize - $end);
             $end = $fileSize - 1;
         } elseif ($start === null) {
@@ -103,15 +123,20 @@ class FileAccessController extends Controller
 
         $length = $end - $start + 1;
 
-        // Use stream + fseek to avoid loading whole file in memory
+        unset($headers['Content-Length']);
+        $headers['Content-Range'] = "bytes {$start}-{$end}/{$fileSize}";
+        $headers['Content-Length'] = (string) $length;
+
         $fp = fopen($absolutePath, 'rb');
         if ($start > 0) {
             fseek($fp, $start);
         }
 
+        $this->logStream($uuid, 'GET', $rangeHeader, 206, $length);
+
         return new StreamedResponse(function () use ($fp, $length) {
             $remaining = $length;
-            $buf = 256 * 1024; // 256KB
+            $buf = 256 * 1024;
             while (!feof($fp) && $remaining > 0) {
                 $read = min($buf, $remaining);
                 echo fread($fp, $read);
@@ -119,14 +144,7 @@ class FileAccessController extends Controller
                 fflush($fp);
             }
             fclose($fp);
-        }, 206, [
-            'Content-Type' => $mime,
-            'Accept-Ranges' => 'bytes',
-            'Content-Range' => "bytes {$start}-{$end}/{$fileSize}",
-            'Content-Length' => $length,
-            'Content-Disposition' => 'inline; filename="' . $file->file_name . '"',
-            'Cache-Control' => 'private, max-age=3600',
-        ]);
+        }, 206, $headers);
     }
 
     public function thumbnailDirect(string $uuid)

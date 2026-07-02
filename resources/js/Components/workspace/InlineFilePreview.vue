@@ -43,17 +43,13 @@
               ref="imageRef"
             />
           </div>
-          <div v-else-if="file?.mime_type?.startsWith('video/')" class="w-full max-w-4xl">
-            <video
+          <div v-else-if="file?.mime_type?.startsWith('video/')" class="w-full max-w-5xl mx-auto">
+            <VideoPlayer
               :src="file.url"
-              controls
-              preload="none"
+              :type="file.mime_type"
               :poster="file.thumbnail_url"
-              class="w-full rounded-lg"
-              style="max-height: 80vh;"
-            >
-              <source :src="file.url" :type="file.mime_type" />
-            </video>
+              class="rounded-lg overflow-hidden"
+            />
           </div>
           <div v-else-if="file?.mime_type === 'application/pdf'" class="w-full h-full">
             <iframe
@@ -88,6 +84,7 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import { useWorkspace } from '@/Composables/useWorkspace'
+import VideoPlayer from '@/Components/VideoPlayer.vue'
 
 const { showPreview: show, previewFile: file, closePreview: close } = useWorkspace()
 const isZoomed = ref(false)
