@@ -18,3 +18,6 @@ Route::prefix('v1')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
     });
 });
+
+// Mobile sync API routes — loaded here so route:cache includes them reliably
+require __DIR__.'/mobile.php';
