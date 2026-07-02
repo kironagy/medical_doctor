@@ -8,16 +8,29 @@ use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 use App\Domains\Mobile\Services\ProductionApiService;
 use App\Domains\Mobile\Services\MobileSyncService;
+use App\Domains\Mobile\Services\SQLiteInitializer;
 
 class AuthController extends Controller
 {
     public function showLogin()
     {
+        // Ensure SQLite is initialized before showing login (for NativePHP)
+        if (app()->environment('nativephp')) {
+            $initializer = new SQLiteInitializer();
+            $initializer->ensureInitialized();
+        }
+
         return Inertia::render('Auth/Login');
     }
 
     public function login(Request $request)
     {
+        // Ensure SQLite is initialized before attempting login (for NativePHP)
+        if (app()->environment('nativephp')) {
+            $initializer = new SQLiteInitializer();
+            $initializer->ensureInitialized();
+        }
+
         $credentials = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required'],
