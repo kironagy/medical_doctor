@@ -123,6 +123,9 @@ Route::middleware('auth')->group(function () {
         Route::delete('/workspace/patients/{patient:uuid}/force', [\App\Http\Controllers\WorkspaceController::class, 'forceDeletePatient']);
         Route::post('/workspace/patients/{patient:uuid}/restore', [\App\Http\Controllers\WorkspaceController::class, 'restorePatient']);
 
+        // Category Files API (paginated, searchable)
+        Route::get('/patients/{patient:uuid}/categories/{slug}/files', [\App\Http\Controllers\Api\CategoryFileController::class, 'files']);
+
         // Visits API
         Route::get('/patients/{patient:uuid}/visits', [\App\Http\Controllers\Api\VisitController::class, 'index']);
         Route::post('/patients/{patient:uuid}/visits', [\App\Http\Controllers\Api\VisitController::class, 'store']);

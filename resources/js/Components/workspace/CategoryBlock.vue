@@ -8,7 +8,7 @@
         <div>
           <h3 class="text-sm font-bold text-slate-900 dark:text-white">{{ name }}</h3>
           <p class="text-[11px] text-slate-500 dark:text-slate-400">
-            {{ categoryFiles.length }} files · {{ categoryNotes.length }} notes
+            {{ totalItems }} files · {{ notesCount }} notes
           </p>
         </div>
       </button>
@@ -92,10 +92,81 @@
             </div>
           </div>
 
+          <!-- Search & Filters -->
+          <div class="space-y-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="relative flex-1 min-w-[200px]">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                <input
+                  v-model="searchQuery"
+                  type="text"
+                  placeholder="Search files..."
+                  class="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 text-slate-700 dark:text-slate-300"
+                />
+                <svg v-if="searching" class="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+              </div>
+              <div class="relative">
+                <select v-model="dateFilter" @change="onDateFilterChange" class="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 pr-8">
+                  <option value="">All Dates</option>
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="last7">Last 7 Days</option>
+                  <option value="last30">Last 30 Days</option>
+                  <option value="this_month">This Month</option>
+                  <option value="last_month">Last Month</option>
+                  <option value="this_year">This Year</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+                <svg class="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+              </div>
+              <div class="relative">
+                <select v-model="timeFilter" @change="onTimeFilterChange" class="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 pr-8">
+                  <option value="">All Times</option>
+                  <option value="morning">Morning (08:00-12:00)</option>
+                  <option value="afternoon">Afternoon (13:00-16:00)</option>
+                  <option value="evening">Evening (18:00-23:00)</option>
+                  <option value="custom">Custom Time</option>
+                </select>
+                <svg class="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+              </div>
+              <div class="relative">
+                <select v-model="sortBy" @change="onSortChange" class="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 pr-8">
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="name_asc">Name A-Z</option>
+                  <option value="name_desc">Name Z-A</option>
+                  <option value="largest">Largest Size</option>
+                  <option value="smallest">Smallest Size</option>
+                  <option value="recently_updated">Recently Updated</option>
+                </select>
+                <svg class="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+              </div>
+              <button v-if="hasActiveFilters" @click="clearFilters" class="text-[11px] text-rose-600 hover:text-rose-700 font-medium px-2 py-1">Clear</button>
+            </div>
+            <div v-if="dateFilter === 'custom'" class="flex items-center gap-2">
+              <input v-model="customDateFrom" type="date" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+              <span class="text-xs text-slate-400">to</span>
+              <input v-model="customDateTo" type="date" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+            </div>
+            <div v-if="timeFilter === 'custom'" class="flex items-center gap-2">
+              <input v-model="customTimeFrom" type="time" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+              <span class="text-xs text-slate-400">to</span>
+              <input v-model="customTimeTo" type="time" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+            </div>
+          </div>
+
+          <!-- Loading State -->
+          <div v-if="loading && files.length === 0" class="text-center py-8">
+            <div class="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          </div>
+
           <!-- Files Grid -->
-          <div v-if="categoryFiles.length > 0">
+          <div v-if="!loading && files.length > 0">
             <div class="flex items-center justify-between mb-2">
-              <h4 class="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Files ({{ categoryFiles.length }})</h4>
+              <h4 class="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+                Files
+                <span v-if="searchQuery" class="text-slate-400 font-normal lowercase ms-1">({{ meta.total }} results)</span>
+              </h4>
               <button v-if="canEdit && !showUploadArea" @click="showUploadArea = true" class="text-[11px] font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 flex items-center gap-1">
                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                 Upload
@@ -103,7 +174,7 @@
             </div>
             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
               <div
-                v-for="file in categoryFiles" :key="file.id"
+                v-for="file in files" :key="file.id"
                 class="group relative bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden hover:shadow-sm transition-shadow cursor-pointer"
               >
                 <div @click="openPreview(file)" class="aspect-[4/3] flex items-center justify-center overflow-hidden">
@@ -142,9 +213,49 @@
                 </div>
               </div>
             </div>
+
+            <!-- Pagination -->
+            <div v-if="meta.last_page > 1" class="flex items-center justify-center gap-1 mt-4">
+              <button
+                @click="goToPage(currentPage - 1)"
+                :disabled="currentPage <= 1"
+                class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+                :class="currentPage <= 1 ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'"
+              >
+                Previous
+              </button>
+              <template v-for="p in displayedPages" :key="p">
+                <span v-if="p === '...'" class="px-2 py-1.5 text-xs text-slate-400">...</span>
+                <button
+                  v-else
+                  @click="goToPage(p)"
+                  class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+                  :class="p === currentPage ? 'bg-primary-600 text-white' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                >
+                  {{ p }}
+                </button>
+              </template>
+              <button
+                @click="goToPage(currentPage + 1)"
+                :disabled="currentPage >= meta.last_page"
+                class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+                :class="currentPage >= meta.last_page ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'"
+              >
+                Next
+              </button>
+            </div>
           </div>
 
-          <!-- Upload Area (always visible when toggled, also shown in empty state) -->
+          <!-- Search Empty State -->
+          <div v-if="!loading && searchQuery && files.length === 0 && notes.length === 0 && !showUploadArea" class="text-center py-8 px-4">
+            <div class="w-16 h-16 mx-auto mb-4 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center">
+              <svg class="w-8 h-8 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            </div>
+            <p class="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">No results found</p>
+            <p class="text-xs text-slate-400 dark:text-slate-500">Try a different search term or clear filters</p>
+          </div>
+
+          <!-- Upload Area -->
           <div v-if="showUploadArea && canEdit">
             <div
               class="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg p-5 text-center cursor-pointer hover:border-primary-400 dark:hover:border-primary-500 transition-all hover:bg-primary-50/50 dark:hover:bg-primary-900/10"
@@ -161,8 +272,8 @@
             </div>
           </div>
 
-          <!-- Empty State -->
-          <div v-if="categoryFiles.length === 0 && categoryNotes.length === 0 && !showUploadArea" class="text-center py-8 px-4">
+          <!-- Empty State (no filters, no files) -->
+          <div v-if="!loading && !searchQuery && files.length === 0 && notes.length === 0 && !showUploadArea" class="text-center py-8 px-4">
             <div class="w-16 h-16 mx-auto mb-4 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center">
               <svg class="w-8 h-8 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
             </div>
@@ -181,10 +292,13 @@
           </div>
 
           <!-- Notes -->
-          <div v-if="categoryNotes.length > 0">
-            <h4 class="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">Notes</h4>
+          <div v-if="notes.length > 0">
+            <h4 class="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-2">
+              Notes
+              <span v-if="searchQuery" class="text-slate-400 font-normal lowercase ms-1">({{ notes.length }} results)</span>
+            </h4>
             <div class="space-y-2">
-              <div v-for="note in categoryNotes" :key="note.id" class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-100 dark:border-slate-700">
+              <div v-for="note in notes" :key="note.id" class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-100 dark:border-slate-700">
                 <div class="flex items-center justify-between mb-1">
                   <span class="text-[11px] font-medium text-slate-600 dark:text-slate-300">{{ note.author?.name || 'Doctor' }}</span>
                   <span class="text-[10px] text-slate-400">{{ new Date(note.created_at).toLocaleDateString() }}</span>
@@ -270,13 +384,241 @@ const props = defineProps({
   color: { type: String, default: '#6b7280' },
 })
 
-const { toggleCategory, isCategoryExpanded, allFiles, allNotes, canEdit, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded } = useWorkspace()
+const { toggleCategory, isCategoryExpanded, canEdit, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded } = useWorkspace()
 const { uploadFile, cancelUpload, pauseUpload, resumeUpload, retryUpload, uploads } = useUploads()
 const dialog = useDialog()
 const toast = useToast()
 
 const expanded = computed(() => isCategoryExpanded(props.slug))
 const hasLoaded = computed(() => isCategoryLoaded(props.slug))
+
+// Data state
+const files = ref([])
+const notes = ref([])
+const meta = ref({ current_page: 1, last_page: 1, per_page: 6, total: 0, from: 0, to: 0 })
+const loading = ref(false)
+const searching = ref(false)
+const initialLoadDone = ref(false)
+
+// Search & filters
+const searchQuery = ref('')
+const dateFilter = ref('')
+const timeFilter = ref('')
+const sortBy = ref('newest')
+const customDateFrom = ref('')
+const customDateTo = ref('')
+const customTimeFrom = ref('')
+const customTimeTo = ref('')
+
+let debounceTimer = null
+
+// Computed
+const currentPage = computed(() => meta.value.current_page)
+const totalPages = computed(() => meta.value.last_page)
+const totalItems = computed(() => meta.value.total)
+const notesCount = computed(() => notes.value.length)
+
+const hasActiveFilters = computed(() => {
+  return searchQuery.value || dateFilter.value || timeFilter.value || sortBy.value !== 'newest'
+})
+
+const displayedPages = computed(() => {
+  const pages = []
+  const total = meta.value.last_page
+  const current = meta.value.current_page
+  if (total <= 7) {
+    for (let i = 1; i <= total; i++) pages.push(i)
+    return pages
+  }
+  pages.push(1)
+  if (current > 3) pages.push('...')
+  const start = Math.max(2, current - 1)
+  const end = Math.min(total - 1, current + 1)
+  for (let i = start; i <= end; i++) pages.push(i)
+  if (current < total - 2) pages.push('...')
+  pages.push(total)
+  return pages
+})
+
+const activeUploads = computed(() => {
+  return uploads.value.filter(j => j.metadata?.category === props.slug && j.status !== 'completed' && j.status !== 'cancelled')
+})
+
+// Fetch files from server
+async function fetchFiles(page) {
+  if (!selectedPatient.value?.uuid) return
+  const targetPage = page || 1
+  loading.value = true
+  try {
+    const params = {
+      page: targetPage,
+      per_page: 6,
+      sort: sortBy.value || 'newest',
+    }
+    if (searchQuery.value.trim()) {
+      params.search = searchQuery.value.trim()
+    }
+    if (dateFilter.value) {
+      const range = getDateRange()
+      if (range.date_from) params.date_from = range.date_from
+      if (range.date_to) params.date_to = range.date_to
+    }
+    if (dateFilter.value === 'custom') {
+      if (customDateFrom.value) params.date_from = customDateFrom.value
+      if (customDateTo.value) params.date_to = customDateTo.value
+    }
+    if (timeFilter.value) {
+      const range = getTimeRange()
+      if (range.time_from) params.time_from = range.time_from
+      if (range.time_to) params.time_to = range.time_to
+    }
+    if (timeFilter.value === 'custom') {
+      if (customTimeFrom.value) params.time_from = customTimeFrom.value
+      if (customTimeTo.value) params.time_to = customTimeTo.value
+    }
+    const res = await axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params })
+    files.value = res.data.data || []
+    meta.value = res.data.meta || { current_page: 1, last_page: 1, per_page: 6, total: 0, from: 0, to: 0 }
+    notes.value = res.data.notes || []
+    initialLoadDone.value = true
+  } catch (e) {
+    console.error('Failed to fetch category files', e)
+    files.value = []
+    meta.value = { current_page: 1, last_page: 1, per_page: 6, total: 0, from: 0, to: 0 }
+    notes.value = []
+  } finally {
+    loading.value = false
+    searching.value = false
+  }
+}
+
+function getDateRange() {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const today = `${y}-${m}-${d}`
+  switch (dateFilter.value) {
+    case 'today':
+      return { date_from: today, date_to: today }
+    case 'yesterday': {
+      const yest = new Date(now)
+      yest.setDate(yest.getDate() - 1)
+      const yStr = `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`
+      return { date_from: yStr, date_to: yStr }
+    }
+    case 'last7': {
+      const d7 = new Date(now)
+      d7.setDate(d7.getDate() - 6)
+      return { date_from: `${d7.getFullYear()}-${String(d7.getMonth() + 1).padStart(2, '0')}-${String(d7.getDate()).padStart(2, '0')}`, date_to: today }
+    }
+    case 'last30': {
+      const d30 = new Date(now)
+      d30.setDate(d30.getDate() - 29)
+      return { date_from: `${d30.getFullYear()}-${String(d30.getMonth() + 1).padStart(2, '0')}-${String(d30.getDate()).padStart(2, '0')}`, date_to: today }
+    }
+    case 'this_month':
+      return { date_from: `${y}-${m}-01`, date_to: today }
+    case 'last_month': {
+      const lm = new Date(y, now.getMonth(), 0)
+      const lmStr = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, '0')}`
+      return { date_from: `${lmStr}-01`, date_to: `${lmStr}-${String(lm.getDate()).padStart(2, '0')}` }
+    }
+    case 'this_year':
+      return { date_from: `${y}-01-01`, date_to: today }
+    default:
+      return {}
+  }
+}
+
+function getTimeRange() {
+  switch (timeFilter.value) {
+    case 'morning':
+      return { time_from: '08:00', time_to: '12:00' }
+    case 'afternoon':
+      return { time_from: '13:00', time_to: '16:00' }
+    case 'evening':
+      return { time_from: '18:00', time_to: '23:00' }
+    default:
+      return {}
+  }
+}
+
+function goToPage(page) {
+  if (page < 1 || page > meta.value.last_page) return
+  fetchFiles(page)
+}
+
+function onSearchInput() {
+  searching.value = true
+  clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    fetchFiles(1)
+  }, 350)
+}
+
+function onDateFilterChange() {
+  if (dateFilter.value !== 'custom') {
+    customDateFrom.value = ''
+    customDateTo.value = ''
+  }
+  fetchFiles(1)
+}
+
+function onTimeFilterChange() {
+  if (timeFilter.value !== 'custom') {
+    customTimeFrom.value = ''
+    customTimeTo.value = ''
+  }
+  fetchFiles(1)
+}
+
+function onSortChange() {
+  fetchFiles(1)
+}
+
+function clearFilters() {
+  searchQuery.value = ''
+  dateFilter.value = ''
+  timeFilter.value = ''
+  sortBy.value = 'newest'
+  customDateFrom.value = ''
+  customDateTo.value = ''
+  customTimeFrom.value = ''
+  customTimeTo.value = ''
+  fetchFiles(1)
+}
+
+// Debounced search watcher
+watch(searchQuery, () => {
+  if (searchQuery.value === '' && initialLoadDone.value) {
+    fetchFiles(1)
+    return
+  }
+  onSearchInput()
+})
+
+// Trigger fetch when expanded for the first time
+watch(expanded, (val) => {
+  if (val && !hasLoaded.value) {
+    markCategoryLoaded(props.slug)
+    fetchFiles(1)
+  }
+}, { immediate: true })
+
+// Refresh after upload
+const completedUploadCount = ref(0)
+watch(uploads, (list) => {
+  const catUploads = list.filter(j => j.metadata?.category === props.slug)
+  const completed = catUploads.filter(j => j.status === 'completed').length
+  if (completed > completedUploadCount.value) {
+    completedUploadCount.value = completed
+    fetchFiles(1)
+    toast.success('Upload complete')
+  }
+}, { deep: true })
+
+// UI state
 const showUploadArea = ref(false)
 const showCategoryMenu = ref(false)
 const dragging = ref(false)
@@ -286,20 +628,6 @@ const menuStyle = ref({})
 const activeFileMenu = ref(null)
 const colorOptions = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6', '#6b7280']
 
-const categoryFiles = computed(() => {
-  if (!hasLoaded.value) return []
-  return allFiles.value.filter(f => (f.category || 'notes') === props.slug)
-})
-
-const categoryNotes = computed(() => {
-  if (!hasLoaded.value) return []
-  return allNotes.value.filter(n => (n.category || 'notes') === props.slug)
-})
-
-const activeUploads = computed(() => {
-  return uploads.value.filter(j => j.metadata?.category === props.slug && j.status !== 'completed' && j.status !== 'cancelled')
-})
-
 const showNoteModal = ref(false)
 const showVisitModal = ref(false)
 const showRenameModal = ref(false)
@@ -308,47 +636,6 @@ const noteContent = ref('')
 const visitType = ref('')
 const renameValue = ref('')
 const colorValue = ref('')
-
-// Pagination state for files
-const filesPerPage = ref(12)
-const filesPage = ref(1)
-
-const displayedFiles = computed(() => {
-  return categoryFiles.value.slice(0, filesPage.value * filesPerPage.value)
-})
-
-const hasMoreFiles = computed(() => {
-  return categoryFiles.value.length > filesPage.value * filesPerPage.value
-})
-
-function loadMoreFiles() {
-  filesPage.value++
-}
-
-function resetFilesPagination() {
-  filesPage.value = 1
-}
-
-watch(expanded, (val) => {
-  if (val && !hasLoaded.value) {
-    markCategoryLoaded(props.slug)
-  }
-  // Reset pagination when category is collapsed/expanded
-  if (!val) {
-    resetFilesPagination()
-  }
-}, { immediate: true })
-
-const completedUploadCount = ref(0)
-watch(uploads, (list) => {
-  const catUploads = list.filter(j => j.metadata?.category === props.slug)
-  const completed = catUploads.filter(j => j.status === 'completed').length
-  if (completed > completedUploadCount.value) {
-    completedUploadCount.value = completed
-    refreshWorkspaceData()
-    toast.success('Upload complete')
-  }
-}, { deep: true })
 
 function toggleCategoryMenu(e) {
   showCategoryMenu.value = !showCategoryMenu.value
@@ -401,7 +688,7 @@ function cancelJob(job) { cancelUpload(job.id) }
 async function deleteFile(file) {
   try {
     await axios.delete(`/api/v1/files/${file.uuid}`)
-    refreshWorkspaceData()
+    fetchFiles(currentPage.value)
     toast.success('File deleted')
   } catch (e) { console.error('Delete failed', e) }
 }
@@ -420,7 +707,7 @@ async function submitNote() {
     showCategoryMenu.value = false
     showNoteModal.value = false
     noteContent.value = ''
-    refreshWorkspaceData()
+    fetchFiles(currentPage.value)
     toast.success('Note added')
   } catch (e) { console.error('Add note failed', e) }
 }
