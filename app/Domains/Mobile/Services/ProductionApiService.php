@@ -54,7 +54,10 @@ class ProductionApiService
 
         try {
             Log::channel('mobile-api')->info('HTTP CLIENT CREATED, sending request...');
-            $response = Http::timeout($this->timeout)->post($url, $payload);
+            $response = Http::timeout($this->timeout)
+                ->retry(3, 1000)
+                ->acceptJson()
+                ->post($url, $payload);
             Log::channel('mobile-api')->info('=== RESPONSE RECEIVED ===', [
                 'url' => $url,
                 'status' => $response->status(),
@@ -99,6 +102,8 @@ class ProductionApiService
         try {
             Log::channel('mobile-api')->info('Sending pull request with token...');
             $response = Http::timeout($this->timeout)
+                ->retry(3, 1000)
+                ->acceptJson()
                 ->withToken($this->token)
                 ->post($url, $payload);
 
@@ -150,6 +155,8 @@ class ProductionApiService
         try {
             Log::channel('mobile-api')->info('Sending push request...');
             $response = Http::timeout($this->timeout)
+                ->retry(3, 1000)
+                ->acceptJson()
                 ->withToken($this->token)
                 ->post($url, $payload);
 

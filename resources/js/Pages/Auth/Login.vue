@@ -79,39 +79,25 @@ const form = useForm({
   remember: false,
 });
 
-const PRODUCTION_API_BASE = 'https://prof-hosam-fekry.online/api/mobile/v1';
-
 const submit = async () => {
   console.log('[MobileApp] Starting login flow...');
   form.processing = true;
   form.clearErrors();
 
   try {
-    console.log('[MobileApp] Step 1: Checking for stored auth data...');
-    // Check if we have stored auth for offline login
-    const checkStoredResponse = await fetch('/api/native/auth/check', {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
-    const storedData = await checkStoredResponse.json();
+    console.log('[MobileApp] Checking online status and attempting login...');
 
-    if (storedData.hasStoredAuth) {
-      console.log('[MobileApp] Found stored auth data, checking online status...');
-      // Try online login first, if fails use offline
-      try {
-        await attemptOnlineLogin();
-      } catch (onlineError) {
-        console.log('[MobileApp] Online login failed, falling back to offline login');
-        await attemptOfflineLogin(storedData.storedUser);
-      }
-    } else {
-      console.log('[MobileApp] No stored auth data, requiring online login');
+    // Attempt online login through the local Laravel backend
+    try {
       await attemptOnlineLogin();
+    } catch (error) {
+      console.log('[MobileApp] Online login failed, attempting offline login...');
+      await attemptOfflineLogin();
     }
 
   } catch (error) {
     console.error('[MobileApp] Login error:', error);
-    form.errors.email = error.message;
+    form.errors.email = error.message || 'An unexpected error occurred.';
   } finally {
     form.processing = false;
     form.reset('password');
@@ -119,11 +105,9 @@ const submit = async () => {
 };
 
 async function attemptOnlineLogin() {
-  console.log('[MobileApp] Attempting online login with production API...');
+  console.log('[MobileApp] POST /api/native/login');
 
-  // Step 1: Authenticate with production API
-  console.log(`[MobileApp] POST ${PRODUCTION_API_BASE}/auth/login`);
-  const prodResponse = await fetch(`${PRODUCTION_API_BASE}/auth/login`, {
+  const response = await fetch('/api/native/login', {
     method: 'POST',
     headers: {
       'Accept': 'application/json',
@@ -132,61 +116,23 @@ async function attemptOnlineLogin() {
     body: JSON.stringify({
       email: form.email,
       password: form.password,
-      device_name: 'nativephp-android',
     }),
   });
 
-  console.log('[MobileApp] Production login HTTP status:', prodResponse.status);
-  const prodData = await prodResponse.json();
-  console.log('[MobileApp] Production login response:', prodData);
+  const data = await response.json();
 
-  if (!prodResponse.ok) {
-    throw new Error(prodData.message || 'Failed to authenticate with server');
+  if (!response.ok) {
+    throw new Error(data.message || 'Failed to authenticate.');
   }
 
-  if (!prodData.token) {
-    throw new Error('Server did not return an authentication token');
-  }
-
-  // Step 2: Store auth data locally and initialize sync
-  console.log('[MobileApp] Storing auth data locally...');
-  const localResponse = await fetch('/api/native/auth/store', {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      token: prodData.token,
-      user: prodData.user,
-      server_time: prodData.server_time,
-    }),
-  });
-
-  console.log('[MobileApp] Local store HTTP status:', localResponse.status);
-  const localData = await localResponse.json();
-  console.log('[MobileApp] Local store response:', localData);
-
-  if (!localResponse.ok) {
-    throw new Error(localData.message || 'Failed to save authentication data');
-  }
-
-  // Step 3: Redirect to workspace
   console.log('[MobileApp] Login successful, redirecting to workspace');
   window.location.href = '/workspace';
 }
 
-async function attemptOfflineLogin(storedUser) {
-  console.log('[MobileApp] Attempting offline login...');
+async function attemptOfflineLogin() {
+  console.log('[MobileApp] POST /api/native/offline-login');
 
-  // Verify email matches stored user
-  if (storedUser.email !== form.email) {
-    throw new Error('Internet connection is required for the first login.');
-  }
-
-  // For offline, we'll just use stored auth without verifying password
-  console.log('[MobileApp] Offline login accepted, redirecting to workspace');
-  const offlineResponse = await fetch('/api/native/auth/offline', {
+  const response = await fetch('/api/native/offline-login', {
     method: 'POST',
     headers: {
       'Accept': 'application/json',
@@ -195,10 +141,12 @@ async function attemptOfflineLogin(storedUser) {
     body: JSON.stringify({ email: form.email }),
   });
 
-  if (!offlineResponse.ok) {
-    throw new Error('Failed to complete offline login');
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || 'Internet connection is required for the first login.');
   }
 
+  console.log('[MobileApp] Offline login accepted, redirecting to workspace');
   window.location.href = '/workspace';
 }
 </script>

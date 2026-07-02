@@ -40,9 +40,9 @@ Route::get('/native/diagnostics', function (Request $request) {
 });
 
 // NativePHP authentication endpoints
+Route::post('/native/login', [\App\Http\Controllers\Api\NativeLoginController::class, 'login']);
+Route::post('/native/offline-login', [\App\Http\Controllers\Api\NativeLoginController::class, 'offlineLogin']);
 Route::get('/native/auth/check', [WebAuthController::class, 'checkNativeAuth']);
-Route::post('/native/auth/store', [WebAuthController::class, 'storeNativeAuth']);
-Route::post('/native/auth/offline', [WebAuthController::class, 'offlineNativeLogin']);
 
 Route::prefix('v1')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
