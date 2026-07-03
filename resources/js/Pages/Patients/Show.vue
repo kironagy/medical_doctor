@@ -73,7 +73,7 @@
     <div class="mt-6">
       <BaseCard>
         <RichTextEditor
-          :patientId="patient.id"
+          :patientId="patient.uuid"
           :category="activeTab"
           :notes="filteredNotes"
           :disabled="!canEdit"

@@ -23,27 +23,7 @@ Route::middleware('auth')->group(function () {
         'patients' => 'uuid'
     ]);
 
-    Route::post('/notes', function (\Illuminate\Http\Request $request) {
-        $request->validate([
-            'patient_id' => 'required',
-            'category' => 'required',
-            'content' => 'required'
-        ]);
-        
-        $patient = \App\Domains\Patients\Models\Patient::findOrFail($request->patient_id);
-        if ($request->user()->cannot('update', $patient)) {
-            abort(403, 'Unauthorized to add notes.');
-        }
-
-        $note = \App\Domains\Patients\Models\PatientNote::create([
-            'patient_id' => $request->patient_id,
-            'author_id' => $request->user()->id,
-            'category' => $request->category,
-            'content' => $request->content
-        ]);
-        
-        return response()->json($note);
-    });
+    Route::post('/notes', [\App\Http\Controllers\PatientController::class, 'storeNote']);
 
     // Admin Routes
     Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['role:super-admin']], function () {

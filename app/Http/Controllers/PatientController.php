@@ -81,6 +81,23 @@ class PatientController extends Controller
             ->with('success', 'Patient updated successfully.');
     }
 
+    public function storeNote(Request $request)
+    {
+        $validated = $request->validate([
+            'patient_id' => 'required|string',
+            'category' => 'required|string',
+            'content' => 'required|string',
+        ]);
+
+        $note = $this->noteRepo->create($validated['patient_id'], [
+            'author_id' => $request->user()->id,
+            'category' => $validated['category'],
+            'content' => $validated['content'],
+        ]);
+
+        return response()->json($note);
+    }
+
     public function show(string $uuid)
     {
         $patient = $this->patientRepo->findByUuid($uuid);

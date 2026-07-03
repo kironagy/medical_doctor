@@ -17,31 +17,35 @@ use App\Repositories\Eloquent\EloquentPatientNoteRepository;
 use App\Repositories\Eloquent\EloquentPatientRepository;
 use App\Repositories\Eloquent\EloquentPatientVisitRepository;
 use App\Repositories\Eloquent\EloquentUserRepository;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 
 class RepositoryServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $useApi = env('NATIVEPHP_APP_ID') !== null;
+        $nativeAppId = env('NATIVEPHP_APP_ID');
+        $isNative = $nativeAppId !== null;
 
-        $this->app->bind(PatientRepositoryInterface::class, $useApi
+        Log::debug('[RepositoryServiceProvider] NATIVEPHP_APP_ID=' . ($nativeAppId ?? 'null') . ' → ' . ($isNative ? 'BINDING API REPOS' : 'BINDING ELOQUENT REPOS'));
+
+        $this->app->bind(PatientRepositoryInterface::class, $isNative
             ? ApiPatientRepository::class
             : EloquentPatientRepository::class);
 
-        $this->app->bind(UserRepositoryInterface::class, $useApi
+        $this->app->bind(UserRepositoryInterface::class, $isNative
             ? ApiUserRepository::class
             : EloquentUserRepository::class);
 
-        $this->app->bind(PatientFileRepositoryInterface::class, $useApi
+        $this->app->bind(PatientFileRepositoryInterface::class, $isNative
             ? ApiPatientFileRepository::class
             : EloquentPatientFileRepository::class);
 
-        $this->app->bind(PatientNoteRepositoryInterface::class, $useApi
+        $this->app->bind(PatientNoteRepositoryInterface::class, $isNative
             ? ApiPatientNoteRepository::class
             : EloquentPatientNoteRepository::class);
 
-        $this->app->bind(PatientVisitRepositoryInterface::class, $useApi
+        $this->app->bind(PatientVisitRepositoryInterface::class, $isNative
             ? ApiPatientVisitRepository::class
             : EloquentPatientVisitRepository::class);
     }

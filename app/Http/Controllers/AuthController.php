@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Domains\Users\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use RuntimeException;
 
@@ -23,7 +23,10 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
-        $isMobile = env('NATIVEPHP_APP_ID') !== null;
+        $nativeAppId = env('NATIVEPHP_APP_ID');
+        $isMobile = $nativeAppId !== null;
+
+        Log::debug('[AuthController] login() | NATIVEPHP_APP_ID=' . ($nativeAppId ?? 'null') . ' | isMobile=' . ($isMobile ? 'true' : 'false'));
 
         if ($isMobile) {
             return $this->apiLogin($request, $credentials);
@@ -41,37 +44,72 @@ class AuthController extends Controller
 
     private function apiLogin(Request $request, array $credentials)
     {
+        $apiUrl = 'https://prof-hosam-fekry.online/api/v1/login';
+        $start = microtime(true);
+
+        Log::debug('[AuthController] apiLogin() - Sending POST to ' . $apiUrl);
+
         $response = Http::timeout(30)->post(
-            'https://prof-hosam-fekry.online/api/v1/login',
+            $apiUrl,
             ['email' => $credentials['email'], 'password' => $credentials['password']]
         );
+
+        $timeMs = (microtime(true) - $start) * 1000;
+
+        Log::debug(sprintf(
+            '[AuthController] apiLogin() - Response | Status: %d | Time: %.0fms',
+            $response->status(),
+            $timeMs
+        ));
 
         if ($response->failed()) {
             $body = $response->json();
             $message = is_array($body)
                 ? ($body['message'] ?? $body['errors']['email'][0] ?? 'Invalid credentials.')
                 : 'Invalid credentials.';
+
+            Log::warning('[AuthController] apiLogin() - FAILED: ' . $message);
+
             return back()->withErrors(['email' => $message])->onlyInput('email');
         }
 
         $body = $response->json();
         if (!is_array($body) || !isset($body['token'])) {
+            Log::warning('[AuthController] apiLogin() - Invalid response (no token): ' . json_encode($body));
             return back()->withErrors(['email' => 'Invalid response from server.'])->onlyInput('email');
         }
 
         $token = $body['token'];
         $userData = $body['user'] ?? [];
 
-        $user = User::updateOrCreate(
-            ['email' => $userData['email'] ?? $credentials['email']],
-            [
-                'name' => $userData['name'] ?? $credentials['email'],
-                'password' => bcrypt($credentials['password']),
-            ]
-        );
+        Log::debug('[AuthController] apiLogin() - SUCCESS | Token received | User: ' . ($userData['email'] ?? 'unknown'));
 
         session(['api_token' => encrypt($token)]);
-        session(['api_user' => encrypt($userData)]);
+        session(['api_user_data' => $userData]);
+
+        $user = new \App\Domains\Users\Models\User();
+        $user->exists = true;
+        $user->forceFill([
+            'id' => $userData['id'] ?? 1,
+            'name' => $userData['name'] ?? $credentials['email'],
+            'email' => $userData['email'] ?? $credentials['email'],
+            'role' => $userData['role'] ?? ($userData['roles'][0] ?? 'doctor'),
+            'phone' => $userData['phone'] ?? '',
+            'address' => $userData['address'] ?? '',
+            'specialization' => $userData['specialization'] ?? '',
+            'uuid' => $userData['uuid'] ?? null,
+            'avatar_path' => $userData['avatar_path'] ?? null,
+            'preferences' => $userData['preferences'] ?? [],
+            'status' => $userData['status'] ?? 'active',
+        ]);
+
+        $roleNames = $userData['roles'] ?? (isset($userData['role']) ? [$userData['role']] : ['doctor']);
+        $roles = collect($roleNames)->map(function ($name) {
+            $role = new \Spatie\Permission\Models\Role();
+            $role->name = $name;
+            return $role;
+        });
+        $user->setRelation('roles', $roles);
 
         Auth::login($user, $request->boolean('remember'));
         $request->session()->regenerate();
@@ -92,7 +130,7 @@ class AuthController extends Controller
             } catch (\Exception $e) {
                 // Ignore logout errors
             }
-            session()->forget(['api_token', 'api_user']);
+            session()->forget(['api_token', 'api_user_data']);
         }
 
         Auth::logout();

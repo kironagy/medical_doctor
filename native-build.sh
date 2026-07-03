@@ -11,7 +11,6 @@ cp .env "$ENV_BACKUP"
 
 echo "Switching to .env.native for NativePHP build"
 cp .env.native .env
-touch database/database.sqlite
 
 echo "Building NativePHP app..."
 php artisan native:run "${1:-android}"
@@ -19,5 +18,8 @@ php artisan native:run "${1:-android}"
 echo "Restoring original .env"
 cp "$ENV_BACKUP" .env
 rm "$ENV_BACKUP"
+
+# Clear any cached config to avoid stale values
+php artisan config:clear --no-interaction 2>/dev/null || true
 
 echo "Done."
