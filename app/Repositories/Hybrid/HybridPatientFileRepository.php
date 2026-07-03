@@ -15,11 +15,30 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
         private EloquentPatientFileRepository $localRepo
     ) {}
 
+    private function syncLocalCache(array $data): void
+    {
+        if (isset($data['uuid']) && !is_array($data['uuid'])) {
+            $data = [$data];
+        }
+
+        foreach ($data as $item) {
+            if (is_array($item) && isset($item['uuid'])) {
+                $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'creator']);
+                \App\Domains\Media\Models\PatientFile::updateOrCreate(
+                    ['uuid' => $item['uuid']],
+                    $cleanData
+                );
+            }
+        }
+    }
+
     public function forPatient(string $patientUuid): array
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->forPatient($patientUuid);
+                $data = $this->apiRepo->forPatient($patientUuid);
+                $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }
@@ -31,7 +50,9 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->find($uuid);
+                $data = $this->apiRepo->find($uuid);
+                if ($data) $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }
@@ -86,7 +107,9 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->byCategory($patientUuid, $categorySlug);
+                $data = $this->apiRepo->byCategory($patientUuid, $categorySlug);
+                $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }

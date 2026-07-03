@@ -15,11 +15,30 @@ class HybridUserRepository implements UserRepositoryInterface
         private EloquentUserRepository $localRepo
     ) {}
 
+    private function syncLocalCache(array $data): void
+    {
+        if (isset($data['id']) && !is_array($data['id'])) {
+            $data = [$data];
+        }
+
+        foreach ($data as $item) {
+            if (is_array($item) && isset($item['id'])) {
+                $cleanData = \Illuminate\Support\Arr::except($item, ['roles', 'permissions']);
+                \App\Domains\Users\Models\User::updateOrCreate(
+                    ['id' => $item['id']],
+                    $cleanData
+                );
+            }
+        }
+    }
+
     public function find(int $id): ?array
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->find($id);
+                $data = $this->apiRepo->find($id);
+                if ($data) $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }
@@ -95,7 +114,9 @@ class HybridUserRepository implements UserRepositoryInterface
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->doctors();
+                $data = $this->apiRepo->doctors();
+                $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }
@@ -107,7 +128,9 @@ class HybridUserRepository implements UserRepositoryInterface
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->searchDoctors($term);
+                $data = $this->apiRepo->searchDoctors($term);
+                $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }

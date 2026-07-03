@@ -15,11 +15,30 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
         private EloquentPatientNoteRepository $localRepo
     ) {}
 
+    private function syncLocalCache(array $data): void
+    {
+        if (isset($data['uuid']) && !is_array($data['uuid'])) {
+            $data = [$data];
+        }
+
+        foreach ($data as $item) {
+            if (is_array($item) && isset($item['uuid'])) {
+                $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'author']);
+                \App\Domains\Patients\Models\PatientNote::updateOrCreate(
+                    ['uuid' => $item['uuid']],
+                    $cleanData
+                );
+            }
+        }
+    }
+
     public function forPatient(string $patientUuid): array
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->forPatient($patientUuid);
+                $data = $this->apiRepo->forPatient($patientUuid);
+                $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }

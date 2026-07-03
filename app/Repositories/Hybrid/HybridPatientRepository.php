@@ -16,14 +16,31 @@ class HybridPatientRepository implements PatientRepositoryInterface
         private EloquentPatientRepository $localRepo
     ) {}
 
+    private function syncLocalCache(array $data): void
+    {
+        if (isset($data['uuid']) && !is_array($data['uuid'])) {
+            $data = [$data];
+        }
+
+        foreach ($data as $item) {
+            if (is_array($item) && isset($item['uuid'])) {
+                $cleanData = \Illuminate\Support\Arr::except($item, [
+                    'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes'
+                ]);
+                \App\Domains\Patients\Models\Patient::updateOrCreate(
+                    ['uuid' => $item['uuid']],
+                    $cleanData
+                );
+            }
+        }
+    }
+
     public function all(): array
     {
         if (NetworkStatusService::isOnline()) {
             try {
                 $data = $this->apiRepo->all();
-                // Sync to local cache in background (or fire & forget)
-                // For simplicity, we can just update local SQLite if we had an upsert.
-                // It's safer to rely on pull-to-refresh to fetch new items.
+                $this->syncLocalCache($data);
                 return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
@@ -37,7 +54,9 @@ class HybridPatientRepository implements PatientRepositoryInterface
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->find($uuid);
+                $data = $this->apiRepo->find($uuid);
+                if ($data) $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }
@@ -125,7 +144,9 @@ class HybridPatientRepository implements PatientRepositoryInterface
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->search($term);
+                $data = $this->apiRepo->search($term);
+                $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }
@@ -137,7 +158,9 @@ class HybridPatientRepository implements PatientRepositoryInterface
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->shared($userId);
+                $data = $this->apiRepo->shared($userId);
+                $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }
@@ -161,7 +184,9 @@ class HybridPatientRepository implements PatientRepositoryInterface
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->recent($limit);
+                $data = $this->apiRepo->recent($limit);
+                $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }
@@ -173,7 +198,9 @@ class HybridPatientRepository implements PatientRepositoryInterface
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->withTrashed();
+                $data = $this->apiRepo->withTrashed();
+                $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }

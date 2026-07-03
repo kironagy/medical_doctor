@@ -15,11 +15,30 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
         private EloquentPatientVisitRepository $localRepo
     ) {}
 
+    private function syncLocalCache(array $data): void
+    {
+        if (isset($data['id']) && !is_array($data['id'])) {
+            $data = [$data];
+        }
+
+        foreach ($data as $item) {
+            if (is_array($item) && isset($item['id'])) {
+                $cleanData = \Illuminate\Support\Arr::except($item, ['doctor', 'patient']);
+                \App\Domains\Patients\Models\PatientVisit::updateOrCreate(
+                    ['id' => $item['id']],
+                    $cleanData
+                );
+            }
+        }
+    }
+
     public function forPatient(string $patientUuid): array
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->forPatient($patientUuid);
+                $data = $this->apiRepo->forPatient($patientUuid);
+                $this->syncLocalCache($data);
+                return $data;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }

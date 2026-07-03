@@ -187,17 +187,9 @@ const handleNativeFile = async (nativeFile) => {
     file = nativeFile
   } else if (nativeFile.uri) {
     try {
-      const blob = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        xhr.open('GET', nativeFile.uri, true)
-        xhr.responseType = 'blob'
-        xhr.onload = () => {
-          if (xhr.status === 200 || xhr.status === 0) resolve(xhr.response)
-          else reject(new Error(`HTTP ${xhr.status}`))
-        }
-        xhr.onerror = () => reject(new Error('Network error'))
-        xhr.send()
-      })
+      const response = await fetch(nativeFile.uri)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const blob = await response.blob()
       file = new File([blob], nativeFile.name || 'file', { type: nativeFile.type || blob.type })
     } catch (e) {
       console.warn('[Native] Failed to read native file:', e)
