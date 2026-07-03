@@ -1,6 +1,7 @@
 import { ref, watch } from 'vue';
-import { usePage, router } from '@inertiajs/vue3';
+import { usePage } from '@inertiajs/vue3';
 import { useI18n } from 'vue-i18n';
+import axios from 'axios';
 
 export function useLocale() {
     const page = usePage();
@@ -16,6 +17,8 @@ export function useLocale() {
 
     const locale = ref(getPreference());
 
+    let persisting = false;
+
     const applyLocale = (l) => {
         if (i18nLocale.value !== l) {
             i18nLocale.value = l;
@@ -23,13 +26,12 @@ export function useLocale() {
         document.documentElement.lang = l;
         document.documentElement.dir = l === 'ar' ? 'rtl' : 'ltr';
         try { localStorage.setItem('locale', l) } catch (e) { /* noop */ }
+        document.documentElement.style.setProperty('--direction', l === 'ar' ? 'rtl' : 'ltr');
     };
 
-    // Apply if different from what i18n already has
     if (i18nLocale.value !== locale.value) {
         applyLocale(locale.value);
     } else {
-        // Ensure direction is correct even if locale matches
         const dir = locale.value === 'ar' ? 'rtl' : 'ltr';
         if (document.documentElement.dir !== dir) {
             document.documentElement.dir = dir;
@@ -38,9 +40,10 @@ export function useLocale() {
 
     watch(locale, (newLocale) => {
         applyLocale(newLocale);
-        router.put('/settings/preferences', { locale: newLocale }, {
-            preserveScroll: true,
-            preserveState: true,
+        if (persisting) return;
+        persisting = true;
+        axios.put('/settings/preferences', { locale: newLocale }).finally(() => {
+            persisting = false;
         });
     });
 

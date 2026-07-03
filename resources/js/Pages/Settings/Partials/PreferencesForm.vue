@@ -29,7 +29,7 @@
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <label class="flex flex-col p-4 border rounded-xl cursor-pointer transition-all" :class="theme === 'light' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'">
               <input type="radio" v-model="theme" value="light" class="hidden" />
-              <div class="h-20 bg-slate-100 rounded-lg mb-3 border border-slate-200 flex items-center justify-center">
+              <div class="h-20 bg-slate-100 dark:bg-slate-700 rounded-lg mb-3 border border-slate-200 dark:border-slate-600 flex items-center justify-center">
                 <SunIcon class="w-8 h-8 text-amber-500" />
               </div>
               <span class="font-medium text-center dark:text-white">{{ $t('settings.light_mode') }}</span>
@@ -45,7 +45,7 @@
 
             <label class="flex flex-col p-4 border rounded-xl cursor-pointer transition-all" :class="theme === 'system' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'">
               <input type="radio" v-model="theme" value="system" class="hidden" />
-              <div class="h-20 bg-gradient-to-r from-slate-100 to-slate-900 rounded-lg mb-3 border border-slate-300 dark:border-slate-700 flex items-center justify-center">
+              <div class="h-20 bg-gradient-to-r from-slate-100 dark:from-slate-700 to-slate-900 dark:to-slate-950 rounded-lg mb-3 border border-slate-300 dark:border-slate-600 flex items-center justify-center">
                 <ComputerDesktopIcon class="w-8 h-8 text-slate-500" />
               </div>
               <span class="font-medium text-center dark:text-white">{{ $t('settings.system_mode') }}</span>

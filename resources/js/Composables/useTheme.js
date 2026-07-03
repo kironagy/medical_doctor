@@ -1,5 +1,6 @@
 import { ref, watch, onMounted } from 'vue';
-import { usePage, router } from '@inertiajs/vue3';
+import { usePage } from '@inertiajs/vue3';
+import axios from 'axios';
 
 export function useTheme() {
     const page = usePage();
@@ -11,6 +12,8 @@ export function useTheme() {
     };
 
     const theme = ref(getPreference());
+
+    let persisting = false;
 
     const applyTheme = (t) => {
         if (t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -24,7 +27,6 @@ export function useTheme() {
     onMounted(() => {
         applyTheme(theme.value);
         
-        // Listen for system theme changes if system mode is selected
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
             if (theme.value === 'system') {
                 applyTheme('system');
@@ -34,10 +36,10 @@ export function useTheme() {
 
     watch(theme, (newTheme) => {
         applyTheme(newTheme);
-        // Persist to backend
-        router.put('/settings/preferences', { theme: newTheme }, {
-            preserveScroll: true,
-            preserveState: true,
+        if (persisting) return;
+        persisting = true;
+        axios.put('/settings/preferences', { theme: newTheme }).finally(() => {
+            persisting = false;
         });
     });
 

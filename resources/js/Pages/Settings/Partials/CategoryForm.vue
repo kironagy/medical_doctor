@@ -42,12 +42,12 @@
             :placeholder="$t('settings.category_name')"
           />
 
-          <div class="flex gap-1">
+          <div class="flex gap-1.5">
             <button
               v-for="c in colorOptions"
               :key="c"
               type="button"
-              class="w-6 h-6 rounded-full border-2 transition-all shrink-0"
+              class="w-7 h-7 sm:w-6 sm:h-6 rounded-full border-2 transition-all shrink-0 active:scale-90"
               :class="cat.color === c ? 'border-slate-900 dark:border-white scale-110' : 'border-transparent'"
               :style="{ backgroundColor: c }"
               @click="cat.color = c"
@@ -56,7 +56,7 @@
 
           <button
             type="button"
-            class="p-1.5 rounded-lg transition-colors"
+            class="p-2 rounded-lg transition-colors active:bg-slate-100 dark:active:bg-slate-700"
             :class="cat.is_visible ? 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300' : 'text-slate-300 dark:text-slate-600'"
             @click="cat.is_visible = !cat.is_visible"
           >
@@ -66,7 +66,7 @@
 
           <button
             type="button"
-            class="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
+            class="p-2 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors active:bg-rose-100 dark:active:bg-rose-900/40"
             @click="removeCategory(idx)"
           >
             <TrashIcon class="w-4 h-4" />

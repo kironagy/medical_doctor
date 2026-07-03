@@ -13,7 +13,7 @@
     </div>
 
     <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-      <BaseCard class="px-4 py-8 sm:px-10">
+      <BaseCard>
         <form @submit.prevent="submit" class="space-y-6">
           <BaseInput
             v-model="form.email"

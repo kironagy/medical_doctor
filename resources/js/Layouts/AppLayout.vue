@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col md:flex-row">
+  <div class="min-h-dvh bg-slate-50 dark:bg-slate-950 flex flex-col md:flex-row">
     
     <!-- Desktop Sidebar -->
     <aside class="hidden md:flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 h-screen sticky top-0">
@@ -135,7 +135,7 @@
     </main>
 
     <!-- Mobile Bottom Navigation -->
-    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 pb-safe z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] dark:shadow-none">
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 pb-safe z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
       <div class="flex justify-around items-center h-16">
         <Link href="/dashboard" class="flex flex-col items-center justify-center w-full h-full" :class="$page.url.startsWith('/dashboard') ? 'text-primary-600 dark:text-primary-400' : 'text-slate-500 dark:text-slate-400'">
           <svg class="w-6 h-6 mb-1 transition-transform" :class="$page.url.startsWith('/dashboard') ? 'scale-110' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" :stroke-width="$page.url.startsWith('/dashboard') ? '2.5' : '2'"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
@@ -156,18 +156,39 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
-import { Link } from '@inertiajs/vue3';
-import { Head } from '@inertiajs/vue3';
+import { ref, onMounted, watch } from 'vue';
+import { Link, usePage } from '@inertiajs/vue3';
 import GlobalSearch from '@/Components/GlobalSearch.vue';
 import { useTheme } from '@/Composables/useTheme';
 import { useLocale } from '@/Composables/useLocale';
 
-// Initialize global preferences
-useTheme();
-useLocale();
+const page = usePage();
+const { theme } = useTheme();
+const { locale } = useLocale();
 
 const mobileMenuOpen = ref(false);
+
+const LIGHT_THEME_COLOR = '#0d9488';
+const DARK_THEME_COLOR = '#030712';
+
+function syncStatusBar(t) {
+  const isDark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const color = isDark ? DARK_THEME_COLOR : LIGHT_THEME_COLOR;
+  let meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) {
+    meta.content = color;
+  }
+  if (window.native?.theme) {
+    try {
+      window.native.theme.setStatusBarColor(color);
+    } catch (e) {}
+  }
+}
+
+onMounted(() => {
+  syncStatusBar(theme.value);
+  watch(theme, (val) => syncStatusBar(val), { immediate: false });
+});
 
 defineProps({
   title: {

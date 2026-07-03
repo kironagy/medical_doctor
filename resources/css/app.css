@@ -19,50 +19,148 @@
   --font-heading: 'Cairo', 'Outfit', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
 }
 
-/* Apply Cairo font to all elements by default */
 * {
   font-family: 'Cairo', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif !important;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Safe Area support for mobile (NativePHP / Android WebView) */
-/* CSS environment variables provide safe area insets.
-   On web these fall back to 0px, so there is no visual change.
-   On mobile they match the device's notches, status bars, and navigation bars. */
+/* ── Safe Area Variables ── */
 :root {
   --sat: env(safe-area-inset-top, 0px);
   --sar: env(safe-area-inset-right, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
+  --status-bar-height: 0px;
 }
 
-/* Apply globally — on web env() returns 0px so no visual change. */
+/* ── Edge-to-Edge: body fills the screen ── */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
 body {
-  padding-top: var(--sat);
-  padding-bottom: var(--sab);
-  padding-left: var(--sal);
-  padding-right: var(--sar);
+  background-color: #f8fafc;
+}
+
+.dark body {
+  background-color: #030712;
 }
 
 #app {
-  min-height: calc(100vh - var(--sat) - var(--sab));
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 
-/* pb-safe / pt-safe utility classes for specific elements */
+/* ── Safe Area Utility Classes ── */
 .pb-safe { padding-bottom: var(--sab) !important; }
 .pt-safe { padding-top: var(--sat) !important; }
 .pl-safe { padding-left: var(--sal) !important; }
 .pr-safe { padding-right: var(--sar) !important; }
 
+/* Bottom navigation safe area (for gesture nav bar) */
+.pb-nav {
+  padding-bottom: calc(var(--sab, 0px) + 4px);
+}
+
+/* Top safe area for status bar spacing */
+.pt-status {
+  padding-top: calc(var(--sat, 0px) + 4px);
+}
+
+/* ── Custom Scrollbar ── */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+/* ── Native Input Overrides ── */
+input, textarea, select, button {
+  font-family: inherit;
+}
+
+/* Remove default input styling on iOS */
+input, textarea {
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 0;
+}
+
+/* ── Smooth Touch Feedback ── */
+@media (hover: none) and (pointer: coarse) {
+  .touch-feedback {
+    transition: opacity 0.15s;
+  }
+  .touch-feedback:active {
+    opacity: 0.7;
+  }
+}
+
+/* ── Keyboard Avoidance ── */
+.keyboard-open .pb-nav {
+  padding-bottom: 0;
+}
+
+/* ── Pull-to-Refresh container ── */
+.overscroll-contain {
+  overscroll-behavior: contain;
+}
+
+/* ── Component Classes ── */
 @layer components {
   .btn-primary {
     @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-4 focus:ring-primary-300 dark:focus:ring-primary-800 focus:outline-none font-medium rounded-lg text-sm px-5 py-2.5 text-center transition-all shadow-sm;
   }
-  
+
   .input-field {
     @apply bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-primary-500 dark:focus:border-primary-400 block w-full p-2.5 shadow-sm transition-all;
   }
-  
+
   .card-surface {
     @apply bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800;
   }
+}
+
+/* ── RTL Overrides ── */
+[dir="rtl"] .space-x-reverse {
+  --tw-space-x-reverse: 1;
+}
+
+[dir="rtl"] .rtl\:translate-x-full {
+  --tw-translate-x: 100%;
+  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
+}
+
+/* ── Dark Mode Transitions ── */
+html {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ── Prevent text size adjust on orientation change ── */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ── Selection color ── */
+::selection {
+  background-color: #14b8a6;
+  color: white;
 }

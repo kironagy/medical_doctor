@@ -20,7 +20,7 @@
           <!-- Message -->
           <p class="text-sm font-medium text-slate-800 dark:text-slate-200 flex-1">{{ t.message }}</p>
           <!-- Close -->
-          <button @click="removeToast(t.id)" class="flex-shrink-0 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+          <button @click="removeToast(t.id)" class="flex-shrink-0 p-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors rounded-lg active:bg-slate-100 dark:active:bg-slate-800">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
