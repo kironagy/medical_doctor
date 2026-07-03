@@ -2,13 +2,27 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\Repositories\PatientFileRepositoryInterface;
+use App\Contracts\Repositories\PatientNoteRepositoryInterface;
+use App\Contracts\Repositories\PatientRepositoryInterface;
+use App\Contracts\Repositories\PatientVisitRepositoryInterface;
+use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
+use App\Domains\Patients\Models\PatientShare;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Str;
 
 class WorkspaceController extends Controller
 {
+    public function __construct(
+        private readonly PatientRepositoryInterface $patientRepo,
+        private readonly PatientFileRepositoryInterface $fileRepo,
+        private readonly PatientNoteRepositoryInterface $noteRepo,
+        private readonly PatientVisitRepositoryInterface $visitRepo,
+        private readonly UserRepositoryInterface $userRepo,
+    ) {}
+
     private function getCategories($user)
     {
         $defaultCategories = config('categories', []);
@@ -50,7 +64,7 @@ class WorkspaceController extends Controller
     {
         $user = auth()->user();
         $categories = $this->getCategories($user);
-        $patients = $this->mapPatientList(Patient::latest()->get());
+        $patients = $this->patientRepo->all();
 
         return Inertia::render('DoctorWorkspace', [
             'patients' => $patients,
@@ -66,49 +80,11 @@ class WorkspaceController extends Controller
         ]);
     }
 
-    private function mapPatientList($patients)
-    {
-        return $patients->map(function ($patient) {
-            $latestFile = $patient->files()->latest()->first();
-            $latestVisit = $patient->visits()->latest()->first();
-            $nextVisit = $patient->visits()->where('visit_date', '>=', now())->first();
-            return [
-                'id' => $patient->id,
-                'uuid' => $patient->uuid,
-                'code' => $patient->code,
-                'name' => $patient->name,
-                'phone' => $patient->phone,
-                'email' => $patient->email,
-                'address' => $patient->address,
-                'diagnosis' => $patient->diagnosis,
-                'primary_doctor_id' => $patient->primary_doctor_id,
-                'created_at' => $patient->created_at,
-                'last_visit' => $latestFile?->created_at,
-                'status' => $patient->deleted_at ? 'archived' : 'active',
-                'unread' => false,
-                'date_of_birth' => $patient->date_of_birth,
-                'gender' => $patient->gender,
-                'blood_group' => $patient->blood_group,
-                'weight' => $patient->weight,
-                'height' => $patient->height,
-                'allergies' => $patient->allergies,
-                'chronic_diseases' => $patient->chronic_diseases,
-                'medical_status' => $patient->medical_status,
-                'medical_record_number' => $patient->medical_record_number,
-                'next_appointment' => $nextVisit?->visit_date,
-                'last_visit_date' => $latestVisit?->visit_date,
-            ];
-        })->values();
-    }
-
     public function patientList()
     {
-        $query = Patient::latest();
-        if (request()->query('status') === 'archived') {
-            $query->onlyTrashed();
-        }
+        $patients = $this->patientRepo->all();
         return response()->json([
-            'patients' => $this->mapPatientList($query->get()),
+            'patients' => $patients,
         ]);
     }
 
@@ -135,7 +111,7 @@ class WorkspaceController extends Controller
         $validated['primary_doctor_id'] = $request->user()->id;
         $validated['created_by_id'] = $request->user()->id;
 
-        $patient = Patient::create($validated);
+        $patient = $this->patientRepo->create($validated);
 
         return response()->json([
             'patient' => $patient,
@@ -145,11 +121,7 @@ class WorkspaceController extends Controller
 
     public function updatePatient(Request $request, string $uuid)
     {
-        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
-
-        abort_if($request->user()->cannot('update', $patient), 403);
-
-        $validated = $request->validate([
+        $patient = $this->patientRepo->update($uuid, $request->validate([
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:255',
             'email' => 'nullable|email|max:255',
@@ -164,9 +136,7 @@ class WorkspaceController extends Controller
             'chronic_diseases' => 'nullable|string',
             'medical_status' => 'nullable|string|max:100',
             'medical_record_number' => 'nullable|string|max:100',
-        ]);
-
-        $patient->update($validated);
+        ]));
 
         return response()->json([
             'patient' => $patient,
@@ -176,95 +146,83 @@ class WorkspaceController extends Controller
 
     public function deletePatient(Request $request, string $uuid)
     {
-        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
-        if (!$patient->trashed()) {
-            abort_if($request->user()->cannot('update', $patient), 403);
-            $patient->delete();
-        }
-
+        $this->patientRepo->delete($uuid);
         return response()->json(['message' => 'Patient archived']);
     }
 
     public function forceDeletePatient(Request $request, string $uuid)
     {
-        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
-        abort_if($request->user()->cannot('forceDelete', $patient), 403);
-        $patient->forceDelete();
-
+        $this->patientRepo->forceDelete($uuid);
         return response()->json(['message' => 'Patient permanently deleted']);
     }
 
     public function restorePatient(Request $request, string $uuid)
     {
-        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
-        abort_if($request->user()->cannot('restore', $patient), 403);
-        $patient->restore();
-
+        $this->patientRepo->restore($uuid);
         return response()->json(['message' => 'Patient restored']);
     }
 
     public function patientData(string $uuid)
     {
-        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
+        $patient = $this->patientRepo->findByUuid($uuid);
 
-        $files = $patient->files()->latest()->get();
-        $notes = $patient->notes()->with('author:id,name,email')->latest()->get();
-        $visits = $patient->visits()->latest()->get();
-        $shares = $patient->shares()->with('doctor:id,name,email,specialization,code')->latest()->get();
-        $nextVisit = $visits->firstWhere('visit_date', '>=', now());
-        $latestVisit = $visits->first();
+        $files = $this->fileRepo->forPatient($uuid);
+        $notes = $this->noteRepo->forPatient($uuid);
+        $visits = $this->visitRepo->forPatient($uuid);
+
+        $nextVisit = collect($visits)->first(fn($v) => ($v['visit_date'] ?? '') >= now()->toDateString());
+        $latestVisit = $visits[0] ?? null;
 
         $stats = [
-            'total_files' => $files->count(),
-            'total_notes' => $notes->count(),
-            'total_visits' => $visits->count(),
-            'recent_uploads' => $files->take(5)->values(),
-            'upcoming_visit' => $visits->firstWhere('visit_date', '>=', now()),
-            'last_prescription' => $files->firstWhere('category', 'medications'),
+            'total_files' => count($files),
+            'total_notes' => count($notes),
+            'total_visits' => count($visits),
+            'recent_uploads' => array_slice($files, 0, 5),
+            'upcoming_visit' => $nextVisit,
+            'last_prescription' => collect($files)->first(fn($f) => ($f['category'] ?? '') === 'medications'),
         ];
 
         $categories = $this->getCategories(auth()->user());
 
-        $patientData = $patient->toArray();
-        $patientData['age'] = $patient->age;
-        $patientData['last_visit_date'] = $latestVisit?->visit_date;
-        $patientData['next_appointment_date'] = $nextVisit?->visit_date;
+        $patientData = $patient;
+        $patientData['last_visit_date'] = $latestVisit['visit_date'] ?? null;
+        $patientData['next_appointment_date'] = $nextVisit['visit_date'] ?? null;
+
+        $user = auth()->user();
 
         return response()->json([
             'patient' => $patientData,
             'files' => $files,
             'notes' => $notes,
             'visits' => $visits,
-            'shares' => $shares,
+            'shares' => [],
             'categories' => $categories,
             'stats' => $stats,
             'permissions' => [
-                'can_edit' => auth()->user()->can('update', $patient),
-                'can_share' => auth()->user()->can('share', $patient),
-                'is_primary' => $patient->primary_doctor_id === auth()->id(),
+                'can_edit' => $user?->can('update', new Patient()) ?? false,
+                'can_share' => $user?->can('share', new Patient()) ?? false,
+                'is_primary' => ($patient['primary_doctor_id'] ?? null) === $user?->id,
             ],
         ]);
     }
 
     public function exportPatient(string $uuid)
     {
-        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
-        abort_if(request()->user()->cannot('view', $patient), 403);
-
-        $files = $patient->files()->latest()->get();
-        $notes = $patient->notes()->with('author:id,name,email')->latest()->get();
-        $visits = $patient->visits()->latest()->get();
+        $patient = $this->patientRepo->findByUuid($uuid);
+        $files = $this->fileRepo->forPatient($uuid);
+        $notes = $this->noteRepo->forPatient($uuid);
+        $visits = $this->visitRepo->forPatient($uuid);
 
         $data = [
-            'patient' => $patient->toArray(),
-            'files' => $files->toArray(),
-            'notes' => $notes->toArray(),
-            'visits' => $visits->toArray(),
+            'patient' => $patient,
+            'files' => $files,
+            'notes' => $notes,
+            'visits' => $visits,
             'exported_at' => now()->toIso8601String(),
             'exported_by' => auth()->user()->name,
         ];
 
-        $filename = 'patient_' . $patient->uuid . '_export.json';
+        $filename = 'patient_' . $uuid . '_export.json';
         return response()->streamDownload(function () use ($data) {
             echo json_encode($data, JSON_PRETTY_PRINT);
         }, $filename, ['Content-Type' => 'application/json']);
@@ -272,15 +230,13 @@ class WorkspaceController extends Controller
 
     public function printPatient(string $uuid)
     {
-        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
-        abort_if(request()->user()->cannot('view', $patient), 403);
-
-        $files = $patient->files()->latest()->get()->toArray();
-        $notes = $patient->notes()->with('author:id,name,email')->latest()->get()->toArray();
-        $visits = $patient->visits()->latest()->get()->toArray();
+        $patient = $this->patientRepo->findByUuid($uuid);
+        $files = $this->fileRepo->forPatient($uuid);
+        $notes = $this->noteRepo->forPatient($uuid);
+        $visits = $this->visitRepo->forPatient($uuid);
 
         return Inertia::render('PatientPrint', [
-            'patient' => $patient->toArray(),
+            'patient' => $patient,
             'files' => $files,
             'notes' => $notes,
             'visits' => $visits,

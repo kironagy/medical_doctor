@@ -20,14 +20,25 @@ class ApiService
 
     public function __construct()
     {
-        $this->token = session('api_token');
+        try {
+            $encrypted = session('api_token');
+            $this->token = $encrypted ? decrypt($encrypted) : null;
+        } catch (\Exception $e) {
+            $this->token = null;
+            session()->forget('api_token');
+        }
     }
 
     public function setToken(?string $token): void
     {
         $this->token = $token;
         if ($token) {
-            session(['api_token' => encrypt($token)]);
+            try {
+                session(['api_token' => encrypt($token)]);
+            } catch (\Exception $e) {
+                $this->token = null;
+                throw new RuntimeException('Failed to store authentication token.');
+            }
         } else {
             session()->forget('api_token');
         }
@@ -94,7 +105,9 @@ class ApiService
         }
 
         if ($response->failed()) {
-            throw new RuntimeException($response->json()['message'] ?? 'Upload failed.');
+            $body = $response->json();
+            $message = is_array($body) ? ($body['message'] ?? 'Upload failed.') : 'Upload failed.';
+            throw new RuntimeException($message);
         }
 
         return $response->json() ?? [];
@@ -136,10 +149,9 @@ class ApiService
             } catch (RequestException $e) {
                 $attempts++;
                 if ($attempts > self::MAX_RETRIES) {
-                    throw new RuntimeException(
-                        $e->response->json()['message'] ?? 'Server error. Please try again.',
-                        $e->response->status()
-                    );
+                    $body = $e->response->json();
+                    $message = is_array($body) ? ($body['message'] ?? 'Server error. Please try again.') : 'Server error. Please try again.';
+                    throw new RuntimeException($message, $e->response->status());
                 }
                 usleep(self::RETRY_DELAY_MS * 1000);
             } catch (\Illuminate\Http\Client\ConnectionException $e) {
@@ -158,17 +170,29 @@ class ApiService
 
     public static function loginToRemote(string $email, string $password): array
     {
-        $response = Http::timeout(30)->post(
-            'https://prof-hosam-fekry.online/api/v1/login',
-            ['email' => $email, 'password' => $password]
-        );
-
-        if ($response->failed()) {
-            throw new RuntimeException(
-                $response->json()['message'] ?? $response->json()['errors']['email'][0] ?? 'Invalid credentials.'
+        try {
+            $response = Http::timeout(30)->post(
+                'https://prof-hosam-fekry.online/api/v1/login',
+                ['email' => $email, 'password' => $password]
             );
-        }
 
-        return $response->json();
+            if ($response->failed()) {
+                $body = $response->json();
+                $message = is_array($body)
+                    ? ($body['message'] ?? $body['errors']['email'][0] ?? 'Invalid credentials.')
+                    : ($response->serverError() ? 'Server error. Please try again.' : 'Invalid credentials.');
+                throw new RuntimeException($message);
+            }
+
+            $body = $response->json();
+            if (!is_array($body) || !isset($body['token'])) {
+                Log::error('Login response missing token', ['response' => $body]);
+                throw new RuntimeException('Invalid response from server.');
+            }
+
+            return $body;
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            throw new RuntimeException('Unable to connect. Please check your internet connection.');
+        }
     }
 }

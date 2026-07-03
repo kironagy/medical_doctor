@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\Repositories\UserRepositoryInterface;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Hash;
@@ -10,6 +11,10 @@ use Illuminate\Support\Facades\Storage;
 
 class SettingsController extends Controller
 {
+    public function __construct(
+        private readonly UserRepositoryInterface $userRepo,
+    ) {}
+
     public function index()
     {
         return Inertia::render('Settings/Index');
@@ -25,18 +30,15 @@ class SettingsController extends Controller
         ]);
 
         $user = $request->user();
-        $user->name = $validated['name'];
-        $user->email = $validated['email'];
-        $user->phone = $validated['phone'] ?? $user->phone;
+        $this->userRepo->update($user->id, $validated);
 
         if ($request->hasFile('avatar')) {
             if ($user->avatar_path) {
                 Storage::disk('public')->delete($user->avatar_path);
             }
             $user->avatar_path = $request->file('avatar')->store('avatars', 'public');
+            $user->save();
         }
-
-        $user->save();
 
         return back()->with('success', 'Profile updated successfully.');
     }
@@ -61,9 +63,7 @@ class SettingsController extends Controller
             'password' => ['required', 'confirmed', Password::defaults()],
         ]);
 
-        $request->user()->update([
-            'password' => Hash::make($validated['password']),
-        ]);
+        $this->userRepo->updatePassword($request->user()->id, $validated['password']);
 
         return back()->with('success', 'Password updated successfully.');
     }
@@ -75,19 +75,7 @@ class SettingsController extends Controller
             'locale' => 'nullable|string|in:en,ar',
         ]);
 
-        $user = $request->user();
-        $prefs = $user->preferences ?? [];
-
-        if (isset($validated['theme'])) {
-            $prefs['theme'] = $validated['theme'];
-        }
-        
-        if (isset($validated['locale'])) {
-            $prefs['locale'] = $validated['locale'];
-        }
-
-        $user->preferences = $prefs;
-        $user->save();
+        $this->userRepo->updatePreferences($request->user()->id, $validated);
 
         return back()->with('success', 'Preferences updated successfully.');
     }

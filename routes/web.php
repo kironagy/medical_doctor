@@ -16,29 +16,7 @@ Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 use App\Http\Controllers\PatientController;
 
 Route::middleware('auth')->group(function () {
-    Route::get('/dashboard', function () {
-        $user = auth()->user();
-
-        // Doctor role renders the full workspace directly as the dashboard
-        if ($user->hasRole('doctor')) {
-            return (new \App\Http\Controllers\WorkspaceController())->index();
-        }
-
-        $isSuperAdmin = $user->hasRole('super-admin');
-
-        $stats = [
-            'total_patients' => \App\Domains\Patients\Models\Patient::count(),
-            'recent_files' => \App\Domains\Media\Models\PatientFile::count(),
-            'active_shares' => \Illuminate\Support\Facades\DB::table('patient_shares')->count(),
-            'total_doctors' => $isSuperAdmin ? \App\Domains\Users\Models\User::role('doctor')->count() : null,
-            'active_doctors' => $isSuperAdmin ? \App\Domains\Users\Models\User::role('doctor')->where('status', 'active')->count() : null,
-        ];
-
-        return Inertia::render('Dashboard/Index', [
-            'stats' => $stats,
-            'isSuperAdmin' => $isSuperAdmin,
-        ]);
-    })->name('dashboard');
+    Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard');
 
     Route::get('patients/shared', [PatientController::class, 'shared'])->name('patients.shared');
     Route::resource('patients', PatientController::class)->parameters([
