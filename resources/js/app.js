@@ -10,6 +10,49 @@ import UploadManager from './Components/UploadManager.vue';
 import GlobalDialog from './Components/GlobalDialog.vue';
 import ToastContainer from './Components/ToastContainer.vue';
 
+// ── Global error boundary ──────────────────────────────────────────
+// Never allow silent failures. Every unhandled error logs to console
+// for diagnostic capture and includes full context (stack, file, URI).
+function captureError(context, error, extra = {}) {
+  const payload = {
+    context,
+    message: error?.message || String(error),
+    stack: error?.stack || '',
+    time: new Date().toISOString(),
+    url: typeof location !== 'undefined' ? location.href : '',
+    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+    ...extra,
+  }
+  console.error(`[AppCrash] ${context}:`, payload.message, payload.stack)
+  try {
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/v1/log/client-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify(payload),
+      }).catch(() => {})
+    }
+  } catch (_) {}
+}
+
+// Global unhandled promise rejection handler
+window.addEventListener('unhandledrejection', (event) => {
+  captureError('UnhandledPromiseRejection', event.reason, {
+    promiseType: event.reason?.name || typeof event.reason,
+  })
+  event.preventDefault()
+})
+
+// Global window error handler
+window.addEventListener('error', (event) => {
+  captureError('WindowError', event.error || event.message, {
+    filename: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+  })
+  event.preventDefault()
+})
+
 const appName = import.meta.env.VITE_APP_NAME || 'Medical Plus';
 
 createInertiaApp({
@@ -44,10 +87,19 @@ createInertiaApp({
             .use(i18n)
             .mount(tcEl);
 
-        return createApp({ render: () => h(App, props) })
+        const vueApp = createApp({ render: () => h(App, props) })
             .use(plugin)
             .use(i18n)
-            .mount(el);
+
+        // Vue global error handler for render/component errors
+        vueApp.config.errorHandler = (err, instance, info) => {
+          captureError('VueError', err, {
+            info,
+            componentName: instance?.type?.name || instance?.type?.__name || 'Unknown',
+          })
+        }
+
+        return vueApp.mount(el);
     },
     progress: {
         color: '#0f766e',

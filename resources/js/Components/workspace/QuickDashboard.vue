@@ -6,7 +6,7 @@
     </h3>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <div v-for="widget in visibleWidgets" :key="widget.key"
+      <div v-for="widget in widgets" :key="widget.key"
         class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3.5 hover:shadow-sm transition-shadow"
       >
         <div class="flex items-center justify-between mb-2">
@@ -21,7 +21,7 @@
         <p v-if="widget.subtitle" class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{{ widget.subtitle }}</p>
       </div>
 
-      <div v-if="visibleWidgets.length === 0" class="col-span-full text-center py-6 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
+      <div v-if="widgets.length === 0" class="col-span-full text-center py-6 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
         <svg class="mx-auto h-6 w-6 text-slate-300 dark:text-slate-600 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /></svg>
         <p class="text-xs text-slate-400">No data yet</p>
       </div>
@@ -81,5 +81,5 @@ const widgets = computed(() => {
   return items
 })
 
-const visibleWidgets = computed(() => widgets.value)
+
 </script>

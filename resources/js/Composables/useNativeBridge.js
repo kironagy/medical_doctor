@@ -1,49 +1,95 @@
-const isNativePHP = () => {
-  return typeof window !== 'undefined' && (
-    window.native ||
-    navigator.userAgent.includes('NativePHP') ||
-    navigator.userAgent.includes('nativephp')
-  )
+// ═══════════════════════════════════════════════════════════════════
+// NativeBridge — Android runtime permission & native feature bridge
+// ═══════════════════════════════════════════════════════════════════
+//
+// Architecture:
+//   Android side:   MainActivity.NativePermissionJSBridge registered as "NativePHP"
+//   JS side:        window.NativePHP.checkPermission(perm) → sync
+//                   window.NativePHP.requestPermission(perm, cbId) → async (callback)
+//                   window.NativePHP.openAppSettings()
+//
+// Permission string mapping:
+//   JS alias       → Android permission string
+//   'camera'       → android.permission.CAMERA
+//   'files'        → android.permission.READ_MEDIA_IMAGES (Android 13+)
+//   'audio'        → android.permission.RECORD_AUDIO
+//   'notifications'→ android.permission.POST_NOTIFICATIONS
+//   'location'     → android.permission.ACCESS_FINE_LOCATION
+//   'storage'      → android.permission.READ_MEDIA_IMAGES (Android 13+)
+
+const ANDROID_PERMISSION_MAP = {
+  camera: 'android.permission.CAMERA',
+  files: 'android.permission.READ_MEDIA_IMAGES',
+  audio: 'android.permission.RECORD_AUDIO',
+  notifications: 'android.permission.POST_NOTIFICATIONS',
+  location: 'android.permission.ACCESS_FINE_LOCATION',
+  storage: 'android.permission.READ_MEDIA_IMAGES',
 }
 
-const isNativeAndroid = () => {
-  return typeof navigator !== 'undefined' && navigator.userAgent.includes('Android')
-}
-
-const PERMISSION_DENIED = 'denied'
 const PERMISSION_GRANTED = 'granted'
+const PERMISSION_DENIED = 'denied'
 const PERMISSION_PERMANENTLY_DENIED = 'permanently_denied'
-
-const permissionCache = {}
 
 const PERMISSION_LABELS = {
   camera: {
     title: 'Camera Access',
     message: 'This app needs camera access to take photos of medical documents and records.',
-  },
-  gallery: {
-    title: 'Photo Library Access',
-    message: 'This app needs access to your photo library to attach medical images and documents.',
+    settingsTitle: 'Camera Access is Blocked',
+    settingsMessage: 'Please enable Camera permission in Settings to take photos.',
   },
   files: {
-    title: 'File Access',
-    message: 'This app needs file access to upload medical documents and records.',
+    title: 'Photo & Media Access',
+    message: 'This app needs access to your photos and files to attach medical documents.',
+    settingsTitle: 'Media Access is Blocked',
+    settingsMessage: 'Please enable Media permission in Settings to attach files.',
+  },
+  audio: {
+    title: 'Microphone Access',
+    message: 'This app needs microphone access to record audio with videos.',
+    settingsTitle: 'Microphone Access is Blocked',
+    settingsMessage: 'Please enable Microphone permission in Settings to record audio.',
+  },
+  notifications: {
+    title: 'Notifications',
+    message: 'Enable notifications to receive updates about your patients.',
+    settingsTitle: 'Notifications are Blocked',
+    settingsMessage: 'Please enable Notifications in Settings to receive updates.',
   },
   storage: {
     title: 'Storage Access',
     message: 'This app needs storage access to save and share medical files.',
+    settingsTitle: 'Storage Access is Blocked',
+    settingsMessage: 'Please enable Storage permission in Settings.',
   },
 }
 
-function getLabel(permission) {
-  const key = permission.toLowerCase()
-  if (key.includes('camera')) return PERMISSION_LABELS.camera
-  if (key.includes('gallery') || key.includes('photo')) return PERMISSION_LABELS.gallery
-  if (key.includes('file')) return PERMISSION_LABELS.files
-  if (key.includes('storage')) return PERMISSION_LABELS.storage
-  return { title: 'Permission Required', message: `This action requires "${permission}" permission.` }
+// Track granted permissions across page navigations (module-level, survives Inertia nav)
+const grantedCache = {}
+
+let callbackCounter = 0
+
+function mapPermission(alias) {
+  return ANDROID_PERMISSION_MAP[alias] || alias
 }
 
+function getLabel(alias) {
+  return PERMISSION_LABELS[alias] || {
+    title: 'Permission Required',
+    message: `This action requires "${alias}" permission.`,
+    settingsTitle: 'Permission Blocked',
+    settingsMessage: `Please enable "${alias}" in Settings.`,
+  }
+}
+
+function hasNativeBridge() {
+  return typeof window !== 'undefined' && !!window.NativePHP
+}
+
+function isNativeAndroid() {
+  return typeof navigator !== 'undefined' && navigator.userAgent.includes('Android')
+}
+
+// ── UI helpers ─────────────────────────────────────────────────────
 function createPermissionDialog({ title, message, confirmText = 'Allow', denyText = 'Not Now' }) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div')
@@ -82,7 +128,6 @@ function createPermissionDialog({ title, message, confirmText = 'Allow', denyTex
     document.body.appendChild(overlay)
 
     function cleanup() { overlay.remove() }
-
     const handleGrant = () => { cleanup(); resolve(true) }
     const handleDeny = () => { cleanup(); resolve(false) }
 
@@ -136,8 +181,8 @@ function createPermanentlyDeniedDialog({ title, message }) {
     cancelBtn.addEventListener('click', () => { cleanup(); resolve(false) })
     settingsBtn.addEventListener('click', () => {
       cleanup()
-      if (window.native?.settings?.open) {
-        window.native.settings.open()
+      if (window.NativePHP?.openAppSettings) {
+        try { window.NativePHP.openAppSettings() } catch (e) {}
       }
       resolve(false)
     })
@@ -147,9 +192,46 @@ function createPermanentlyDeniedDialog({ title, message }) {
   })
 }
 
+// ── Permission request with native bridge ─────────────────────────
+function requestNativePermission(androidPerm) {
+  return new Promise((resolve) => {
+    const cbId = 'perm_' + (++callbackCounter) + '_' + Date.now()
+
+    if (!window.__nphpPermCallbacks) {
+      window.__nphpPermCallbacks = {}
+    }
+    window.__nphpPermCallbacks[cbId] = (result) => {
+      delete window.__nphpPermCallbacks[cbId]
+      resolve(result)
+    }
+
+    // Timeout safeguard: resolve as denied if no response within 30s
+    const timeout = setTimeout(() => {
+      delete window.__nphpPermCallbacks[cbId]
+      resolve(PERMISSION_DENIED)
+    }, 30000)
+
+    // Wrap resolve to clear timeout
+    const originalResolve = window.__nphpPermCallbacks[cbId]
+    window.__nphpPermCallbacks[cbId] = (result) => {
+      clearTimeout(timeout)
+      originalResolve(result)
+    }
+
+    try {
+      window.NativePHP.requestPermission(androidPerm, cbId)
+    } catch (e) {
+      clearTimeout(timeout)
+      delete window.__nphpPermCallbacks[cbId]
+      resolve(PERMISSION_DENIED)
+    }
+  })
+}
+
+// ── Exported composable ────────────────────────────────────────────
 export function useNativeBridge() {
   function detectNative() {
-    return isNativePHP()
+    return hasNativeBridge() || isNativeAndroid()
   }
 
   function detectPlatform() {
@@ -158,37 +240,49 @@ export function useNativeBridge() {
   }
 
   function isCameraAvailable() {
-    return isNativePHP() && !!(window.native?.camera?.takePhoto)
+    return hasNativeBridge() || isNativeAndroid()
   }
 
   function isFilePickerAvailable() {
-    return isNativePHP() && !!(window.native?.files?.pick)
+    return hasNativeBridge() || isNativeAndroid()
   }
 
   function isPermissionsApiAvailable() {
-    return isNativePHP() && !!(window.native?.permissions?.request)
+    return !!window.NativePHP?.checkPermission
   }
 
-  async function requestPermission(permission) {
-    if (!isNativePHP()) {
+  async function requestPermission(alias) {
+    const androidPerm = mapPermission(alias)
+
+    // 1. Check if already granted (cache)
+    if (grantedCache[alias] === PERMISSION_GRANTED) {
       return PERMISSION_GRANTED
     }
 
-    const cached = permissionCache[permission]
-    if (cached === PERMISSION_PERMANENTLY_DENIED) {
-      const label = getLabel(permission)
-      await createPermanentlyDeniedDialog({
-        title: `${label.title} is Blocked`,
-        message: `${label.message} Please enable this permission in your device settings.`,
-      })
-      return PERMISSION_PERMANENTLY_DENIED
+    // 2. Check current status via native bridge
+    if (window.NativePHP?.checkPermission) {
+      try {
+        const status = window.NativePHP.checkPermission(androidPerm)
+        if (status === PERMISSION_GRANTED) {
+          grantedCache[alias] = PERMISSION_GRANTED
+          return PERMISSION_GRANTED
+        }
+        if (status === PERMISSION_PERMANENTLY_DENIED) {
+          grantedCache[alias] = PERMISSION_PERMANENTLY_DENIED
+          const label = getLabel(alias)
+          await createPermanentlyDeniedDialog({
+            title: label.settingsTitle,
+            message: label.settingsMessage,
+          })
+          return PERMISSION_PERMANENTLY_DENIED
+        }
+      } catch (e) {
+        // Bridge available but check failed — proceed to request
+      }
     }
 
-    if (!isPermissionsApiAvailable()) {
-      return PERMISSION_GRANTED
-    }
-
-    const label = getLabel(permission)
+    // 3. Show rationale dialog before native system dialog
+    const label = getLabel(alias)
     const allowed = await createPermissionDialog({
       title: label.title,
       message: label.message,
@@ -197,27 +291,26 @@ export function useNativeBridge() {
       return PERMISSION_DENIED
     }
 
-    try {
-      const result = await window.native.permissions.request(permission)
-
-      if (result === 'granted') {
-        permissionCache[permission] = PERMISSION_GRANTED
-        return PERMISSION_GRANTED
+    // 4. Request permission via native bridge
+    if (window.NativePHP?.requestPermission) {
+      try {
+        const result = await requestNativePermission(androidPerm)
+        grantedCache[alias] = result
+        if (result === PERMISSION_PERMANENTLY_DENIED) {
+          await createPermanentlyDeniedDialog({
+            title: label.settingsTitle,
+            message: label.settingsMessage,
+          })
+        }
+        return result
+      } catch (e) {
+        grantedCache[alias] = PERMISSION_DENIED
+        return PERMISSION_DENIED
       }
-      if (result === 'permanently_denied') {
-        permissionCache[permission] = PERMISSION_PERMANENTLY_DENIED
-        await createPermanentlyDeniedDialog({
-          title: `${label.title} is Blocked`,
-          message: `${label.message} Please enable this permission in your device settings.`,
-        })
-        return PERMISSION_PERMANENTLY_DENIED
-      }
-      permissionCache[permission] = PERMISSION_DENIED
-      return PERMISSION_DENIED
-    } catch (e) {
-      permissionCache[permission] = PERMISSION_DENIED
-      return PERMISSION_DENIED
     }
+
+    // 5. No native bridge — assume granted (fallback)
+    return PERMISSION_GRANTED
   }
 
   async function pickFiles(options = {}) {
@@ -233,7 +326,7 @@ export function useNativeBridge() {
     }
 
     try {
-      const result = await window.native.files.pick({ multiple, accept })
+      const result = await window.native?.files?.pick?.({ multiple, accept })
       return Array.isArray(result) ? result : result ? [result] : []
     } catch (e) {
       return []
@@ -251,7 +344,7 @@ export function useNativeBridge() {
     }
 
     try {
-      const result = await window.native.camera.takePhoto()
+      const result = await window.native?.camera?.takePhoto?.()
       return result
     } catch (e) {
       return null
@@ -259,23 +352,28 @@ export function useNativeBridge() {
   }
 
   async function recordVideo() {
-    if (!isNativePHP() || !window.native?.camera?.recordVideo) {
-      return null
-    }
+    if (!window.NativePHP?.checkPermission) return null
 
-    const perm = await requestPermission('camera')
-    if (perm !== PERMISSION_GRANTED) return null
+    const camPerm = await requestPermission('camera')
+    if (camPerm !== PERMISSION_GRANTED) return null
+
+    const audioPerm = await requestPermission('audio')
+    if (audioPerm !== PERMISSION_GRANTED) return null
 
     try {
-      return await window.native.camera.recordVideo()
+      return await window.native?.camera?.recordVideo?.()
     } catch (e) {
       return null
     }
   }
 
+  async function requestNotificationPermission() {
+    return requestPermission('notifications')
+  }
+
   function openSettings() {
-    if (isNativePHP() && window.native?.settings?.open) {
-      window.native.settings.open()
+    if (window.NativePHP?.openAppSettings) {
+      try { window.NativePHP.openAppSettings() } catch (e) {}
     }
   }
 
@@ -289,6 +387,7 @@ export function useNativeBridge() {
     pickFiles,
     takePhoto,
     recordVideo,
+    requestNotificationPermission,
     openSettings,
     PERMISSION_DENIED,
     PERMISSION_GRANTED,

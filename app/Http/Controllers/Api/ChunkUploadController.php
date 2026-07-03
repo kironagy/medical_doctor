@@ -12,6 +12,7 @@ use App\Domains\Patients\Models\Patient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Contracts\Encryption\DecryptException;
 
 class ChunkUploadController extends Controller
 {
@@ -29,7 +30,14 @@ class ChunkUploadController extends Controller
             return null;
         }
         $encryptedToken = session('api_token');
-        $token = $encryptedToken ? decrypt($encryptedToken) : null;
+        $token = null;
+        if ($encryptedToken) {
+            try {
+                $token = decrypt($encryptedToken);
+            } catch (DecryptException $e) {
+                Log::warning('Failed to decrypt API token', ['error' => $e->getMessage()]);
+            }
+        }
         return Http::timeout(120)
             ->withHeaders(['Accept' => 'application/json'])
             ->when($token, fn($c) => $c->withToken($token));

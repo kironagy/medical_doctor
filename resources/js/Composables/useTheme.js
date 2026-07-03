@@ -34,13 +34,13 @@ export function useTheme() {
         });
     });
 
+    let persistTimer
     watch(theme, (newTheme) => {
         applyTheme(newTheme);
-        if (persisting) return;
-        persisting = true;
-        axios.put('/settings/preferences', { theme: newTheme }).finally(() => {
-            persisting = false;
-        });
+        clearTimeout(persistTimer)
+        persistTimer = setTimeout(() => {
+            axios.put('/settings/preferences', { theme: newTheme })
+        }, 300)
     });
 
     return { theme };

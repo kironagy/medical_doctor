@@ -443,8 +443,6 @@ const customDateTo = ref('')
 const customTimeFrom = ref('')
 const customTimeTo = ref('')
 
-let debounceTimer = null
-
 // Computed
 const currentPage = computed(() => meta.value.current_page)
 const totalPages = computed(() => meta.value.last_page)
@@ -582,12 +580,9 @@ function goToPage(page) {
   fetchFiles(page)
 }
 
+// Search is handled by the watch(searchQuery, ...) below - this is kept only for the searching state
 function onSearchInput() {
   searching.value = true
-  clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => {
-    fetchFiles(1)
-  }, 350)
 }
 
 function onDateFilterChange() {
@@ -622,13 +617,13 @@ function clearFilters() {
   fetchFiles(1)
 }
 
-// Debounced search watcher
+// Debounced search watcher - always debounce to avoid immediate fetch
+let searchTimer
 watch(searchQuery, () => {
-  if (searchQuery.value === '' && initialLoadDone.value) {
-    fetchFiles(1)
-    return
+  clearTimeout(searchTimer)
+  if (initialLoadDone.value) {
+    searchTimer = setTimeout(() => fetchFiles(1), 350)
   }
-  onSearchInput()
 })
 
 // Trigger fetch when expanded for the first time
@@ -639,17 +634,21 @@ watch(expanded, (val) => {
   }
 }, { immediate: true })
 
-// Refresh after upload
-const completedUploadCount = ref(0)
+// Refresh after upload - only watches uploads matching this category
+// Uses a lightweight counter ref updated by the upload system
+const localCompleteCount = ref(0)
 watch(uploads, (list) => {
-  const catUploads = list.filter(j => j.metadata?.category === props.slug)
-  const completed = catUploads.filter(j => j.status === 'completed').length
-  if (completed > completedUploadCount.value) {
-    completedUploadCount.value = completed
+  let c = 0
+  for (let i = 0; i < list.length; i++) {
+    const j = list[i]
+    if (j.metadata?.category === props.slug && j.status === 'completed') c++
+  }
+  if (c > localCompleteCount.value) {
+    localCompleteCount.value = c
     fetchFiles(1)
     toast.success('Upload complete')
   }
-}, { deep: true })
+}, { flush: 'post' })
 
 // UI state
 const showUploadArea = ref(false)
@@ -696,25 +695,48 @@ function closeMenuAndShowUpload() {
 
 const defaultAccept = 'image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.7z,audio/*'
 
-function handleNativeFileResult(fileData) {
+async function handleNativeFileResult(fileData) {
   if (!fileData) return
   const patientId = selectedPatient.value?.id
   if (!patientId) return
-  uploadFile(fileData, patientId, { category: props.slug })
+
+  let file = fileData
+  if (!(fileData instanceof File) && fileData.uri) {
+    try {
+      const blob = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('GET', fileData.uri, true)
+        xhr.responseType = 'blob'
+        xhr.onload = () => {
+          if (xhr.status === 200 || xhr.status === 0) resolve(xhr.response)
+          else reject(new Error(`HTTP ${xhr.status}`))
+        }
+        xhr.onerror = () => reject(new Error('Network error'))
+        xhr.send()
+      })
+      file = new File([blob], fileData.name || 'file', { type: fileData.type || blob.type })
+    } catch (e) {
+      console.warn('[CategoryBlock] Failed to read native file:', e)
+      return
+    }
+  }
+
+  uploadFile(file, patientId, { category: props.slug })
 }
 
 async function captureCamera() {
+  // Try native bridge first, but always fall back to HTML file input
   if (isCameraAvailable()) {
     const photo = await takePhoto()
     if (photo) {
       handleNativeFileResult(photo)
+      return
     }
-  } else {
-    if (fileInput.value) {
-      fileInput.value.accept = 'image/*'
-      fileInput.value.capture = 'environment'
-      fileInput.value.click()
-    }
+  }
+  if (fileInput.value) {
+    fileInput.value.accept = 'image/*'
+    fileInput.value.setAttribute('capture', 'environment')
+    fileInput.value.click()
   }
 }
 
@@ -725,13 +747,13 @@ async function captureGallery() {
       for (const f of files) {
         handleNativeFileResult(f)
       }
+      return
     }
-  } else {
-    if (fileInput.value) {
-      fileInput.value.accept = 'image/*'
-      fileInput.value.removeAttribute('capture')
-      fileInput.value.click()
-    }
+  }
+  if (fileInput.value) {
+    fileInput.value.accept = 'image/*'
+    fileInput.value.removeAttribute('capture')
+    fileInput.value.click()
   }
 }
 
@@ -742,13 +764,13 @@ async function triggerFileInput() {
       for (const f of files) {
         handleNativeFileResult(f)
       }
+      return
     }
-  } else {
-    if (fileInput.value) {
-      fileInput.value.accept = defaultAccept
-      fileInput.value.removeAttribute('capture')
-      fileInput.value.click()
-    }
+  }
+  if (fileInput.value) {
+    fileInput.value.accept = defaultAccept
+    fileInput.value.removeAttribute('capture')
+    fileInput.value.click()
   }
 }
 
@@ -882,7 +904,7 @@ function formatSpeed(bps) {
 </script>
 
 <style scoped>
-.accordion-enter-active, .accordion-leave-active { transition: all 0.2s ease; }
-.accordion-enter-from, .accordion-leave-to { opacity: 0; max-height: 0; }
-.accordion-enter-to, .accordion-leave-from { opacity: 1; max-height: 2000px; }
+.accordion-enter-active, .accordion-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; overflow: hidden; }
+.accordion-enter-from, .accordion-leave-to { opacity: 0; transform: translateY(-8px); }
+.accordion-enter-to, .accordion-leave-from { opacity: 1; transform: translateY(0); }
 </style>

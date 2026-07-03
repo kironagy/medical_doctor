@@ -45,19 +45,20 @@
           <span class="text-[10px] text-slate-400">({{ archivedPatients.length }})</span>
         </div>
       </div>
-      <div v-if="showArchived" v-for="patient in archivedPatients" :key="'arch-' + patient.uuid" class="px-2 py-0.5">
-        <div
-          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all border border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50"
-        >
-          <button @click="selectAndClose(patient.uuid)" class="flex items-center gap-3 min-w-0 flex-1">
-            <div class="relative flex-shrink-0">
-              <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+      <template v-if="showArchived">
+        <div v-for="patient in archivedPatients" :key="'arch-' + patient.uuid" class="px-2 py-0.5">
+          <div
+            class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all border border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50"
+          >
+            <button @click="selectAndClose(patient.uuid)" class="flex items-center gap-3 min-w-0 flex-1">
+              <div class="relative flex-shrink-0">
+                <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+                </div>
               </div>
-            </div>
-            <div class="min-w-0">
-              <div class="flex items-center justify-between">
-                <p class="text-sm font-medium text-slate-500 dark:text-slate-400 truncate">{{ patient.name }}</p>
+              <div class="min-w-0">
+                <div class="flex items-center justify-between">
+                  <p class="text-sm font-medium text-slate-500 dark:text-slate-400 truncate">{{ patient.name }}</p>
                 <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 ml-2">{{ $t('common.archived') }}</span>
               </div>
               <div class="flex items-center gap-1.5 mt-0.5 text-xs text-slate-400">
@@ -77,6 +78,7 @@
           </div>
         </div>
       </div>
+      </template>
 
       <div v-if="showArchived && archivedPatients.length === 0 && !searchQuery" class="flex flex-col items-center justify-center h-24 text-slate-400 dark:text-slate-500 px-4">
         <p class="text-xs">{{ $t('workspace.no_archived') }}</p>

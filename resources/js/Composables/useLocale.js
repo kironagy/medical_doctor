@@ -38,13 +38,13 @@ export function useLocale() {
         }
     }
 
+    let persistTimer
     watch(locale, (newLocale) => {
         applyLocale(newLocale);
-        if (persisting) return;
-        persisting = true;
-        axios.put('/settings/preferences', { locale: newLocale }).finally(() => {
-            persisting = false;
-        });
+        clearTimeout(persistTimer)
+        persistTimer = setTimeout(() => {
+            axios.put('/settings/preferences', { locale: newLocale })
+        }, 300)
     });
 
     return { locale };

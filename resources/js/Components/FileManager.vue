@@ -10,7 +10,7 @@
       @dragleave.prevent="isDragging = false"
       @drop.prevent="handleDrop"
     >
-      <input type="file" multiple ref="fileInput" class="sr-only" @change="handleFileSelect">
+      <input type="file" multiple ref="fileInput" class="sr-only" accept="*/*" @change="handleFileSelect">
       <div class="mx-auto h-12 w-12 text-slate-400 mb-3 flex items-center justify-center pointer-events-none">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
       </div>
@@ -80,7 +80,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import axios from 'axios'
 import BaseButton from '@/Components/BaseButton.vue'
 import FileActions from '@/Components/workspace/FileActions.vue'
@@ -98,22 +98,67 @@ const props = defineProps({
 const emit = defineEmits(['preview', 'uploaded'])
 
 const { uploadFile } = useUploads()
-const { isCameraAvailable, isFilePickerAvailable, pickFiles, takePhoto } = useNativeBridge()
+const { isCameraAvailable, isFilePickerAvailable, pickFiles, takePhoto, requestPermission, isPermissionsApiAvailable, detectNative } = useNativeBridge()
 
 const isMobile = ref(typeof window !== 'undefined' && window.innerWidth < 768)
+let resizeHandler = null
 if (typeof window !== 'undefined') {
-  window.addEventListener('resize', () => {
+  resizeHandler = () => {
     isMobile.value = window.innerWidth < 768
-  })
+  }
+  window.addEventListener('resize', resizeHandler)
 }
+
+onUnmounted(() => {
+  if (resizeHandler) {
+    window.removeEventListener('resize', resizeHandler)
+  }
+  if (cameraInput.value && cameraInput.value.parentNode) {
+    cameraInput.value.parentNode.removeChild(cameraInput.value)
+  }
+})
 
 const isDragging = ref(false)
 const fileInput = ref(null)
 const activeSheetFile = ref(null)
 
+// Create a hidden input for camera capture that can be triggered separately
+const cameraInput = ref(null)
+const isCameraInputReady = ref(false)
+
 // ---------- Dropzone ----------
 const openFileDialog = async (source = 'files') => {
   if (!props.canEdit) return
+
+  // On native Android, request permission first via bridge before opening system picker
+  if (isPermissionsApiAvailable()) {
+    const permAlias = source === 'camera' ? 'camera' : 'files'
+    const result = await requestPermission(permAlias)
+    if (result !== 'granted') return
+  }
+
+  // On Android native, use the standard HTML file input which WebView intercepts
+  // via onShowFileChooser - this works more reliably than the native bridge API
+  if (detectNative()) {
+    if (source === 'camera') {
+      // Trigger camera via input[type=file][capture]
+      if (!isCameraInputReady.value) {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = 'image/*'
+        input.setAttribute('capture', 'environment')
+        input.style.display = 'none'
+        input.addEventListener('change', handleFileSelect)
+        document.body.appendChild(input)
+        cameraInput.value = input
+        isCameraInputReady.value = true
+      }
+      cameraInput.value?.click()
+    } else {
+      fileInput.value?.click()
+    }
+    return
+  }
 
   if (source === 'camera' && isCameraAvailable()) {
     const photo = await takePhoto()
@@ -142,8 +187,17 @@ const handleNativeFile = async (nativeFile) => {
     file = nativeFile
   } else if (nativeFile.uri) {
     try {
-      const response = await fetch(nativeFile.uri)
-      const blob = await response.blob()
+      const blob = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('GET', nativeFile.uri, true)
+        xhr.responseType = 'blob'
+        xhr.onload = () => {
+          if (xhr.status === 200 || xhr.status === 0) resolve(xhr.response)
+          else reject(new Error(`HTTP ${xhr.status}`))
+        }
+        xhr.onerror = () => reject(new Error('Network error'))
+        xhr.send()
+      })
       file = new File([blob], nativeFile.name || 'file', { type: nativeFile.type || blob.type })
     } catch (e) {
       console.warn('[Native] Failed to read native file:', e)
@@ -155,16 +209,15 @@ const handleNativeFile = async (nativeFile) => {
 
   const metadata = { category: props.category }
   const uploadJob = uploadFile(file, props.patientId, metadata)
-  const checkCompletion = () => {
-    if (uploadJob.status === 'completed') {
+  const unwatch = watch(() => uploadJob.status, (status) => {
+    if (status === 'completed') {
+      unwatch()
       emit('uploaded')
-    } else if (uploadJob.status !== 'uploading') {
+    } else if (status !== 'uploading') {
+      unwatch()
       console.warn('Upload failed:', uploadJob.error)
-    } else {
-      setTimeout(checkCompletion, 100)
     }
-  }
-  checkCompletion()
+  }, { immediate: true })
 }
 
 const handleDrop = (e) => {
@@ -183,16 +236,15 @@ const handleFiles = (selectedFiles) => {
   for (const file of selectedFiles) {
     const metadata = { category: props.category }
     const uploadJob = uploadFile(file, props.patientId, metadata)
-    const checkCompletion = () => {
-      if (uploadJob.status === 'completed') {
+    const unwatch = watch(() => uploadJob.status, (status) => {
+      if (status === 'completed') {
+        unwatch()
         emit('uploaded')
-      } else if (uploadJob.status !== 'uploading') {
+      } else if (status !== 'uploading') {
+        unwatch()
         console.warn('Upload failed:', uploadJob.error)
-      } else {
-        setTimeout(checkCompletion, 100)
       }
-    }
-    checkCompletion()
+    }, { immediate: true })
   }
 }
 

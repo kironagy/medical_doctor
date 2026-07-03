@@ -17,7 +17,7 @@
               : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'"
           >{{ cat.name }}</button>
         </div>
-        <button v-if="canEditComputed" @click="openUpload" class="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Upload">
+        <button v-if="canEdit" @click="openUpload" class="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Upload">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
         </button>
       </div>
@@ -28,7 +28,7 @@
       :patientId="patientUuid"
       :category="selectedCategory"
       :files="filteredFiles"
-      :canEdit="canEditComputed"
+      :canEdit="canEdit"
       @uploaded="reloadFiles"
       @preview="handlePreview"
     />
@@ -45,7 +45,7 @@ import UnifiedMediaViewer from '@/Components/UnifiedMediaViewer.vue'
 
 const { workspaceData, selectedPatient, canEdit } = useWorkspace()
 
-const canEditComputed = computed(() => canEdit.value)
+
 const patientUuid = computed(() => selectedPatient.value?.uuid || '')
 
 const fileManagerRef = ref(null)

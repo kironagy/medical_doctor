@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FileAccessController extends Controller
@@ -19,7 +20,14 @@ class FileAccessController extends Controller
             return null;
         }
         $encryptedToken = session('api_token');
-        $token = $encryptedToken ? decrypt($encryptedToken) : null;
+        $token = null;
+        if ($encryptedToken) {
+            try {
+                $token = decrypt($encryptedToken);
+            } catch (DecryptException $e) {
+                Log::warning('Failed to decrypt API token', ['error' => $e->getMessage()]);
+            }
+        }
         return Http::timeout(30)
             ->withHeaders(['Accept' => 'application/json'])
             ->when($token, fn($c) => $c->withToken($token));
@@ -41,9 +49,16 @@ class FileAccessController extends Controller
     private function commonHeaders(PatientFile $file): array
     {
         $absolutePath = Storage::disk('local')->path($file->file_path);
+        if (!file_exists($absolutePath)) {
+            abort(404, 'File not found on disk.');
+        }
         $mime = mime_content_type($absolutePath) ?: 'application/octet-stream';
-        $lastModified = gmdate('D, d M Y H:i:s', filemtime($absolutePath)) . ' GMT';
-        $etag = '"' . md5($file->file_path . $file->size . filemtime($absolutePath)) . '"';
+        $filemtime = filemtime($absolutePath);
+        if ($filemtime === false) {
+            $filemtime = time();
+        }
+        $lastModified = gmdate('D, d M Y H:i:s', $filemtime) . ' GMT';
+        $etag = '"' . md5($file->file_path . $file->size . $filemtime) . '"';
 
         return [
             'Content-Type' => $mime,

@@ -67,10 +67,19 @@
 </template>
 
 <script setup>
-import { useForm, Head } from '@inertiajs/vue3';
+import { computed } from 'vue'
+import { useForm, usePage, Head, router } from '@inertiajs/vue3';
 import BaseCard from '@/Components/BaseCard.vue';
 import BaseInput from '@/Components/BaseInput.vue';
 import BaseButton from '@/Components/BaseButton.vue';
+
+const page = usePage()
+
+// If user is already authenticated (session survived restart), redirect to dashboard
+const user = computed(() => page.props.auth?.user)
+if (user.value) {
+  router.visit('/dashboard', { replace: true })
+}
 
 const form = useForm({
   email: '',

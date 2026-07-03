@@ -16,7 +16,8 @@ function savePersisted(s) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)) } catch {}
 }
 function fileKey(f) {
-  return `${f.name}_${f.size}_${f.lastModified || 0}`
+  if (!f) return `unknown_${Date.now()}`
+  return `${f.name || 'unnamed'}_${f.size || 0}_${f.lastModified || 0}`
 }
 function formatSize(b) {
   if (!b || b === 0) return '0 B'

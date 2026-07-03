@@ -140,20 +140,14 @@ input, textarea {
 /* ── Performance: GPU Acceleration ── */
 .gpu-layer {
   transform: translateZ(0);
-  will-change: transform;
 }
 
-/* Sticky headers and navigation: promote to GPU layer */
+/* Sticky headers: use contain instead of GPU promotion to avoid layer explosion */
 header.sticky {
-  transform: translateZ(0);
+  contain: layout style paint;
 }
 
 .will-change-transform {
-  will-change: transform;
-}
-
-/* Bottom nav: promote to GPU layer to prevent repaints during scroll */
-.fixed.bottom-0 {
   will-change: transform;
 }
 
@@ -171,6 +165,11 @@ header.sticky {
 
 /* ── Layout Containment for isolated components ── */
 .contain-layout {
+  contain: layout style paint;
+}
+
+/* ── Workspace sections: isolate layout to prevent cascading recalculations ── */
+.workspace-section {
   contain: layout style paint;
 }
 
@@ -210,7 +209,8 @@ header.sticky {
 }
 
 /* ── Dark Mode Transitions ── */
-html {
+html.dark-transitioning,
+html.dark-transitioning * {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 

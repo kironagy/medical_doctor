@@ -11,8 +11,12 @@ use RuntimeException;
 
 class AuthController extends Controller
 {
-    public function showLogin()
+    public function showLogin(Request $request)
     {
+        if ($request->user()) {
+            return redirect()->intended('dashboard');
+        }
+
         return Inertia::render('Auth/Login');
     }
 

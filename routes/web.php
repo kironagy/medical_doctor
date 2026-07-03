@@ -47,6 +47,12 @@ Route::middleware('auth')->group(function () {
 
     // Internal SPA API Routes (Inherits Web Session Auth)
     Route::prefix('api/v1')->group(function () {
+        // Client-side error logging endpoint (always returns 200 to avoid feedback loops)
+        Route::post('/log/client-error', function (\Illuminate\Http\Request $request) {
+            \Illuminate\Support\Facades\Log::channel('daily')->warning('CLIENT_ERROR', $request->all());
+            return response()->json(['ok' => true]);
+        });
+
         // Chunked upload endpoints
         Route::post('/chunk/init', [\App\Http\Controllers\Api\ChunkUploadController::class, 'init']);
         Route::post('/chunk/chunk', [\App\Http\Controllers\Api\ChunkUploadController::class, 'chunk']);

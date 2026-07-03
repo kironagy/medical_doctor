@@ -25,8 +25,13 @@ const showSettings = ref(false)
 const lazyLoadedCategories = ref({})
 
 if (typeof window !== 'undefined') {
+  let resizeTimer
+  const prevWidth = window.innerWidth
   window.addEventListener('resize', () => {
-    isMobile.value = window.innerWidth < 768
+    clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(() => {
+      isMobile.value = window.innerWidth < 768
+    }, 100)
   })
 }
 
@@ -73,26 +78,6 @@ const allFiles = computed(() => {
 
 const allNotes = computed(() => {
   return workspaceData.value?.notes || []
-})
-
-const filesByCategory = computed(() => {
-  const map = {}
-  for (const f of allFiles.value) {
-    const cat = f.category || 'notes'
-    if (!map[cat]) map[cat] = []
-    map[cat].push(f)
-  }
-  return map
-})
-
-const notesByCategory = computed(() => {
-  const map = {}
-  for (const n of allNotes.value) {
-    const cat = n.category || 'notes'
-    if (!map[cat]) map[cat] = []
-    map[cat].push(n)
-  }
-  return map
 })
 
 const visits = computed(() => workspaceData.value?.visits || [])
@@ -299,8 +284,6 @@ export function useWorkspace() {
     categories,
     allFiles,
     allNotes,
-    filesByCategory,
-    notesByCategory,
     visits,
     shares,
     stats,

@@ -56,8 +56,8 @@
     <!-- Mobile Drawer Overlay -->
     <div v-if="mobileMenuOpen" class="fixed inset-0 bg-slate-900/50 z-[60] md:hidden" @click="mobileMenuOpen = false"></div>
 
-    <!-- Mobile Drawer -->
-    <aside class="fixed inset-y-0 left-0 rtl:left-auto rtl:right-0 w-64 bg-white dark:bg-slate-900 shadow-xl z-[70] transform transition-transform duration-300 md:hidden flex flex-col will-change-transform" :class="mobileMenuOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full'">
+    <!-- Mobile Drawer (v-if to avoid DOM weight on desktop) -->
+    <aside v-if="mobileMenuOpen" class="fixed inset-y-0 left-0 rtl:left-auto rtl:right-0 w-64 bg-white dark:bg-slate-900 shadow-xl z-[70] md:hidden flex flex-col">
       <div class="p-6 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
         <div class="flex items-center space-x-3 rtl:space-x-reverse">
           <div class="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold">M</div>
@@ -116,7 +116,7 @@
     <!-- Main Content Area -->
     <main class="flex-1 flex flex-col min-w-0 pb-20 md:pb-0">
       <!-- Desktop Header -->
-      <header class="hidden md:flex items-center justify-between px-8 py-5 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
+      <header class="hidden md:flex items-center justify-between px-8 py-5 bg-white/95 dark:bg-slate-950/95 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
         <h1 class="text-2xl font-heading font-bold text-slate-800 dark:text-white">{{ title }}</h1>
         <div class="flex items-center space-x-4 flex-1 justify-end max-w-xl">
           <GlobalSearch />

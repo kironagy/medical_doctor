@@ -115,12 +115,12 @@
         <!-- Workspace Content -->
         <div v-else class="max-w-4xl mx-auto px-3 md:px-6 py-4 md:py-6 space-y-5">
           <!-- Section 1: Patient Summary (3-second understanding) -->
-          <div ref="summaryRef">
+          <div ref="summaryRef" class="workspace-section">
             <PatientSummary :patient="currentPatient" :isPrimaryDoctor="isPrimaryDoctor" @action="toggleActionMenu" />
           </div>
 
           <!-- Section 2: Quick Actions -->
-          <div ref="actionsRef" v-if="selectedPatient">
+          <div ref="actionsRef" v-if="selectedPatient" class="workspace-section">
             <div class="flex items-center gap-2 mb-3">
               <h3 class="text-sm font-bold font-heading text-slate-900 dark:text-white">{{ $t('workspace.quick_actions') }}</h3>
             </div>
@@ -135,7 +135,7 @@
           </div>
 
           <!-- Section 3: Appointments -->
-          <div ref="appointmentsRef" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+          <div ref="appointmentsRef" class="workspace-section bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
             <div class="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div class="flex items-center gap-2.5">
                 <div class="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
@@ -163,7 +163,7 @@
           </div>
 
           <!-- Section 4: Recent Visits -->
-          <div ref="visitsRef" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+          <div ref="visitsRef" class="workspace-section bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
             <div class="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div class="flex items-center gap-2.5">
                 <div class="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
@@ -192,7 +192,7 @@
           </div>
 
           <!-- Section 5: Dynamic Categories (lazy loaded on scroll) -->
-          <div ref="recordsRef" class="space-y-3">
+          <div ref="recordsRef" class="workspace-section space-y-3">
             <div class="flex items-center justify-between mb-1">
               <h3 class="text-sm font-bold font-heading text-slate-900 dark:text-white">{{ $t('workspace.medical_records') }}</h3>
               <button @click="showCategoryManager = true" class="text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 flex items-center gap-1">
@@ -212,7 +212,7 @@
           </div>
 
           <!-- Section 7: Notes -->
-          <div ref="notesRef" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+          <div ref="notesRef" class="workspace-section bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
             <div class="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div class="flex items-center gap-2.5">
                 <div class="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
@@ -250,7 +250,7 @@
           </div>
 
           <!-- Section 8: Patient Sharing -->
-          <div ref="sharingRef" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+          <div ref="sharingRef" class="workspace-section bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
             <div class="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div class="flex items-center gap-2.5">
                 <div class="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
@@ -287,7 +287,7 @@
           </div>
 
           <!-- Section 9: Timeline (lazy loaded) -->
-          <div ref="timelineRef" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+          <div ref="timelineRef" class="workspace-section bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
             <div class="px-4 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div class="flex items-center gap-2.5">
                 <div class="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
@@ -317,7 +317,7 @@
           </div>
 
           <!-- Section 10: Archive -->
-          <div ref="archiveRef" class="text-center pb-4 space-y-3">
+          <div ref="archiveRef" class="workspace-section text-center pb-4 space-y-3">
             <template v-if="selectedPatient">
               <button v-if="selectedPatient.status === 'archived'" @click="handleRestore" class="px-6 py-2.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl border border-emerald-200 dark:border-emerald-800 transition-colors inline-flex items-center gap-2">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -661,26 +661,33 @@ function onCategoriesUpdated() {
   refreshWorkspaceData()
 }
 
-const allTimelineEvents = ref([])
-
-function buildTimeline() {
+const allTimelineEvents = computed(() => {
   const events = []
-  for (const f of allFiles.value) {
+  const files = allFiles.value
+  const notes = allNotes.value
+  const vs = visits.value
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i]
     events.push({ id: `file-${f.id}`, type: 'file', title: f.title || f.file_name || 'File uploaded', description: f.desc || '', date: f.created_at })
   }
-  for (const n of allNotes.value) {
-    events.push({ id: `note-${n.id}`, type: 'note', title: `Note by ${n.author?.name || 'Doctor'}`, description: n.content?.replace(/<[^>]*>/g, '').substring(0, 80) || '', date: n.created_at })
+  for (let i = 0; i < notes.length; i++) {
+    const n = notes[i]
+    events.push({ id: `note-${n.id}`, type: 'note', title: `Note by ${n.author?.name || 'Doctor'}`, description: (typeof n.content === 'string' ? n.content.replace(/<[^>]*>/g, '') : '').substring(0, 80) || '', date: n.created_at })
   }
-  for (const v of visits.value) {
+  for (let i = 0; i < vs.length; i++) {
+    const v = vs[i]
     events.push({ id: `visit-${v.id}`, type: 'visit', title: `Visit: ${v.visit_type || 'Checkup'}`, description: v.reason || '', date: v.visit_date || v.created_at })
   }
   events.sort((a, b) => new Date(b.date) - new Date(a.date))
+  return events
+})
 
-  allTimelineEvents.value = events
+watch(allTimelineEvents, (events) => {
   timelineItems.value = events.slice(0, timelinePageSize)
   timelineHasMore.value = events.length > timelinePageSize
   timelinePage.value = 1
-}
+  timelineLoading.value = false
+}, { immediate: true })
 
 function onTimelineScroll() {
   const el = timelineScrollRef.value
@@ -792,12 +799,6 @@ async function submitNoteForm() {
     toast.error(t('common.error'))
   }
 }
-
-watch(workspaceData, () => {
-  buildTimeline()
-  timelineLoading.value = false
-  timelineHasMore.value = true
-})
 
 onMounted(() => {
   setPatients(props.patients)

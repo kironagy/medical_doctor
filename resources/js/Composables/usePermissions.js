@@ -3,6 +3,9 @@ import { useNativeBridge } from './useNativeBridge'
 const permissionState = {
   camera: { status: 'unknown', permanentlyDenied: false },
   storage: { status: 'unknown', permanentlyDenied: false },
+  files: { status: 'unknown', permanentlyDenied: false },
+  audio: { status: 'unknown', permanentlyDenied: false },
+  notifications: { status: 'unknown', permanentlyDenied: false },
 }
 
 export function usePermissions() {

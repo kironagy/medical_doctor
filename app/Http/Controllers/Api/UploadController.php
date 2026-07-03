@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Exception;
+use Illuminate\Contracts\Encryption\DecryptException;
 
 class UploadController extends Controller
 {
@@ -69,7 +70,14 @@ class UploadController extends Controller
     private function forwardUpload(Request $request, string $patientUuid): \Illuminate\Http\JsonResponse
     {
         $encryptedToken = session('api_token');
-        $token = $encryptedToken ? decrypt($encryptedToken) : null;
+        $token = null;
+        if ($encryptedToken) {
+            try {
+                $token = decrypt($encryptedToken);
+            } catch (DecryptException $e) {
+                Log::warning('Failed to decrypt API token in upload proxy', ['error' => $e->getMessage()]);
+            }
+        }
 
         $apiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
 
