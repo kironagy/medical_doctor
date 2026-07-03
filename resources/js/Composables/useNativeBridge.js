@@ -1,13 +1,16 @@
 const isNativePHP = () => {
-  return typeof window !== 'undefined' && (
+  const detected = typeof window !== 'undefined' && (
     window.native ||
     navigator.userAgent.includes('NativePHP') ||
     navigator.userAgent.includes('nativephp')
   )
+  if (detected) console.log('[NativeBridge] NativePHP detected')
+  return detected
 }
 
 const isNativeAndroid = () => {
-  return typeof navigator !== 'undefined' && navigator.userAgent.includes('Android')
+  const detected = typeof navigator !== 'undefined' && navigator.userAgent.includes('Android')
+  return detected
 }
 
 const PERMISSION_DENIED = 'denied'
@@ -44,19 +47,15 @@ function getLabel(permission) {
   return { title: 'Permission Required', message: `This action requires "${permission}" permission.` }
 }
 
-function createPermissionDialog({ title, message }) {
+function createPermissionDialog({ title, message, confirmText = 'Allow', denyText = 'Not Now' }) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div')
     overlay.id = 'native-permission-overlay'
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeIn 0.2s ease;'
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:24px;'
 
     const modal = document.createElement('div')
-    modal.style.cssText = 'background:#fff;border-radius:16px;padding:24px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:slideUp 0.25s ease;'
+    modal.style.cssText = 'background:#fff;border-radius:16px;padding:24px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);'
     modal.dir = document.documentElement.dir || 'ltr'
-
-    const icon = document.createElement('div')
-    icon.style.cssText = 'width:48px;height:48px;border-radius:50%;background:#f0fdfa;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;'
-    icon.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>'
 
     const titleEl = document.createElement('p')
     titleEl.textContent = title
@@ -70,14 +69,13 @@ function createPermissionDialog({ title, message }) {
     btnContainer.style.cssText = 'display:flex;gap:8px;'
 
     const denyBtn = document.createElement('button')
-    denyBtn.textContent = 'Not Now'
-    denyBtn.style.cssText = 'flex:1;padding:10px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;color:#475569;font-size:14px;font-weight:500;cursor:pointer;transition:background 0.15s;'
+    denyBtn.textContent = denyText
+    denyBtn.style.cssText = 'flex:1;padding:10px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;color:#475569;font-size:14px;font-weight:500;cursor:pointer;'
 
     const grantBtn = document.createElement('button')
-    grantBtn.textContent = 'Allow'
-    grantBtn.style.cssText = 'flex:1;padding:10px;border:none;border-radius:10px;background:#0d9488;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.15s;'
+    grantBtn.textContent = confirmText
+    grantBtn.style.cssText = 'flex:1;padding:10px;border:none;border-radius:10px;background:#0d9488;color:#fff;font-size:14px;font-weight:600;cursor:pointer;'
 
-    modal.appendChild(icon)
     modal.appendChild(titleEl)
     modal.appendChild(msgEl)
     modal.appendChild(btnContainer)
@@ -86,15 +84,13 @@ function createPermissionDialog({ title, message }) {
     overlay.appendChild(modal)
     document.body.appendChild(overlay)
 
-    function cleanup() {
-      overlay.remove()
-    }
+    function cleanup() { overlay.remove() }
 
-    grantBtn.addEventListener('click', () => { cleanup(); resolve(true) })
-    denyBtn.addEventListener('click', () => { cleanup(); resolve(false) })
-    grantBtn.addEventListener('touchend', (e) => { e.preventDefault(); cleanup(); resolve(true) })
-    denyBtn.addEventListener('touchend', (e) => { e.preventDefault(); cleanup(); resolve(false) })
+    const handleGrant = () => { cleanup(); resolve(true) }
+    const handleDeny = () => { cleanup(); resolve(false) }
 
+    grantBtn.addEventListener('click', handleGrant)
+    denyBtn.addEventListener('click', handleDeny)
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) { cleanup(); resolve(false) }
     })
@@ -105,15 +101,11 @@ function createPermanentlyDeniedDialog({ title, message }) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div')
     overlay.id = 'native-settings-overlay'
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:24px;animation:fadeIn 0.2s ease;'
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:24px;'
 
     const modal = document.createElement('div')
-    modal.style.cssText = 'background:#fff;border-radius:16px;padding:24px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:slideUp 0.25s ease;'
+    modal.style.cssText = 'background:#fff;border-radius:16px;padding:24px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);'
     modal.dir = document.documentElement.dir || 'ltr'
-
-    const icon = document.createElement('div')
-    icon.style.cssText = 'width:48px;height:48px;border-radius:50%;background:#fef2f2;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;'
-    icon.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>'
 
     const titleEl = document.createElement('p')
     titleEl.textContent = title
@@ -134,7 +126,6 @@ function createPermanentlyDeniedDialog({ title, message }) {
     settingsBtn.textContent = 'Open Settings'
     settingsBtn.style.cssText = 'flex:1;padding:10px;border:none;border-radius:10px;background:#0d9488;color:#fff;font-size:14px;font-weight:600;cursor:pointer;'
 
-    modal.appendChild(icon)
     modal.appendChild(titleEl)
     modal.appendChild(msgEl)
     modal.appendChild(btnContainer)
@@ -143,9 +134,7 @@ function createPermanentlyDeniedDialog({ title, message }) {
     overlay.appendChild(modal)
     document.body.appendChild(overlay)
 
-    function cleanup() {
-      overlay.remove()
-    }
+    function cleanup() { overlay.remove() }
 
     cancelBtn.addEventListener('click', () => { cleanup(); resolve(false) })
     settingsBtn.addEventListener('click', () => {
@@ -172,96 +161,132 @@ export function useNativeBridge() {
   }
 
   async function requestPermission(permission) {
-    if (!isNativePHP()) return PERMISSION_GRANTED
+    console.log(`[NativeBridge] requestPermission called: "${permission}"`)
+
+    if (!isNativePHP()) {
+      console.log('[NativeBridge] Not in NativePHP - skipping permission request')
+      return PERMISSION_GRANTED
+    }
 
     const cached = permissionCache[permission]
     if (cached === PERMISSION_PERMANENTLY_DENIED) {
+      console.log('[NativeBridge] Permission was permanently denied - showing settings dialog')
       const label = getLabel(permission)
       await createPermanentlyDeniedDialog({
         title: `${label.title} is Blocked`,
-        message: `${label.message} You previously denied this permission. Please enable it in your device settings to continue.`,
+        message: `${label.message} Please enable this permission in your device settings.`,
       })
       return PERMISSION_PERMANENTLY_DENIED
     }
 
+    // Show explanation dialog first
     const label = getLabel(permission)
+    console.log('[NativeBridge] Showing permission explanation dialog')
     const allowed = await createPermissionDialog({
       title: label.title,
       message: label.message,
     })
     if (!allowed) {
+      console.log('[NativeBridge] User denied permission explanation')
       return PERMISSION_DENIED
     }
 
-    if (!window.native?.permissions?.request) {
-      permissionCache[permission] = PERMISSION_GRANTED
+    // Check if native permission API exists
+    if (window.native?.permissions?.request) {
+      console.log('[NativeBridge] Calling window.native.permissions.request()')
+      try {
+        const result = await window.native.permissions.request(permission)
+        console.log(`[NativeBridge] Permission result: "${result}"`)
+
+        if (result === 'granted') {
+          permissionCache[permission] = PERMISSION_GRANTED
+          return PERMISSION_GRANTED
+        }
+        if (result === 'permanently_denied') {
+          permissionCache[permission] = PERMISSION_PERMANENTLY_DENIED
+          await createPermanentlyDeniedDialog({
+            title: `${label.title} is Blocked`,
+            message: `${label.message} Please enable this permission in your device settings.`,
+          })
+          return PERMISSION_PERMANENTLY_DENIED
+        }
+        // denied
+        permissionCache[permission] = PERMISSION_DENIED
+        return PERMISSION_DENIED
+      } catch (e) {
+        console.error('[NativeBridge] Permission request threw exception:', e)
+        permissionCache[permission] = PERMISSION_DENIED
+        return PERMISSION_DENIED
+      }
+    } else {
+      console.warn('[NativeBridge] window.native.permissions.request is NOT available')
       return PERMISSION_GRANTED
-    }
-
-    try {
-      const result = await window.native.permissions.request(permission)
-      if (result === 'granted') {
-        permissionCache[permission] = PERMISSION_GRANTED
-        return PERMISSION_GRANTED
-      }
-      if (result === 'permanently_denied') {
-        permissionCache[permission] = PERMISSION_PERMANENTLY_DENIED
-        await createPermanentlyDeniedDialog({
-          title: `${label.title} is Blocked`,
-          message: `${label.message} You previously denied this permission. Please enable it in your device settings to continue.`,
-        })
-        return PERMISSION_PERMANENTLY_DENIED
-      }
-      permissionCache[permission] = PERMISSION_DENIED
-      return PERMISSION_DENIED
-    } catch (e) {
-      console.warn('[Native] Permission request failed:', e)
-      permissionCache[permission] = PERMISSION_DENIED
-      return PERMISSION_DENIED
     }
   }
 
   async function pickFiles(options = {}) {
     const { multiple = true, accept = '*/*' } = options
 
-    if (!isNativePHP()) return null
-
-    const perm = await requestPermission('files')
-    if (perm !== PERMISSION_GRANTED) return []
-
-    if (window.native?.files?.pick) {
-      try {
-        const result = await window.native.files.pick({ multiple, accept })
-        return Array.isArray(result) ? result : result ? [result] : []
-      } catch (e) {
-        console.warn('[Native] File pick failed:', e)
-        return []
-      }
+    if (!isNativePHP()) {
+      console.log('[NativeBridge] pickFiles: Not NativePHP - returning null for web fallback')
+      return null
     }
 
-    return null
+    const perm = await requestPermission('files')
+    if (perm !== PERMISSION_GRANTED) {
+      console.log('[NativeBridge] pickFiles: Permission not granted')
+      return []
+    }
+
+    if (window.native?.files?.pick) {
+      console.log('[NativeBridge] Calling window.native.files.pick()')
+      try {
+        const result = await window.native.files.pick({ multiple, accept })
+        console.log('[NativeBridge] File pick result:', result ? `${result.length} files` : 'null')
+        return Array.isArray(result) ? result : result ? [result] : []
+      } catch (e) {
+        console.error('[NativeBridge] File pick failed:', e)
+        return []
+      }
+    } else {
+      console.warn('[NativeBridge] window.native.files.pick is NOT available')
+      return null
+    }
   }
 
   async function takePhoto() {
-    if (!isNativePHP()) return null
-
-    const perm = await requestPermission('camera')
-    if (perm !== PERMISSION_GRANTED) return null
-
-    if (window.native?.camera?.takePhoto) {
-      try {
-        return await window.native.camera.takePhoto()
-      } catch (e) {
-        console.warn('[Native] Camera failed:', e)
-        return null
-      }
+    if (!isNativePHP()) {
+      console.log('[NativeBridge] takePhoto: Not NativePHP - returning null for web fallback')
+      return null
     }
 
-    return null
+    const perm = await requestPermission('camera')
+    if (perm !== PERMISSION_GRANTED) {
+      console.log('[NativeBridge] takePhoto: Camera permission not granted')
+      return null
+    }
+
+    if (window.native?.camera?.takePhoto) {
+      console.log('[NativeBridge] Calling window.native.camera.takePhoto()')
+      try {
+        const result = await window.native.camera.takePhoto()
+        console.log('[NativeBridge] Photo taken:', result ? 'success' : 'null')
+        return result
+      } catch (e) {
+        console.error('[NativeBridge] Camera failed:', e)
+        return null
+      }
+    } else {
+      console.warn('[NativeBridge] window.native.camera.takePhoto is NOT available')
+      return null
+    }
   }
 
   async function recordVideo() {
-    if (!isNativePHP()) return null
+    if (!isNativePHP()) {
+      console.log('[NativeBridge] recordVideo: Not NativePHP - returning null')
+      return null
+    }
 
     const perm = await requestPermission('camera')
     if (perm !== PERMISSION_GRANTED) return null
@@ -270,11 +295,10 @@ export function useNativeBridge() {
       try {
         return await window.native.camera.recordVideo()
       } catch (e) {
-        console.warn('[Native] Video recording failed:', e)
+        console.error('[NativeBridge] Video recording failed:', e)
         return null
       }
     }
-
     return null
   }
 

@@ -405,6 +405,9 @@ import BaseButton from '@/Components/BaseButton.vue'
 import axios from 'axios'
 
 import FileActions from './FileActions.vue'
+import { useNativeBridge } from '@/Composables/useNativeBridge'
+
+const { detectNative, takePhoto, pickFiles } = useNativeBridge()
 
 const props = defineProps({
   slug: String,
@@ -693,36 +696,87 @@ function closeMenuAndShowUpload() {
 
 const defaultAccept = 'image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.7z,audio/*'
 
-function triggerFileInput() {
-  if (fileInput.value) {
-    fileInput.value.accept = defaultAccept
-    fileInput.value.removeAttribute('capture')
-    fileInput.value.click()
+function handleNativeFileResult(fileData) {
+  if (!fileData) return
+  const patientId = selectedPatient.value?.id
+  if (!patientId) return
+  uploadFile(fileData, patientId, { category: props.slug })
+}
+
+async function captureCamera() {
+  console.log('[CategoryBlock] Camera button pressed')
+  const isNative = detectNative()
+  console.log('[CategoryBlock] detectNative:', isNative)
+
+  if (isNative) {
+    // Native path: request permission and use native camera
+    const photo = await takePhoto()
+    console.log('[CategoryBlock] takePhoto result:', photo ? 'got photo' : 'null/undefined')
+    if (photo) {
+      handleNativeFileResult(photo)
+    }
+  } else {
+    // Web fallback: use HTML file input
+    if (fileInput.value) {
+      fileInput.value.accept = 'image/*'
+      fileInput.value.capture = 'environment'
+      fileInput.value.click()
+    }
   }
 }
 
-function captureCamera() {
-  if (fileInput.value) {
-    fileInput.value.accept = 'image/*'
-    fileInput.value.capture = 'environment'
-    fileInput.value.click()
+async function captureGallery() {
+  console.log('[CategoryBlock] Gallery button pressed')
+  const isNative = detectNative()
+
+  if (isNative) {
+    // Native path: use native pickFiles with image filter
+    const files = await pickFiles({ multiple: true, accept: 'image/*' })
+    console.log('[CategoryBlock] pickFiles result:', files ? `${files.length} files` : 'null/undefined')
+    if (files && files.length > 0) {
+      for (const f of files) {
+        handleNativeFileResult(f)
+      }
+    }
+  } else {
+    // Web fallback: use HTML file input
+    if (fileInput.value) {
+      fileInput.value.accept = 'image/*'
+      fileInput.value.removeAttribute('capture')
+      fileInput.value.click()
+    }
   }
 }
 
-function captureGallery() {
-  if (fileInput.value) {
-    fileInput.value.accept = 'image/*'
-    fileInput.value.removeAttribute('capture')
-    fileInput.value.click()
+async function triggerFileInput() {
+  console.log('[CategoryBlock] Files/Upload area button pressed')
+  const isNative = detectNative()
+
+  if (isNative) {
+    const files = await pickFiles({ multiple: true, accept: defaultAccept })
+    console.log('[CategoryBlock] pickFiles result:', files ? `${files.length} files` : 'null/undefined')
+    if (files && files.length > 0) {
+      for (const f of files) {
+        handleNativeFileResult(f)
+      }
+    }
+  } else {
+    if (fileInput.value) {
+      fileInput.value.accept = defaultAccept
+      fileInput.value.removeAttribute('capture')
+      fileInput.value.click()
+    }
   }
 }
 
 function handleFileSelect(e) {
+  console.log('[CategoryBlock] File input change event, files:', e.target.files?.length)
   handleFiles(Array.from(e.target.files))
   e.target.value = null
 }
 
 function handleDrop(e) {
+  console.log('[CategoryBlock] Drop event, files:', e.dataTransfer.files?.length)
   dragging.value = false
   handleFiles(Array.from(e.dataTransfer.files))
 }

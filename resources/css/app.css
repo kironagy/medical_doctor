@@ -54,6 +54,15 @@ body {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  padding-top: var(--sat);
+  padding-bottom: var(--sab);
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+  background-color: #f8fafc;
+}
+
+.dark #app {
+  background-color: #030712;
 }
 
 /* ── Safe Area Utility Classes ── */
@@ -64,12 +73,12 @@ body {
 
 /* Bottom navigation safe area (for gesture nav bar) */
 .pb-nav {
-  padding-bottom: calc(var(--sab, 0px) + 4px);
+  padding-bottom: calc(var(--sab, 0px) + 8px);
 }
 
-/* Top safe area for status bar spacing */
+/* Top safe area for status bar spacing - extra clearance */
 .pt-status {
-  padding-top: calc(var(--sat, 0px) + 4px);
+  padding-top: calc(var(--sat, 0px) + 12px);
 }
 
 /* ── Custom Scrollbar ── */
