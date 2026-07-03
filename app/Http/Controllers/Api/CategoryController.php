@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\ApiProxy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
@@ -19,6 +20,10 @@ class CategoryController extends Controller
 
     public function update(Request $request)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::put('/profile/preferences', $request->all()));
+        }
+
         $user = $request->user();
         $validated = $request->validate([
             'categories' => 'required|array',
@@ -41,6 +46,10 @@ class CategoryController extends Controller
 
     public function addCategory(Request $request)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::post('/profile/preferences', $request->all()));
+        }
+
         $user = $request->user();
         $validated = $request->validate([
             'slug' => 'required|string|unique_custom_category',
@@ -70,6 +79,10 @@ class CategoryController extends Controller
 
     public function deleteCategory(Request $request, string $slug)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::delete('/profile/preferences/categories/' . $slug));
+        }
+
         $user = $request->user();
         $preferences = $user->preferences ?? [];
         $customCategories = $preferences['custom_categories'] ?? [];

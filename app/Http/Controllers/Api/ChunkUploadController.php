@@ -10,6 +10,7 @@ use App\Services\Upload\UploadCleanupService;
 use App\Services\Upload\UploadValidationService;
 use App\Domains\Patients\Models\Patient;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class ChunkUploadController extends Controller
@@ -22,10 +23,25 @@ class ChunkUploadController extends Controller
         private readonly UploadValidationService $validationService,
     ) {}
 
+    private function api(): ?\Illuminate\Http\Client\PendingRequest
+    {
+        if (!env('NATIVEPHP_APP_ID')) {
+            return null;
+        }
+        $encryptedToken = session('api_token');
+        $token = $encryptedToken ? decrypt($encryptedToken) : null;
+        return Http::timeout(120)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->when($token, fn($c) => $c->withToken($token));
+    }
+
+    private function apiBaseUrl(): string
+    {
+        return config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+    }
+
     public function init(Request $request)
     {
-        $tReq = microtime(true);
-
         $validated = $request->validate([
             'file_name' => 'required|string|max:255',
             'file_size' => 'required|integer|min:1|max:5368709120',
@@ -38,7 +54,11 @@ class ChunkUploadController extends Controller
             'metadata.category' => 'sometimes|nullable|string|max:100',
             'metadata.date' => 'sometimes|nullable|date',
         ]);
-        $tValid = microtime(true);
+
+        if (env('NATIVEPHP_APP_ID')) {
+            $response = $this->api()->post($this->apiBaseUrl() . '/chunk/init', $request->all());
+            return response()->json($response->json(), $response->status());
+        }
 
         $patient = is_numeric($request->patient_id)
             ? Patient::findOrFail((int) $request->patient_id)
@@ -55,18 +75,6 @@ class ChunkUploadController extends Controller
         ]);
 
         $session = $this->sessionService->create($data, $request->user()->id);
-        $tCreate = microtime(true);
-
-        $tTotal = microtime(true) - $tReq;
-
-        Log::channel('upload')->info('init timing', [
-            'uuid' => $session->uuid,
-            'validation_ms' => round(($tValid - $tReq) * 1000, 1),
-            'create_ms' => round(($tCreate - $tValid) * 1000, 1),
-            'total_ms' => round($tTotal * 1000, 1),
-            'file_name' => $request->file_name,
-            'file_size' => $request->file_size,
-        ]);
 
         return response()->json([
             'upload_id' => $session->uuid,
@@ -79,68 +87,50 @@ class ChunkUploadController extends Controller
 
     public function chunk(Request $request)
     {
-        $tReq = microtime(true);
-
-        $validated = $request->validate([
+        $request->validate([
             'upload_id' => 'required|string|size:36',
             'chunk_index' => 'required|integer|min:0',
             'chunk' => 'required|file|max:51200',
         ]);
-        $tValid = microtime(true);
+
+        if (env('NATIVEPHP_APP_ID')) {
+            $response = $this->api()
+                ->attach('chunk', $request->file('chunk')->get(), 'chunk')
+                ->post($this->apiBaseUrl() . '/chunk/chunk', $request->except('chunk'));
+            return response()->json($response->json(), $response->status());
+        }
 
         $session = $this->sessionService->findOrFail($request->upload_id);
         if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
-        $tAuth = microtime(true);
 
         $result = $this->chunkService->storeChunk(
             $session,
             $request->file('chunk'),
             (int) $request->chunk_index
         );
-        $tStore = microtime(true);
-
-        $tTotal = ($tStore - $tReq) * 1000;
-
-        Log::channel('upload')->debug('chunk timing', [
-            'uuid' => $request->upload_id,
-            'chunk_index' => $request->chunk_index,
-            'validation_ms' => round(($tValid - $tReq) * 1000, 1),
-            'auth_ms' => round(($tAuth - $tValid) * 1000, 1),
-            'store_ms' => round(($tStore - $tAuth) * 1000, 1),
-            'total_ms' => round($tTotal, 1),
-        ]);
 
         return response()->json($result);
     }
 
     public function complete(Request $request)
     {
-        $tReq = microtime(true);
-
         $request->validate([
             'upload_id' => 'required|string|size:36',
         ]);
+
+        if (env('NATIVEPHP_APP_ID')) {
+            $response = $this->api()->post($this->apiBaseUrl() . '/chunk/complete', $request->all());
+            return response()->json($response->json(), $response->status());
+        }
 
         $session = $this->sessionService->findOrFail($request->upload_id);
         if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
-        $tAuth = microtime(true);
 
         $patientFile = $this->mergeService->merge($session);
-        $tMerge = microtime(true);
-
-        $tTotal = ($tMerge - $tReq) * 1000;
-
-        Log::channel('upload')->info('complete timing', [
-            'uuid' => $request->upload_id,
-            'auth_ms' => round(($tAuth - $tReq) * 1000, 1),
-            'merge_ms' => round(($tMerge - $tAuth) * 1000, 1),
-            'total_ms' => round($tTotal, 1),
-            'file_size' => $patientFile->size,
-        ]);
 
         return response()->json([
             'uuid' => $patientFile->uuid,
@@ -153,6 +143,11 @@ class ChunkUploadController extends Controller
 
     public function cancel(Request $request, string $uuid)
     {
+        if (env('NATIVEPHP_APP_ID')) {
+            $response = $this->api()->post($this->apiBaseUrl() . '/chunk/' . $uuid . '/cancel');
+            return response()->json($response->json(), $response->status());
+        }
+
         $session = $this->sessionService->findOrFail($uuid);
         if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
             return response()->json(['message' => 'Forbidden'], 403);
@@ -165,6 +160,11 @@ class ChunkUploadController extends Controller
 
     public function status(Request $request, string $uuid)
     {
+        if (env('NATIVEPHP_APP_ID')) {
+            $response = $this->api()->get($this->apiBaseUrl() . '/chunk/' . $uuid . '/status');
+            return response()->json($response->json(), $response->status());
+        }
+
         $session = $this->sessionService->findOrFail($uuid);
         if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
             return response()->json(['message' => 'Forbidden'], 403);

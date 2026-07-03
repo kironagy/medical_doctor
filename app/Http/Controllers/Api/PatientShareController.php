@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\ApiProxy;
 use Illuminate\Http\Request;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientShare;
@@ -11,15 +12,16 @@ use Illuminate\Support\Facades\Gate;
 
 class PatientShareController extends Controller
 {
-    /**
-     * Search doctors to share with
-     */
     public function searchDoctors(Request $request)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::get('/doctors/search', ['q' => $request->get('q', '')]));
+        }
+
         $query = $request->get('q', '');
-        
+
         $doctors = User::role('doctor')
-            ->where('id', '!=', auth()->id()) // Exclude self
+            ->where('id', '!=', auth()->id())
             ->when($query, function($q) use ($query) {
                 $q->where(function($q2) use ($query) {
                     $q2->where('name', 'like', "%{$query}%")
@@ -34,13 +36,15 @@ class PatientShareController extends Controller
         return response()->json($doctors);
     }
 
-    /**
-     * Get active shares for a patient
-     */
-    public function index(Patient $patient)
+    public function index(Request $request, string $patientUuid)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::get('/patients/' . $patientUuid . '/shares'));
+        }
+
+        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('view', $patient);
-        
+
         $shares = PatientShare::with('doctor:id,name,email,specialization,code')
             ->where('patient_id', $patient->id)
             ->orderBy('created_at', 'desc')
@@ -49,11 +53,13 @@ class PatientShareController extends Controller
         return response()->json($shares);
     }
 
-    /**
-     * Share patient with a doctor
-     */
-    public function store(Request $request, Patient $patient)
+    public function store(Request $request, string $patientUuid)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::post('/patients/' . $patientUuid . '/shares', $request->all()));
+        }
+
+        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('share', $patient);
 
         $validated = $request->validate([
@@ -62,7 +68,6 @@ class PatientShareController extends Controller
             'expires_at' => 'nullable|date|after:today'
         ]);
 
-        // Validate doctor role
         $doctor = User::findOrFail($validated['doctor_id']);
         if (!$doctor->hasRole('doctor')) {
             return response()->json(['message' => 'Target user is not a doctor.'], 422);
@@ -83,17 +88,19 @@ class PatientShareController extends Controller
         return response()->json($share->load('doctor:id,name,email,specialization,code'));
     }
 
-    /**
-     * Revoke access
-     */
-    public function destroy(Patient $patient, string $shareId)
+    public function destroy(Request $request, string $patientUuid, string $shareId)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::delete('/patients/' . $patientUuid . '/shares/' . $shareId));
+        }
+
+        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('share', $patient);
 
         $share = PatientShare::where('patient_id', $patient->id)
             ->where('id', $shareId)
             ->firstOrFail();
-            
+
         $share->delete();
 
         return response()->json(['message' => 'Access revoked']);

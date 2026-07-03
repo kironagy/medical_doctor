@@ -5,12 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
+use App\Services\ApiProxy;
 use Illuminate\Http\Request;
 
 class NoteController extends Controller
 {
-    public function index(Patient $patient)
+    public function index(Request $request, string $patientUuid)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::get('/patients/' . $patientUuid . '/notes'));
+        }
+
+        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         $notes = $patient->notes()
             ->with('author:id,name,email')
             ->latest()
@@ -18,8 +24,14 @@ class NoteController extends Controller
         return response()->json($notes);
     }
 
-    public function store(Request $request, Patient $patient)
+    public function store(Request $request, string $patientUuid)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::post('/patients/' . $patientUuid . '/notes', $request->all()));
+        }
+
+        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
+
         $validated = $request->validate([
             'content' => 'required|string',
             'category' => 'nullable|string|max:100',
@@ -36,8 +48,12 @@ class NoteController extends Controller
         return response()->json($note);
     }
 
-    public function update(Request $request, string $uuid)
+    public function update(Request $request, string $patientUuid, string $uuid)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::put('/patients/' . $patientUuid . '/notes/' . $uuid, $request->all()));
+        }
+
         $note = PatientNote::where('uuid', $uuid)->firstOrFail();
 
         abort_if($note->author_id !== $request->user()->id, 403);
@@ -52,8 +68,12 @@ class NoteController extends Controller
         return response()->json($note);
     }
 
-    public function destroy(Request $request, string $uuid)
+    public function destroy(Request $request, string $patientUuid, string $uuid)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::delete('/patients/' . $patientUuid . '/notes/' . $uuid));
+        }
+
         $note = PatientNote::where('uuid', $uuid)->firstOrFail();
 
         abort_if($note->author_id !== $request->user()->id, 403);

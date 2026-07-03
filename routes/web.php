@@ -54,8 +54,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/chunk/{uuid}/cancel', [\App\Http\Controllers\Api\ChunkUploadController::class, 'cancel']);
         Route::get('/chunk/{uuid}/status', [\App\Http\Controllers\Api\ChunkUploadController::class, 'status']);
 
-        // Simplified direct upload endpoint - use UUID instead of ID
-        Route::post('/patients/{patient:uuid}/files', [\App\Http\Controllers\Api\UploadController::class, 'store']);
+        // Direct upload endpoint
+        Route::post('/patients/{patientUuid}/files', [\App\Http\Controllers\Api\UploadController::class, 'store']);
         
         // Optional progress endpoint for compatibility
         Route::get('/uploads/progress', [\App\Http\Controllers\Api\UploadController::class, 'progress']);
@@ -90,24 +90,24 @@ Route::middleware('auth')->group(function () {
         Route::post('/workspace/patients/{patient:uuid}/restore', [\App\Http\Controllers\WorkspaceController::class, 'restorePatient']);
 
         // Category Files API (paginated, searchable)
-        Route::get('/patients/{patient:uuid}/categories/{slug}/files', [\App\Http\Controllers\Api\CategoryFileController::class, 'files']);
+        Route::get('/patients/{patientUuid}/categories/{slug}/files', [\App\Http\Controllers\Api\CategoryFileController::class, 'files']);
 
         // Visits API
-        Route::get('/patients/{patient:uuid}/visits', [\App\Http\Controllers\Api\VisitController::class, 'index']);
-        Route::post('/patients/{patient:uuid}/visits', [\App\Http\Controllers\Api\VisitController::class, 'store']);
-        Route::put('/patients/{patient:uuid}/visits/{visitId}', [\App\Http\Controllers\Api\VisitController::class, 'update']);
-        Route::delete('/patients/{patient:uuid}/visits/{visitId}', [\App\Http\Controllers\Api\VisitController::class, 'destroy']);
+        Route::get('/patients/{patientUuid}/visits', [\App\Http\Controllers\Api\VisitController::class, 'index']);
+        Route::post('/patients/{patientUuid}/visits', [\App\Http\Controllers\Api\VisitController::class, 'store']);
+        Route::put('/patients/{patientUuid}/visits/{visitId}', [\App\Http\Controllers\Api\VisitController::class, 'update']);
+        Route::delete('/patients/{patientUuid}/visits/{visitId}', [\App\Http\Controllers\Api\VisitController::class, 'destroy']);
 
         // Notes API
-        Route::post('/patients/{patient:uuid}/notes', [\App\Http\Controllers\Api\NoteController::class, 'store']);
-        Route::get('/patients/{patient:uuid}/notes', [\App\Http\Controllers\Api\NoteController::class, 'index']);
-        Route::put('/patients/{patient:uuid}/notes/{uuid}', [\App\Http\Controllers\Api\NoteController::class, 'update']);
-        Route::delete('/patients/{patient:uuid}/notes/{uuid}', [\App\Http\Controllers\Api\NoteController::class, 'destroy']);
+        Route::post('/patients/{patientUuid}/notes', [\App\Http\Controllers\Api\NoteController::class, 'store']);
+        Route::get('/patients/{patientUuid}/notes', [\App\Http\Controllers\Api\NoteController::class, 'index']);
+        Route::put('/patients/{patientUuid}/notes/{uuid}', [\App\Http\Controllers\Api\NoteController::class, 'update']);
+        Route::delete('/patients/{patientUuid}/notes/{uuid}', [\App\Http\Controllers\Api\NoteController::class, 'destroy']);
 
         // Sharing API
         Route::get('/doctors/search', [\App\Http\Controllers\Api\PatientShareController::class, 'searchDoctors']);
-        Route::get('/patients/{patient:uuid}/shares', [\App\Http\Controllers\Api\PatientShareController::class, 'index']);
-        Route::post('/patients/{patient:uuid}/shares', [\App\Http\Controllers\Api\PatientShareController::class, 'store']);
-        Route::delete('/patients/{patient:uuid}/shares/{shareId}', [\App\Http\Controllers\Api\PatientShareController::class, 'destroy']);
+        Route::get('/patients/{patientUuid}/shares', [\App\Http\Controllers\Api\PatientShareController::class, 'index']);
+        Route::post('/patients/{patientUuid}/shares', [\App\Http\Controllers\Api\PatientShareController::class, 'store']);
+        Route::delete('/patients/{patientUuid}/shares/{shareId}', [\App\Http\Controllers\Api\PatientShareController::class, 'destroy']);
     });
 });

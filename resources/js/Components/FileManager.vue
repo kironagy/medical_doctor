@@ -10,7 +10,7 @@
       @dragleave.prevent="isDragging = false"
       @drop.prevent="handleDrop"
     >
-      <input type="file" multiple ref="fileInput" class="hidden" @change="handleFileSelect">
+      <input type="file" multiple ref="fileInput" class="sr-only" @change="handleFileSelect">
       <div class="mx-auto h-12 w-12 text-slate-400 mb-3 flex items-center justify-center pointer-events-none">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
       </div>
@@ -80,11 +80,12 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import axios from 'axios'
 import BaseButton from '@/Components/BaseButton.vue'
 import FileActions from '@/Components/workspace/FileActions.vue'
 import { useUploads } from '@/Composables/useUploads'
+import { useNativeBridge } from '@/Composables/useNativeBridge'
 
 const props = defineProps({
   patientId: String,
@@ -97,6 +98,7 @@ const props = defineProps({
 const emit = defineEmits(['preview', 'uploaded'])
 
 const { uploadFile } = useUploads()
+const { detectNative, pickFiles, takePhoto, recordVideo, requestPermission } = useNativeBridge()
 
 const isMobile = ref(typeof window !== 'undefined' && window.innerWidth < 768)
 if (typeof window !== 'undefined') {
@@ -110,9 +112,65 @@ const fileInput = ref(null)
 const activeSheetFile = ref(null)
 
 // ---------- Dropzone ----------
-const openFileDialog = () => {
+const openFileDialog = async (source = 'files') => {
   if (!props.canEdit) return
+
+  if (detectNative()) {
+    if (source === 'camera') {
+      const granted = await requestPermission('camera')
+      if (!granted) return
+
+      const photo = source === 'camera'
+        ? await takePhoto()
+        : await recordVideo()
+
+      if (photo) {
+        handleNativeFile(photo)
+      }
+      return
+    }
+
+    const files = await pickFiles({ multiple: true, accept: '*/*' })
+    if (files && files.length > 0) {
+      for (const file of files) {
+        handleNativeFile(file)
+      }
+      return
+    }
+  }
+
   fileInput.value?.click()
+}
+
+const handleNativeFile = async (nativeFile) => {
+  let file
+  if (nativeFile instanceof File) {
+    file = nativeFile
+  } else if (nativeFile.uri) {
+    try {
+      const response = await fetch(nativeFile.uri)
+      const blob = await response.blob()
+      file = new File([blob], nativeFile.name || 'file', { type: nativeFile.type || blob.type })
+    } catch (e) {
+      console.warn('[Native] Failed to read native file:', e)
+      return
+    }
+  } else {
+    return
+  }
+
+  const metadata = { category: props.category }
+  const uploadJob = uploadFile(file, props.patientId, metadata)
+  const checkCompletion = () => {
+    if (uploadJob.status === 'completed') {
+      emit('uploaded')
+    } else if (uploadJob.status !== 'uploading') {
+      console.warn('Upload failed:', uploadJob.error)
+    } else {
+      setTimeout(checkCompletion, 100)
+    }
+  }
+  checkCompletion()
 }
 
 const handleDrop = (e) => {

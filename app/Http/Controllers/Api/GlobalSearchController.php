@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\ApiProxy;
 use Illuminate\Http\Request;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Users\Models\User;
@@ -12,14 +13,17 @@ class GlobalSearchController extends Controller
     public function search(Request $request)
     {
         $query = $request->get('q', '');
-        
+
         if (strlen($query) < 2) {
             return response()->json([]);
         }
 
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::get('/search', ['q' => $query]));
+        }
+
         $results = [];
 
-        // 1. Search Patients
         $patients = Patient::where('name', 'like', "%{$query}%")
             ->orWhere('code', 'like', "%{$query}%")
             ->orWhere('phone', 'like', "%{$query}%")
@@ -38,7 +42,6 @@ class GlobalSearchController extends Controller
             ];
         }
 
-        // 2. Search Media (Files)
         $files = \App\Domains\Media\Models\PatientFile::with('patient')
             ->where('title', 'like', "%{$query}%")
             ->orWhere('desc', 'like', "%{$query}%")
@@ -59,7 +62,6 @@ class GlobalSearchController extends Controller
             }
         }
 
-        // 3. Search Doctors (Only if Super Admin)
         if ($request->user()->hasRole('super-admin')) {
             $doctors = User::role('doctor')
                 ->where(function($q) use ($query) {
@@ -69,7 +71,7 @@ class GlobalSearchController extends Controller
                 })
                 ->take(3)
                 ->get();
-                
+
             foreach ($doctors as $d) {
                 $results[] = [
                     'type' => 'Doctor',

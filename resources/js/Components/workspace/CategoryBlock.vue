@@ -13,7 +13,7 @@
         </div>
       </button>
       <div class="flex items-center gap-1">
-        <button v-if="canEdit" @click.stop="showUploadArea = !showUploadArea" class="p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors" title="Upload Files">
+        <button @click.stop="showUploadArea = !showUploadArea" class="p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors" title="Upload Files">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
         </button>
         <div class="relative">
@@ -27,7 +27,7 @@
                 <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                 Add Note
               </button>
-              <button @click="showUploadArea = !showUploadArea" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left">
+              <button @click="showCategoryMenu = false; showUploadArea = true" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left">
                 <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                 Upload Files
               </button>
@@ -264,7 +264,26 @@
           </div>
 
           <!-- Upload Area -->
-          <div v-if="showUploadArea && canEdit">
+          <div v-if="showUploadArea" class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">{{ $t('workspace.upload_files') }}</span>
+              <button @click="showUploadArea = false" class="text-[11px] font-medium text-slate-500 hover:text-rose-600 transition-colors">Cancel</button>
+            </div>
+            <!-- Upload Source Selector -->
+            <div class="flex items-center gap-2">
+              <button @click="captureCamera" class="flex-1 flex flex-col items-center gap-1.5 px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary-400 dark:hover:border-primary-500 transition-colors">
+                <svg class="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                <span class="text-xs font-medium text-slate-600 dark:text-slate-400">Camera</span>
+              </button>
+              <button @click="captureGallery" class="flex-1 flex flex-col items-center gap-1.5 px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary-400 dark:hover:border-primary-500 transition-colors">
+                <svg class="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                <span class="text-xs font-medium text-slate-600 dark:text-slate-400">Gallery</span>
+              </button>
+              <button @click="triggerFileInput" class="flex-1 flex flex-col items-center gap-1.5 px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-primary-400 dark:hover:border-primary-500 transition-colors">
+                <svg class="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                <span class="text-xs font-medium text-slate-600 dark:text-slate-400">Files</span>
+              </button>
+            </div>
             <div
               class="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg p-5 text-center cursor-pointer hover:border-primary-400 dark:hover:border-primary-500 transition-all hover:bg-primary-50/50 dark:hover:bg-primary-900/10"
               @click="triggerFileInput"
@@ -273,7 +292,7 @@
               @drop.prevent="handleDrop"
               :class="dragging ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 scale-[1.01]' : ''"
             >
-              <input type="file" ref="fileInput" multiple class="hidden" accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.7z,audio/*" @change="handleFileSelect" />
+              <input type="file" ref="fileInput" multiple class="sr-only" accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.7z,audio/*" @change="handleFileSelect" />
               <svg class="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
               <p class="text-sm font-medium text-slate-600 dark:text-slate-400">{{ $t('files.click_to_upload') }}</p>
               <p class="text-xs text-slate-400 mt-0.5">{{ $t('files.upload_hint') }}</p>
@@ -288,7 +307,7 @@
             <p class="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">{{ $t('category.empty_category') }}</p>
             <p class="text-xs text-slate-400 dark:text-slate-500 mb-4">{{ $t('category.empty_category_desc') }}</p>
             <div class="flex items-center justify-center gap-2">
-              <button v-if="canEdit" @click="showUploadArea = true" class="inline-flex items-center gap-1.5 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-medium transition-colors">
+              <button @click="closeMenuAndShowUpload" class="inline-flex items-center gap-1.5 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-medium transition-colors">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                 {{ $t('workspace.upload_files') }}
               </button>
@@ -667,7 +686,36 @@ function toggleCategoryMenu(e) {
   }
 }
 
-function triggerFileInput() { fileInput.value?.click() }
+function closeMenuAndShowUpload() {
+  showCategoryMenu.value = false
+  showUploadArea.value = true
+}
+
+const defaultAccept = 'image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.7z,audio/*'
+
+function triggerFileInput() {
+  if (fileInput.value) {
+    fileInput.value.accept = defaultAccept
+    fileInput.value.removeAttribute('capture')
+    fileInput.value.click()
+  }
+}
+
+function captureCamera() {
+  if (fileInput.value) {
+    fileInput.value.accept = 'image/*'
+    fileInput.value.capture = 'environment'
+    fileInput.value.click()
+  }
+}
+
+function captureGallery() {
+  if (fileInput.value) {
+    fileInput.value.accept = 'image/*'
+    fileInput.value.removeAttribute('capture')
+    fileInput.value.click()
+  }
+}
 
 function handleFileSelect(e) {
   handleFiles(Array.from(e.target.files))

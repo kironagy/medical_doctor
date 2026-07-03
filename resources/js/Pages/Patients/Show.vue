@@ -89,7 +89,10 @@
         <div v-if="filteredFiles.length === 0" class="text-center py-12 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl mb-6">
           <svg class="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
           <h3 class="mt-2 text-sm font-medium text-slate-900 dark:text-white">{{ $t('show.no_files') }}</h3>
-          <p v-if="canEdit" class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ $t('show.upload_prompt') }}</p>
+          <p v-if="canEdit" class="mt-1 text-sm text-slate-500 dark:text-slate-400 mb-4">{{ $t('show.upload_prompt') }}</p>
+          <div v-if="canEdit" class="flex items-center justify-center gap-3">
+            <BaseButton variant="outline" size="sm" @click="$refs.fileManager.triggerUpload()">{{ $t('show.upload_file') || 'Upload Files' }}</BaseButton>
+          </div>
         </div>
 
         <FileManager

@@ -2,16 +2,21 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Models\PatientFile;
+use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
+use App\Services\ApiProxy;
 use Illuminate\Http\Request;
 
 class CategoryFileController extends Controller
 {
     public function files(Request $request, string $patientUuid, string $slug)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::get('/patients/' . $patientUuid . '/categories/' . $slug . '/files', $request->all()));
+        }
+
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
 
         $page = (int) $request->input('page', 1);

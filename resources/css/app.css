@@ -24,6 +24,35 @@
   font-family: 'Cairo', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif !important;
 }
 
+/* Safe Area support for mobile (NativePHP / Android WebView) */
+/* CSS environment variables provide safe area insets.
+   On web these fall back to 0px, so there is no visual change.
+   On mobile they match the device's notches, status bars, and navigation bars. */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+}
+
+/* Apply globally — on web env() returns 0px so no visual change. */
+body {
+  padding-top: var(--sat);
+  padding-bottom: var(--sab);
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+}
+
+#app {
+  min-height: calc(100vh - var(--sat) - var(--sab));
+}
+
+/* pb-safe / pt-safe utility classes for specific elements */
+.pb-safe { padding-bottom: var(--sab) !important; }
+.pt-safe { padding-top: var(--sat) !important; }
+.pl-safe { padding-left: var(--sal) !important; }
+.pr-safe { padding-right: var(--sar) !important; }
+
 @layer components {
   .btn-primary {
     @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-4 focus:ring-primary-300 dark:focus:ring-primary-800 focus:outline-none font-medium rounded-lg text-sm px-5 py-2.5 text-center transition-all shadow-sm;

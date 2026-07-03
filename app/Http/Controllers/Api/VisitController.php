@@ -5,13 +5,19 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientVisit;
+use App\Services\ApiProxy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 
 class VisitController extends Controller
 {
-    public function index(Patient $patient)
+    public function index(Request $request, string $patientUuid)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::get('/patients/' . $patientUuid . '/visits'));
+        }
+
+        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('view', $patient);
 
         $visits = $patient->visits()->latest()->get();
@@ -19,8 +25,13 @@ class VisitController extends Controller
         return response()->json($visits);
     }
 
-    public function store(Request $request, Patient $patient)
+    public function store(Request $request, string $patientUuid)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::post('/patients/' . $patientUuid . '/visits', $request->all()));
+        }
+
+        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('update', $patient);
 
         $validated = $request->validate([
@@ -41,8 +52,13 @@ class VisitController extends Controller
         return response()->json($visit, 201);
     }
 
-    public function update(Request $request, Patient $patient, string $visitId)
+    public function update(Request $request, string $patientUuid, string $visitId)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::put('/patients/' . $patientUuid . '/visits/' . $visitId, $request->all()));
+        }
+
+        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('update', $patient);
 
         $visit = PatientVisit::where('patient_id', $patient->id)
@@ -65,8 +81,13 @@ class VisitController extends Controller
         return response()->json($visit);
     }
 
-    public function destroy(Patient $patient, string $visitId)
+    public function destroy(Request $request, string $patientUuid, string $visitId)
     {
+        if (ApiProxy::isEnabled()) {
+            return ApiProxy::proxyResponse(ApiProxy::delete('/patients/' . $patientUuid . '/visits/' . $visitId));
+        }
+
+        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('update', $patient);
 
         $visit = PatientVisit::where('patient_id', $patient->id)

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Domains\Media\Models\PatientFile;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -12,6 +13,23 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FileAccessController extends Controller
 {
+    private function apiRequest(): ?\Illuminate\Http\Client\PendingRequest
+    {
+        if (!env('NATIVEPHP_APP_ID')) {
+            return null;
+        }
+        $encryptedToken = session('api_token');
+        $token = $encryptedToken ? decrypt($encryptedToken) : null;
+        return Http::timeout(30)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->when($token, fn($c) => $c->withToken($token));
+    }
+
+    private function apiBaseUrl(): string
+    {
+        return config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+    }
+
     private function resolveFile(Request $request, string $uuid): PatientFile
     {
         if ($request->hasValidSignature()) {
@@ -51,6 +69,11 @@ class FileAccessController extends Controller
 
     public function generateSignedUrl(Request $request, string $uuid)
     {
+        if (env('NATIVEPHP_APP_ID')) {
+            $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/signed-url');
+            return response()->json($response->json(), $response->status());
+        }
+
         $file = $this->resolveFile($request, $uuid);
 
         $url = URL::temporarySignedRoute(
@@ -62,6 +85,14 @@ class FileAccessController extends Controller
 
     public function streamDirect(Request $request, string $uuid)
     {
+        if (env('NATIVEPHP_APP_ID')) {
+            $remoteUrl = $this->apiBaseUrl() . '/files/' . $uuid . '/stream';
+            $encryptedToken = session('api_token');
+            $token = $encryptedToken ? decrypt($encryptedToken) : null;
+            $url = $remoteUrl . '?token=' . urlencode($token ?? '');
+            return redirect()->away($url);
+        }
+
         $file = $this->resolveFile($request, $uuid);
 
         $path = $file->file_path;
@@ -74,14 +105,12 @@ class FileAccessController extends Controller
         $headers = $this->commonHeaders($file);
         $headers['Content-Length'] = (string) $fileSize;
 
-        // HEAD request — return metadata only
         if ($request->isMethod('HEAD')) {
             return response('', 200, $headers);
         }
 
         $rangeHeader = $request->header('Range');
 
-        // No Range header — stream whole file with 200
         if (!$rangeHeader) {
             @ini_set('output_handler', '');
             @ini_set('zlib.output_compression', 0);
@@ -100,7 +129,6 @@ class FileAccessController extends Controller
             }, 200, $headers);
         }
 
-        // Parse Range header: "bytes=start-end"
         if (!preg_match('/bytes=(\d*)-(\d*)/', $rangeHeader, $m)) {
             return response('', 416)
                 ->header('Content-Range', "bytes */{$fileSize}");
@@ -159,11 +187,19 @@ class FileAccessController extends Controller
 
     public function thumbnailDirect(string $uuid)
     {
+        if (env('NATIVEPHP_APP_ID')) {
+            $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/thumbnail');
+            if ($response->successful()) {
+                $body = $response->body();
+                $contentType = $response->header('Content-Type') ?? 'image/jpeg';
+                return response($body, 200, ['Content-Type' => $contentType]);
+            }
+            return response()->noContent();
+        }
+
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         $path = $file->thumbnail_path;
-
-        // Happy path — thumbnail already exists on disk.
         if ($path && Storage::disk('local')->exists($path)) {
             return response()->file(Storage::disk('local')->path($path), [
                 'Content-Type'  => 'image/jpeg',
@@ -171,10 +207,6 @@ class FileAccessController extends Controller
             ]);
         }
 
-        // Thumbnail missing — try to generate it on-the-fly (takes ~50ms).
-        // This handles: files uploaded before thumbnail generation was added,
-        // files whose GenerateThumbnailJob hasn't run yet, and production deploys
-        // where the job queue wasn't running at upload time.
         if ($file->file_path && Storage::disk('local')->exists($file->file_path)) {
             $inputAbs = Storage::disk('local')->path($file->file_path);
             $thumbRel  = substr($file->file_path, 0, strrpos($file->file_path, '.')) . '_thumb.jpg';
@@ -189,16 +221,13 @@ class FileAccessController extends Controller
             $process->run();
 
             if ($process->isSuccessful() && file_exists($thumbAbs) && filesize($thumbAbs) > 512) {
-                // Persist so next request is instant.
                 $file->update(['thumbnail_path' => $thumbRel]);
-
                 return response()->file($thumbAbs, [
                     'Content-Type'  => 'image/jpeg',
                     'Cache-Control' => 'private, max-age=86400',
                 ]);
             }
 
-            // On-the-fly thumbnail for images using GD
             if ($file->mime_type && str_starts_with($file->mime_type, 'image/')) {
                 try {
                     $imgInfo = @getimagesize($inputAbs);
@@ -227,23 +256,20 @@ class FileAccessController extends Controller
                             }
                         }
                     }
-                } catch (\Throwable $e) {
-                    // GD not available or unsupported format — fall through to original
-                }
+                } catch (\Throwable $e) {}
             }
         }
 
-        // Nothing we can do — return 204 No Content so the browser doesn't
-        // show a broken-image icon. The frontend hides the <img> on error anyway.
         return response()->noContent();
     }
 
-    /**
-     * Lightweight endpoint to poll a file's processing status (after upload).
-     * Used by the global upload manager to transition "uploading" -> "processing" -> "ready".
-     */
     public function status(string $uuid)
     {
+        if (env('NATIVEPHP_APP_ID')) {
+            $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/status');
+            return response()->json($response->json(), $response->status());
+        }
+
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         return response()->json([
@@ -251,13 +277,17 @@ class FileAccessController extends Controller
             'upload_status' => $file->upload_status,
             'type'          => $file->type,
             'thumbnail_url' => $file->thumbnail_url,
-            // hls_url is always null (HLS generation removed — not needed for document storage)
             'hls_url'       => null,
         ]);
     }
 
     public function update(Request $request, string $uuid)
     {
+        if (env('NATIVEPHP_APP_ID')) {
+            $response = $this->apiRequest()->put($this->apiBaseUrl() . '/files/' . $uuid, $request->all());
+            return response()->json($response->json(), $response->status());
+        }
+
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         if ($request->user()->cannot('update', $file->patient)) {
@@ -281,13 +311,18 @@ class FileAccessController extends Controller
 
     public function destroy(Request $request, string $uuid)
     {
+        if (env('NATIVEPHP_APP_ID')) {
+            $response = $this->apiRequest()->delete($this->apiBaseUrl() . '/files/' . $uuid);
+            return response()->json($response->json(), $response->status());
+        }
+
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         if ($request->user()->cannot('delete', $file->patient)) {
             return response()->json(['message' => 'Unauthorized. Only primary doctor can delete files.'], 403);
         }
 
-        $file->delete(); // Soft delete
+        $file->delete();
         return response()->json(['message' => 'Deleted']);
     }
 }
