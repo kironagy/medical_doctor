@@ -27,6 +27,17 @@
         <script>
           (function() {
             try {
+              var persist = localStorage.getItem('np_persist_login');
+              if (persist === '1') {
+                localStorage.removeItem('np_persist_login');
+                if (window.location.pathname === '/login') {
+                  window.location.href = '/';
+                  return;
+                }
+              }
+            } catch(e) {}
+
+            try {
               var theme = localStorage.getItem('theme');
               if (!theme) {
                 var prefs = JSON.parse(localStorage.getItem('user_preferences') || '{}');

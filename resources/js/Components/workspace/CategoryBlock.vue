@@ -407,7 +407,7 @@ import axios from 'axios'
 import FileActions from './FileActions.vue'
 import { useNativeBridge } from '@/Composables/useNativeBridge'
 
-const { detectNative, takePhoto, pickFiles } = useNativeBridge()
+const { isCameraAvailable, isFilePickerAvailable, takePhoto, pickFiles } = useNativeBridge()
 
 const props = defineProps({
   slug: String,
@@ -704,19 +704,12 @@ function handleNativeFileResult(fileData) {
 }
 
 async function captureCamera() {
-  console.log('[CategoryBlock] Camera button pressed')
-  const isNative = detectNative()
-  console.log('[CategoryBlock] detectNative:', isNative)
-
-  if (isNative) {
-    // Native path: request permission and use native camera
+  if (isCameraAvailable()) {
     const photo = await takePhoto()
-    console.log('[CategoryBlock] takePhoto result:', photo ? 'got photo' : 'null/undefined')
     if (photo) {
       handleNativeFileResult(photo)
     }
   } else {
-    // Web fallback: use HTML file input
     if (fileInput.value) {
       fileInput.value.accept = 'image/*'
       fileInput.value.capture = 'environment'
@@ -726,20 +719,14 @@ async function captureCamera() {
 }
 
 async function captureGallery() {
-  console.log('[CategoryBlock] Gallery button pressed')
-  const isNative = detectNative()
-
-  if (isNative) {
-    // Native path: use native pickFiles with image filter
+  if (isFilePickerAvailable()) {
     const files = await pickFiles({ multiple: true, accept: 'image/*' })
-    console.log('[CategoryBlock] pickFiles result:', files ? `${files.length} files` : 'null/undefined')
     if (files && files.length > 0) {
       for (const f of files) {
         handleNativeFileResult(f)
       }
     }
   } else {
-    // Web fallback: use HTML file input
     if (fileInput.value) {
       fileInput.value.accept = 'image/*'
       fileInput.value.removeAttribute('capture')
@@ -749,12 +736,8 @@ async function captureGallery() {
 }
 
 async function triggerFileInput() {
-  console.log('[CategoryBlock] Files/Upload area button pressed')
-  const isNative = detectNative()
-
-  if (isNative) {
+  if (isFilePickerAvailable()) {
     const files = await pickFiles({ multiple: true, accept: defaultAccept })
-    console.log('[CategoryBlock] pickFiles result:', files ? `${files.length} files` : 'null/undefined')
     if (files && files.length > 0) {
       for (const f of files) {
         handleNativeFileResult(f)

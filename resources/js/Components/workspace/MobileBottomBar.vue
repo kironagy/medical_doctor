@@ -1,5 +1,5 @@
 <template>
-  <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 z-50 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
+  <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 z-50 pb-safe will-change-transform shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
     <div class="flex items-center justify-around h-16">
       <button @click="$emit('toggle-patients')" class="flex flex-col items-center justify-center w-full h-full text-slate-500 dark:text-slate-400 active:text-primary-600 dark:active:text-primary-400 transition-colors">
         <svg class="w-5 h-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>

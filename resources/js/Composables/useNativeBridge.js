@@ -1,16 +1,13 @@
 const isNativePHP = () => {
-  const detected = typeof window !== 'undefined' && (
+  return typeof window !== 'undefined' && (
     window.native ||
     navigator.userAgent.includes('NativePHP') ||
     navigator.userAgent.includes('nativephp')
   )
-  if (detected) console.log('[NativeBridge] NativePHP detected')
-  return detected
 }
 
 const isNativeAndroid = () => {
-  const detected = typeof navigator !== 'undefined' && navigator.userAgent.includes('Android')
-  return detected
+  return typeof navigator !== 'undefined' && navigator.userAgent.includes('Android')
 }
 
 const PERMISSION_DENIED = 'denied'
@@ -54,7 +51,7 @@ function createPermissionDialog({ title, message, confirmText = 'Allow', denyTex
     overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:24px;'
 
     const modal = document.createElement('div')
-    modal.style.cssText = 'background:#fff;border-radius:16px;padding:24px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);'
+    modal.style.cssText = 'background:#fff;border-radius:16px;padding:24px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);font-family:-apple-system,BlinkMacSystemFont,sans-serif;'
     modal.dir = document.documentElement.dir || 'ltr'
 
     const titleEl = document.createElement('p')
@@ -70,11 +67,11 @@ function createPermissionDialog({ title, message, confirmText = 'Allow', denyTex
 
     const denyBtn = document.createElement('button')
     denyBtn.textContent = denyText
-    denyBtn.style.cssText = 'flex:1;padding:10px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;color:#475569;font-size:14px;font-weight:500;cursor:pointer;'
+    denyBtn.style.cssText = 'flex:1;padding:10px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;color:#475569;font-size:14px;font-weight:500;cursor:pointer;-webkit-appearance:none;'
 
     const grantBtn = document.createElement('button')
     grantBtn.textContent = confirmText
-    grantBtn.style.cssText = 'flex:1;padding:10px;border:none;border-radius:10px;background:#0d9488;color:#fff;font-size:14px;font-weight:600;cursor:pointer;'
+    grantBtn.style.cssText = 'flex:1;padding:10px;border:none;border-radius:10px;background:#0d9488;color:#fff;font-size:14px;font-weight:600;cursor:pointer;-webkit-appearance:none;'
 
     modal.appendChild(titleEl)
     modal.appendChild(msgEl)
@@ -104,7 +101,7 @@ function createPermanentlyDeniedDialog({ title, message }) {
     overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:24px;'
 
     const modal = document.createElement('div')
-    modal.style.cssText = 'background:#fff;border-radius:16px;padding:24px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);'
+    modal.style.cssText = 'background:#fff;border-radius:16px;padding:24px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);font-family:-apple-system,BlinkMacSystemFont,sans-serif;'
     modal.dir = document.documentElement.dir || 'ltr'
 
     const titleEl = document.createElement('p')
@@ -120,11 +117,11 @@ function createPermanentlyDeniedDialog({ title, message }) {
 
     const cancelBtn = document.createElement('button')
     cancelBtn.textContent = 'Cancel'
-    cancelBtn.style.cssText = 'flex:1;padding:10px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;color:#475569;font-size:14px;font-weight:500;cursor:pointer;'
+    cancelBtn.style.cssText = 'flex:1;padding:10px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;color:#475569;font-size:14px;font-weight:500;cursor:pointer;-webkit-appearance:none;'
 
     const settingsBtn = document.createElement('button')
     settingsBtn.textContent = 'Open Settings'
-    settingsBtn.style.cssText = 'flex:1;padding:10px;border:none;border-radius:10px;background:#0d9488;color:#fff;font-size:14px;font-weight:600;cursor:pointer;'
+    settingsBtn.style.cssText = 'flex:1;padding:10px;border:none;border-radius:10px;background:#0d9488;color:#fff;font-size:14px;font-weight:600;cursor:pointer;-webkit-appearance:none;'
 
     modal.appendChild(titleEl)
     modal.appendChild(msgEl)
@@ -160,17 +157,25 @@ export function useNativeBridge() {
     return 'web'
   }
 
-  async function requestPermission(permission) {
-    console.log(`[NativeBridge] requestPermission called: "${permission}"`)
+  function isCameraAvailable() {
+    return isNativePHP() && !!(window.native?.camera?.takePhoto)
+  }
 
+  function isFilePickerAvailable() {
+    return isNativePHP() && !!(window.native?.files?.pick)
+  }
+
+  function isPermissionsApiAvailable() {
+    return isNativePHP() && !!(window.native?.permissions?.request)
+  }
+
+  async function requestPermission(permission) {
     if (!isNativePHP()) {
-      console.log('[NativeBridge] Not in NativePHP - skipping permission request')
       return PERMISSION_GRANTED
     }
 
     const cached = permissionCache[permission]
     if (cached === PERMISSION_PERMANENTLY_DENIED) {
-      console.log('[NativeBridge] Permission was permanently denied - showing settings dialog')
       const label = getLabel(permission)
       await createPermanentlyDeniedDialog({
         title: `${label.title} is Blocked`,
@@ -179,127 +184,93 @@ export function useNativeBridge() {
       return PERMISSION_PERMANENTLY_DENIED
     }
 
-    // Show explanation dialog first
+    if (!isPermissionsApiAvailable()) {
+      return PERMISSION_GRANTED
+    }
+
     const label = getLabel(permission)
-    console.log('[NativeBridge] Showing permission explanation dialog')
     const allowed = await createPermissionDialog({
       title: label.title,
       message: label.message,
     })
     if (!allowed) {
-      console.log('[NativeBridge] User denied permission explanation')
       return PERMISSION_DENIED
     }
 
-    // Check if native permission API exists
-    if (window.native?.permissions?.request) {
-      console.log('[NativeBridge] Calling window.native.permissions.request()')
-      try {
-        const result = await window.native.permissions.request(permission)
-        console.log(`[NativeBridge] Permission result: "${result}"`)
+    try {
+      const result = await window.native.permissions.request(permission)
 
-        if (result === 'granted') {
-          permissionCache[permission] = PERMISSION_GRANTED
-          return PERMISSION_GRANTED
-        }
-        if (result === 'permanently_denied') {
-          permissionCache[permission] = PERMISSION_PERMANENTLY_DENIED
-          await createPermanentlyDeniedDialog({
-            title: `${label.title} is Blocked`,
-            message: `${label.message} Please enable this permission in your device settings.`,
-          })
-          return PERMISSION_PERMANENTLY_DENIED
-        }
-        // denied
-        permissionCache[permission] = PERMISSION_DENIED
-        return PERMISSION_DENIED
-      } catch (e) {
-        console.error('[NativeBridge] Permission request threw exception:', e)
-        permissionCache[permission] = PERMISSION_DENIED
-        return PERMISSION_DENIED
+      if (result === 'granted') {
+        permissionCache[permission] = PERMISSION_GRANTED
+        return PERMISSION_GRANTED
       }
-    } else {
-      console.warn('[NativeBridge] window.native.permissions.request is NOT available')
-      return PERMISSION_GRANTED
+      if (result === 'permanently_denied') {
+        permissionCache[permission] = PERMISSION_PERMANENTLY_DENIED
+        await createPermanentlyDeniedDialog({
+          title: `${label.title} is Blocked`,
+          message: `${label.message} Please enable this permission in your device settings.`,
+        })
+        return PERMISSION_PERMANENTLY_DENIED
+      }
+      permissionCache[permission] = PERMISSION_DENIED
+      return PERMISSION_DENIED
+    } catch (e) {
+      permissionCache[permission] = PERMISSION_DENIED
+      return PERMISSION_DENIED
     }
   }
 
   async function pickFiles(options = {}) {
     const { multiple = true, accept = '*/*' } = options
 
-    if (!isNativePHP()) {
-      console.log('[NativeBridge] pickFiles: Not NativePHP - returning null for web fallback')
+    if (!isFilePickerAvailable()) {
       return null
     }
 
     const perm = await requestPermission('files')
     if (perm !== PERMISSION_GRANTED) {
-      console.log('[NativeBridge] pickFiles: Permission not granted')
       return []
     }
 
-    if (window.native?.files?.pick) {
-      console.log('[NativeBridge] Calling window.native.files.pick()')
-      try {
-        const result = await window.native.files.pick({ multiple, accept })
-        console.log('[NativeBridge] File pick result:', result ? `${result.length} files` : 'null')
-        return Array.isArray(result) ? result : result ? [result] : []
-      } catch (e) {
-        console.error('[NativeBridge] File pick failed:', e)
-        return []
-      }
-    } else {
-      console.warn('[NativeBridge] window.native.files.pick is NOT available')
-      return null
+    try {
+      const result = await window.native.files.pick({ multiple, accept })
+      return Array.isArray(result) ? result : result ? [result] : []
+    } catch (e) {
+      return []
     }
   }
 
   async function takePhoto() {
-    if (!isNativePHP()) {
-      console.log('[NativeBridge] takePhoto: Not NativePHP - returning null for web fallback')
+    if (!isCameraAvailable()) {
       return null
     }
 
     const perm = await requestPermission('camera')
     if (perm !== PERMISSION_GRANTED) {
-      console.log('[NativeBridge] takePhoto: Camera permission not granted')
       return null
     }
 
-    if (window.native?.camera?.takePhoto) {
-      console.log('[NativeBridge] Calling window.native.camera.takePhoto()')
-      try {
-        const result = await window.native.camera.takePhoto()
-        console.log('[NativeBridge] Photo taken:', result ? 'success' : 'null')
-        return result
-      } catch (e) {
-        console.error('[NativeBridge] Camera failed:', e)
-        return null
-      }
-    } else {
-      console.warn('[NativeBridge] window.native.camera.takePhoto is NOT available')
+    try {
+      const result = await window.native.camera.takePhoto()
+      return result
+    } catch (e) {
       return null
     }
   }
 
   async function recordVideo() {
-    if (!isNativePHP()) {
-      console.log('[NativeBridge] recordVideo: Not NativePHP - returning null')
+    if (!isNativePHP() || !window.native?.camera?.recordVideo) {
       return null
     }
 
     const perm = await requestPermission('camera')
     if (perm !== PERMISSION_GRANTED) return null
 
-    if (window.native?.camera?.recordVideo) {
-      try {
-        return await window.native.camera.recordVideo()
-      } catch (e) {
-        console.error('[NativeBridge] Video recording failed:', e)
-        return null
-      }
+    try {
+      return await window.native.camera.recordVideo()
+    } catch (e) {
+      return null
     }
-    return null
   }
 
   function openSettings() {
@@ -311,6 +282,9 @@ export function useNativeBridge() {
   return {
     detectNative,
     detectPlatform,
+    isCameraAvailable,
+    isFilePickerAvailable,
+    isPermissionsApiAvailable,
     requestPermission,
     pickFiles,
     takePhoto,

@@ -75,11 +75,14 @@ import BaseButton from '@/Components/BaseButton.vue';
 const form = useForm({
   email: '',
   password: '',
-  remember: false,
+  remember: true,
 });
 
 const submit = () => {
   form.post('/login', {
+    onSuccess: () => {
+      try { localStorage.setItem('np_persist_login', '1') } catch(e) {}
+    },
     onFinish: () => form.reset('password'),
   });
 };

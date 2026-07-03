@@ -22,6 +22,7 @@
 * {
   font-family: 'Cairo', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif !important;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 /* ── Safe Area Variables ── */
@@ -34,6 +35,10 @@
 }
 
 /* ── Edge-to-Edge: body fills the screen ── */
+html {
+  overscroll-behavior: none;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -130,6 +135,53 @@ input, textarea {
 /* ── Pull-to-Refresh container ── */
 .overscroll-contain {
   overscroll-behavior: contain;
+}
+
+/* ── Performance: GPU Acceleration ── */
+.gpu-layer {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Sticky headers and navigation: promote to GPU layer */
+header.sticky {
+  transform: translateZ(0);
+}
+
+.will-change-transform {
+  will-change: transform;
+}
+
+/* Bottom nav: promote to GPU layer to prevent repaints during scroll */
+.fixed.bottom-0 {
+  will-change: transform;
+}
+
+/* ── Smooth Scrolling ── */
+.scroll-smooth {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* ── Content Visibility for lazy rendering ── */
+.content-visibility-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 120px;
+}
+
+/* ── Layout Containment for isolated components ── */
+.contain-layout {
+  contain: layout style paint;
+}
+
+/* ── Optimized transitions ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ── Component Classes ── */

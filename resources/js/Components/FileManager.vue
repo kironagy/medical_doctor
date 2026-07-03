@@ -98,7 +98,7 @@ const props = defineProps({
 const emit = defineEmits(['preview', 'uploaded'])
 
 const { uploadFile } = useUploads()
-const { detectNative, pickFiles, takePhoto, recordVideo, requestPermission } = useNativeBridge()
+const { isCameraAvailable, isFilePickerAvailable, pickFiles, takePhoto } = useNativeBridge()
 
 const isMobile = ref(typeof window !== 'undefined' && window.innerWidth < 768)
 if (typeof window !== 'undefined') {
@@ -115,21 +115,15 @@ const activeSheetFile = ref(null)
 const openFileDialog = async (source = 'files') => {
   if (!props.canEdit) return
 
-  if (detectNative()) {
-    if (source === 'camera') {
-      const granted = await requestPermission('camera')
-      if (!granted) return
-
-      const photo = source === 'camera'
-        ? await takePhoto()
-        : await recordVideo()
-
-      if (photo) {
-        handleNativeFile(photo)
-      }
-      return
+  if (source === 'camera' && isCameraAvailable()) {
+    const photo = await takePhoto()
+    if (photo) {
+      handleNativeFile(photo)
     }
+    return
+  }
 
+  if (source !== 'camera' && isFilePickerAvailable()) {
     const files = await pickFiles({ multiple: true, accept: '*/*' })
     if (files && files.length > 0) {
       for (const file of files) {

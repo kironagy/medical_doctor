@@ -57,7 +57,7 @@
     <div v-if="mobileMenuOpen" class="fixed inset-0 bg-slate-900/50 z-[60] md:hidden" @click="mobileMenuOpen = false"></div>
 
     <!-- Mobile Drawer -->
-    <aside class="fixed inset-y-0 left-0 rtl:left-auto rtl:right-0 w-64 bg-white dark:bg-slate-900 shadow-xl z-[70] transform transition-transform duration-300 md:hidden flex flex-col" :class="mobileMenuOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full'">
+    <aside class="fixed inset-y-0 left-0 rtl:left-auto rtl:right-0 w-64 bg-white dark:bg-slate-900 shadow-xl z-[70] transform transition-transform duration-300 md:hidden flex flex-col will-change-transform" :class="mobileMenuOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full'">
       <div class="p-6 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
         <div class="flex items-center space-x-3 rtl:space-x-reverse">
           <div class="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold">M</div>
@@ -135,7 +135,7 @@
     </main>
 
     <!-- Mobile Bottom Navigation -->
-    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 pb-safe z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 pb-safe z-50 will-change-transform shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
       <div class="flex justify-around items-center h-16">
         <Link href="/dashboard" class="flex flex-col items-center justify-center w-full h-full" :class="$page.url.startsWith('/dashboard') ? 'text-primary-600 dark:text-primary-400' : 'text-slate-500 dark:text-slate-400'">
           <svg class="w-6 h-6 mb-1 transition-transform" :class="$page.url.startsWith('/dashboard') ? 'scale-110' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" :stroke-width="$page.url.startsWith('/dashboard') ? '2.5' : '2'"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
