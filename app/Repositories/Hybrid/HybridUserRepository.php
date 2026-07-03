@@ -7,7 +7,6 @@ use App\Models\PendingOperation;
 use App\Repositories\Api\ApiUserRepository;
 use App\Repositories\Eloquent\EloquentUserRepository;
 use App\Services\NetworkStatusService;
-use Illuminate\Support\Facades\Log;
 
 class HybridUserRepository implements UserRepositoryInterface
 {
@@ -16,74 +15,32 @@ class HybridUserRepository implements UserRepositoryInterface
         private EloquentUserRepository $localRepo
     ) {}
 
-    public function all(): array
+    public function find(int $id): ?array
     {
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->all();
+                return $this->apiRepo->find($id);
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
-        return $this->localRepo->all();
+        return $this->localRepo->find($id);
     }
 
-    public function find(string $uuid): ?array
+    public function update(int $id, array $data): array
     {
-        if (NetworkStatusService::isOnline()) {
-            try {
-                return $this->apiRepo->find($uuid);
-            } catch (\Exception $e) {
-                NetworkStatusService::setOnline(false);
-            }
-        }
-        return $this->localRepo->find($uuid);
-    }
-
-    public function findByUuid(string $uuid): array
-    {
-        $result = $this->find($uuid);
-        if (!$result) throw new \RuntimeException('User not found.');
-        return $result;
-    }
-
-    public function create(array $data): array
-    {
-        $localData = $this->localRepo->create($data);
+        $localData = $this->localRepo->update($id, $data);
 
         if (NetworkStatusService::isOnline()) {
             try {
-                $data['uuid'] = $localData['uuid'];
-                return $this->apiRepo->create($data);
+                return $this->apiRepo->update($id, $data);
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
 
         PendingOperation::create([
-            'uuid' => $localData['uuid'],
-            'entity_type' => 'User',
-            'action' => 'create',
-            'payload' => $localData,
-        ]);
-
-        return $localData;
-    }
-
-    public function update(string $uuid, array $data): array
-    {
-        $localData = $this->localRepo->update($uuid, $data);
-
-        if (NetworkStatusService::isOnline()) {
-            try {
-                return $this->apiRepo->update($uuid, $data);
-            } catch (\Exception $e) {
-                NetworkStatusService::setOnline(false);
-            }
-        }
-
-        PendingOperation::create([
-            'uuid' => $uuid,
+            'uuid' => (string) $id,
             'entity_type' => 'User',
             'action' => 'update',
             'payload' => $data,
@@ -92,13 +49,13 @@ class HybridUserRepository implements UserRepositoryInterface
         return $localData;
     }
 
-    public function delete(string $uuid): void
+    public function updatePassword(int $id, string $password): void
     {
-        $this->localRepo->delete($uuid);
+        $this->localRepo->updatePassword($id, $password);
 
         if (NetworkStatusService::isOnline()) {
             try {
-                $this->apiRepo->delete($uuid);
+                $this->apiRepo->updatePassword($id, $password);
                 return;
             } catch (\Exception $e) {
                 NetworkStatusService::setOnline(false);
@@ -106,10 +63,31 @@ class HybridUserRepository implements UserRepositoryInterface
         }
 
         PendingOperation::create([
-            'uuid' => $uuid,
+            'uuid' => (string) $id,
             'entity_type' => 'User',
-            'action' => 'delete',
-            'payload' => null,
+            'action' => 'updatePassword',
+            'payload' => ['password' => $password],
+        ]);
+    }
+
+    public function updatePreferences(int $id, array $preferences): void
+    {
+        $this->localRepo->updatePreferences($id, $preferences);
+
+        if (NetworkStatusService::isOnline()) {
+            try {
+                $this->apiRepo->updatePreferences($id, $preferences);
+                return;
+            } catch (\Exception $e) {
+                NetworkStatusService::setOnline(false);
+            }
+        }
+
+        PendingOperation::create([
+            'uuid' => (string) $id,
+            'entity_type' => 'User',
+            'action' => 'updatePreferences',
+            'payload' => $preferences,
         ]);
     }
 
@@ -123,5 +101,17 @@ class HybridUserRepository implements UserRepositoryInterface
             }
         }
         return $this->localRepo->doctors();
+    }
+
+    public function searchDoctors(string $term): array
+    {
+        if (NetworkStatusService::isOnline()) {
+            try {
+                return $this->apiRepo->searchDoctors($term);
+            } catch (\Exception $e) {
+                NetworkStatusService::setOnline(false);
+            }
+        }
+        return $this->localRepo->searchDoctors($term);
     }
 }
