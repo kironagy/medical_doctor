@@ -91,29 +91,31 @@ class AuthController extends Controller
         session(['api_token' => encrypt($token)]);
         session(['api_user_data' => $userData]);
 
-        $user = new \App\Domains\Users\Models\User();
-        $user->exists = true;
-        $user->forceFill([
-            'id' => $userData['id'] ?? 1,
-            'name' => $userData['name'] ?? $credentials['email'],
-            'email' => $userData['email'] ?? $credentials['email'],
-            'role' => $userData['role'] ?? ($userData['roles'][0] ?? 'doctor'),
-            'phone' => $userData['phone'] ?? '',
-            'address' => $userData['address'] ?? '',
-            'specialization' => $userData['specialization'] ?? '',
-            'uuid' => $userData['uuid'] ?? null,
-            'avatar_path' => $userData['avatar_path'] ?? null,
-            'preferences' => $userData['preferences'] ?? [],
-            'status' => $userData['status'] ?? 'active',
-        ]);
+        // Persist the user to the local SQLite database for offline constraints
+        $user = \App\Domains\Users\Models\User::updateOrCreate(
+            ['id' => $userData['id'] ?? 1],
+            [
+                'name' => $userData['name'] ?? $credentials['email'],
+                'email' => $userData['email'] ?? $credentials['email'],
+                'role' => $userData['role'] ?? ($userData['roles'][0] ?? 'doctor'),
+                'phone' => $userData['phone'] ?? '',
+                'address' => $userData['address'] ?? '',
+                'specialization' => $userData['specialization'] ?? '',
+                'uuid' => $userData['uuid'] ?? (string) \Illuminate\Support\Str::uuid(),
+                'avatar_path' => $userData['avatar_path'] ?? null,
+                'preferences' => $userData['preferences'] ?? [],
+                'status' => $userData['status'] ?? 'active',
+                'password' => \Illuminate\Support\Facades\Hash::make(\Illuminate\Support\Str::random(16)), // Required field
+            ]
+        );
 
         $roleNames = $userData['roles'] ?? (isset($userData['role']) ? [$userData['role']] : ['doctor']);
-        $roles = collect($roleNames)->map(function ($name) {
-            $role = new \Spatie\Permission\Models\Role();
-            $role->name = $name;
-            return $role;
-        });
-        $user->setRelation('roles', $roles);
+        
+        // Persist and sync roles in local SQLite database
+        foreach ($roleNames as $name) {
+            \Spatie\Permission\Models\Role::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
+        }
+        $user->syncRoles($roleNames);
 
         Auth::login($user, $request->boolean('remember'));
         $request->session()->regenerate();

@@ -67,7 +67,9 @@ class PatientController extends Controller
             'allergies' => 'nullable|string',
             'chronic_diseases' => 'nullable|string',
             'medical_status' => 'nullable|string|max:255',
+            'medical_record_number' => 'nullable|string|max:100',
             'code' => 'nullable|string|max:255',
+            'uuid' => 'nullable|uuid',
         ]);
 
         $validated['primary_doctor_id'] = $request->user()->id;
@@ -101,6 +103,7 @@ class PatientController extends Controller
             'allergies' => 'nullable|string',
             'chronic_diseases' => 'nullable|string',
             'medical_status' => 'nullable|string|max:255',
+            'medical_record_number' => 'nullable|string|max:100',
             'code' => 'nullable|string|max:255',
         ]);
 
