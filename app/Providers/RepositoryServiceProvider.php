@@ -30,23 +30,23 @@ class RepositoryServiceProvider extends ServiceProvider
         Log::debug('[RepositoryServiceProvider] NATIVEPHP_APP_ID=' . ($nativeAppId ?? 'null') . ' → ' . ($isNative ? 'BINDING API REPOS' : 'BINDING ELOQUENT REPOS'));
 
         $this->app->bind(PatientRepositoryInterface::class, $isNative
-            ? ApiPatientRepository::class
+            ? \App\Repositories\Hybrid\HybridPatientRepository::class
             : EloquentPatientRepository::class);
 
         $this->app->bind(UserRepositoryInterface::class, $isNative
-            ? ApiUserRepository::class
+            ? \App\Repositories\Hybrid\HybridUserRepository::class
             : EloquentUserRepository::class);
 
         $this->app->bind(PatientFileRepositoryInterface::class, $isNative
-            ? ApiPatientFileRepository::class
+            ? \App\Repositories\Hybrid\HybridPatientFileRepository::class
             : EloquentPatientFileRepository::class);
 
         $this->app->bind(PatientNoteRepositoryInterface::class, $isNative
-            ? ApiPatientNoteRepository::class
+            ? \App\Repositories\Hybrid\HybridPatientNoteRepository::class
             : EloquentPatientNoteRepository::class);
 
         $this->app->bind(PatientVisitRepositoryInterface::class, $isNative
-            ? ApiPatientVisitRepository::class
+            ? \App\Repositories\Hybrid\HybridPatientVisitRepository::class
             : EloquentPatientVisitRepository::class);
     }
 }

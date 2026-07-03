@@ -114,7 +114,13 @@
     </aside>
 
     <!-- Main Content Area -->
-    <main class="flex-1 flex flex-col min-w-0 pb-20 md:pb-0">
+    <main 
+      class="flex-1 flex flex-col min-w-0 pb-20 md:pb-0 relative"
+      ref="mainRef"
+      @touchstart="handleTouchStart"
+      @touchmove="handleTouchMove"
+      @touchend="handleTouchEnd"
+    >
       <!-- Desktop Header -->
       <header class="hidden md:flex items-center justify-between px-8 py-5 bg-white/95 dark:bg-slate-950/95 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
         <h1 class="text-2xl font-heading font-bold text-slate-800 dark:text-white">{{ title }}</h1>
@@ -128,6 +134,29 @@
         <h1 class="text-xl font-heading font-bold text-slate-800 dark:text-white truncate me-2">{{ title }}</h1>
         <GlobalSearch />
       </header>
+
+      <!-- Offline / Sync Indicators -->
+      <div v-if="isOffline" class="bg-rose-500 text-white text-xs font-semibold py-1 px-4 flex items-center justify-center">
+        <svg class="w-4 h-4 me-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243-2.829a4.978 4.978 0 011.415-2.829m-1.415 5.656a5 5 0 01-7.072 0m7.072 0l2.829 2.829M8.464 15.536A5 5 0 018.464 8.464m0 0L5.636 5.636M15.536 15.536L8.464 8.464" /></svg>
+        {{ $t('offline_mode') || 'Offline Mode - Changes will be saved locally' }}
+      </div>
+      <div v-if="isSyncing" class="bg-blue-500 text-white text-xs font-semibold py-1 px-4 flex items-center justify-center">
+        <svg class="animate-spin w-4 h-4 me-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+        {{ $t('syncing') || 'Syncing changes...' }}
+      </div>
+      <div v-if="syncCompleted" class="bg-green-500 text-white text-xs font-semibold py-1 px-4 flex items-center justify-center transition-opacity">
+        <svg class="w-4 h-4 me-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+        {{ $t('sync_completed') || 'Sync completed successfully' }}
+      </div>
+      <div v-if="syncError" class="bg-rose-600 text-white text-xs font-semibold py-1 px-4 flex items-center justify-center transition-opacity">
+        <svg class="w-4 h-4 me-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        {{ $t('sync_failed') || 'Sync failed. Will retry later.' }}
+      </div>
+      
+      <!-- Pull to refresh indicator -->
+      <div v-if="isRefreshing" class="w-full flex justify-center py-2 transition-all">
+        <svg class="animate-spin text-primary-500 w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+      </div>
 
       <div class="flex-1 p-4 md:p-8">
         <slot />
@@ -156,8 +185,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
-import { Link, usePage } from '@inertiajs/vue3';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { Link, usePage, router } from '@inertiajs/vue3';
 import GlobalSearch from '@/Components/GlobalSearch.vue';
 import { useTheme } from '@/Composables/useTheme';
 import { useLocale } from '@/Composables/useLocale';
@@ -167,6 +196,66 @@ const { theme } = useTheme();
 const { locale } = useLocale();
 
 const mobileMenuOpen = ref(false);
+
+// Offline Mode & Sync State
+const isOffline = ref(!navigator.onLine);
+const isSyncing = ref(false);
+const syncCompleted = ref(false);
+const syncError = ref(false);
+
+const checkOnlineStatus = async () => {
+    const wasOffline = isOffline.value;
+    isOffline.value = !navigator.onLine;
+
+    if (wasOffline && !isOffline.value) {
+        // Back online! Trigger sync
+        isSyncing.value = true;
+        try {
+            await fetch('/api/native/sync', { method: 'POST', headers: { 'Accept': 'application/json' }});
+            syncCompleted.value = true;
+            setTimeout(() => { syncCompleted.value = false; }, 3000);
+            router.reload();
+        } catch (e) {
+            syncError.value = true;
+            setTimeout(() => { syncError.value = false; }, 3000);
+        } finally {
+            isSyncing.value = false;
+        }
+    }
+};
+
+// Pull-to-refresh logic
+const mainRef = ref(null);
+const touchStartY = ref(0);
+const touchEndY = ref(0);
+const isRefreshing = ref(false);
+
+const handleTouchStart = (e) => {
+    if (window.scrollY === 0) {
+        touchStartY.value = e.touches[0].clientY;
+    } else {
+        touchStartY.value = 0;
+    }
+};
+
+const handleTouchMove = (e) => {
+    if (touchStartY.value > 0) {
+        touchEndY.value = e.touches[0].clientY;
+    }
+};
+
+const handleTouchEnd = () => {
+    if (touchStartY.value > 0 && touchEndY.value > touchStartY.value + 80 && !isRefreshing.value) {
+        isRefreshing.value = true;
+        router.reload({
+            onFinish: () => {
+                isRefreshing.value = false;
+            }
+        });
+    }
+    touchStartY.value = 0;
+    touchEndY.value = 0;
+};
 
 const LIGHT_THEME_COLOR = '#0d9488';
 const DARK_THEME_COLOR = '#030712';
@@ -188,6 +277,14 @@ function syncStatusBar(t) {
 onMounted(() => {
   syncStatusBar(theme.value);
   watch(theme, (val) => syncStatusBar(val), { immediate: false });
+  
+  window.addEventListener('online', checkOnlineStatus);
+  window.addEventListener('offline', checkOnlineStatus);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('online', checkOnlineStatus);
+  window.removeEventListener('offline', checkOnlineStatus);
 });
 
 defineProps({

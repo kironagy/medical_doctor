@@ -73,3 +73,12 @@ Route::prefix('v1')->group(function () {
         });
     });
 });
+
+Route::post('/native/sync', function () {
+    if (env('NATIVEPHP_APP_ID')) {
+        \App\Services\NetworkStatusService::setOnline(true);
+        \App\Jobs\SyncPendingOperationsJob::dispatch();
+        return response()->json(['status' => 'sync_started']);
+    }
+    return response()->json(['error' => 'Not available'], 403);
+});

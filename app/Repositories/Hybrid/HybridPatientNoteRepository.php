@@ -1,0 +1,94 @@
+<?php
+
+namespace App\Repositories\Hybrid;
+
+use App\Contracts\Repositories\PatientNoteRepositoryInterface;
+use App\Models\PendingOperation;
+use App\Repositories\Api\ApiPatientNoteRepository;
+use App\Repositories\Eloquent\EloquentPatientNoteRepository;
+use App\Services\NetworkStatusService;
+
+class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
+{
+    public function __construct(
+        private ApiPatientNoteRepository $apiRepo,
+        private EloquentPatientNoteRepository $localRepo
+    ) {}
+
+    public function forPatient(string $patientUuid): array
+    {
+        if (NetworkStatusService::isOnline()) {
+            try {
+                return $this->apiRepo->forPatient($patientUuid);
+            } catch (\Exception $e) {
+                NetworkStatusService::setOnline(false);
+            }
+        }
+        return $this->localRepo->forPatient($patientUuid);
+    }
+
+    public function create(string $patientUuid, array $data): array
+    {
+        $localData = $this->localRepo->create($patientUuid, $data);
+
+        if (NetworkStatusService::isOnline()) {
+            try {
+                return $this->apiRepo->create($patientUuid, $data);
+            } catch (\Exception $e) {
+                NetworkStatusService::setOnline(false);
+            }
+        }
+
+        PendingOperation::create([
+            'uuid' => $localData['uuid'] ?? \Illuminate\Support\Str::uuid()->toString(),
+            'entity_type' => 'PatientNote',
+            'action' => 'create',
+            'payload' => array_merge($data, ['patient_uuid' => $patientUuid]),
+        ]);
+
+        return $localData;
+    }
+
+    public function update(string $patientUuid, string $noteUuid, array $data): array
+    {
+        $localData = $this->localRepo->update($patientUuid, $noteUuid, $data);
+
+        if (NetworkStatusService::isOnline()) {
+            try {
+                return $this->apiRepo->update($patientUuid, $noteUuid, $data);
+            } catch (\Exception $e) {
+                NetworkStatusService::setOnline(false);
+            }
+        }
+
+        PendingOperation::create([
+            'uuid' => $noteUuid,
+            'entity_type' => 'PatientNote',
+            'action' => 'update',
+            'payload' => array_merge($data, ['patient_uuid' => $patientUuid]),
+        ]);
+
+        return $localData;
+    }
+
+    public function delete(string $patientUuid, string $noteUuid): void
+    {
+        $this->localRepo->delete($patientUuid, $noteUuid);
+
+        if (NetworkStatusService::isOnline()) {
+            try {
+                $this->apiRepo->delete($patientUuid, $noteUuid);
+                return;
+            } catch (\Exception $e) {
+                NetworkStatusService::setOnline(false);
+            }
+        }
+
+        PendingOperation::create([
+            'uuid' => $noteUuid,
+            'entity_type' => 'PatientNote',
+            'action' => 'delete',
+            'payload' => ['patient_uuid' => $patientUuid],
+        ]);
+    }
+}
