@@ -1,5 +1,5 @@
 <template>
-  <div     class="h-[100dvh] flex bg-slate-50 dark:bg-slate-950 overflow-hidden" @keydown.escape="closeAllMenus">
+  <div class="h-[100dvh] flex bg-slate-50 dark:bg-slate-950 overflow-hidden" @keydown.escape="closeAllMenus" @touchstart="handleTouchStart" @touchmove="handleTouchMove" @touchend="handleTouchEnd" @touchcancel="handleTouchEnd">
     <!-- Sidebar Overlay (Mobile) -->
     <div v-if="mobilePatientListOpen && isMobile" class="fixed inset-0 bg-slate-900/50 z-30" @click="mobilePatientListOpen = false"></div>
 
@@ -71,27 +71,25 @@
         </div>
       </Teleport>
 
-      <!-- PTR Wrapper -->
-      <div class="flex-1 relative overflow-hidden" @touchstart="handleTouchStart" @touchmove="handleTouchMove" @touchend="handleTouchEnd" @touchcancel="handleTouchEnd">
-        <!-- PTR Indicator -->
-        <div v-if="ptrVisible" class="absolute left-0 right-0 flex flex-col items-center justify-center pointer-events-none z-20" style="top:-64px;height:64px" :style="{ transform: `translateY(${pullDistance}px)` }">
-          <div class="w-9 h-9 rounded-full bg-white dark:bg-slate-800 shadow-lg flex items-center justify-center text-primary-600 dark:text-primary-400" :style="{ transform: `scale(${ptrScale})`, opacity: ptrOpacity }">
-            <svg v-if="!isRefreshing" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.15"/>
-              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" :stroke-dasharray="`${ptrArcLen} ${ptrCircumference}`" transform="rotate(-90 12 12)"/>
-              <g :style="{ transform: `rotate(${ptrArrowRotation}deg)`, transformOrigin: '12px 12px' }">
-                <path d="M12 5 L12 17 M8 13 L12 17 L16 13" stroke-linejoin="round"/>
-              </g>
-            </svg>
-            <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" class="animate-spin">
-              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="35 75" stroke-linecap="round" transform="rotate(-90 12 12)"/>
-            </svg>
-          </div>
-          <span v-if="thresholdReached && !isRefreshing" class="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap mt-0.5">{{ $t('workspace.release_to_refresh') || 'Release to refresh' }}</span>
-          <span v-if="isRefreshing" class="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap mt-0.5">{{ $t('workspace.refreshing') || 'Refreshing' }}</span>
+      <!-- PTR Indicator (fixed at viewport top) -->
+      <div v-if="ptrVisible" class="fixed left-0 right-0 flex flex-col items-center justify-center pointer-events-none z-50" style="top:0;height:64px;padding-top:8px" :style="{ transform: `translateY(${pullDistance - 64}px)` }">
+        <div class="w-9 h-9 rounded-full bg-white dark:bg-slate-800 shadow-lg flex items-center justify-center text-primary-600 dark:text-primary-400" :style="{ transform: `scale(${ptrScale})`, opacity: ptrOpacity }">
+          <svg v-if="!isRefreshing" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.15"/>
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" :stroke-dasharray="`${ptrArcLen} ${ptrCircumference}`" transform="rotate(-90 12 12)"/>
+            <g :style="{ transform: `rotate(${ptrArrowRotation}deg)`, transformOrigin: '12px 12px' }">
+              <path d="M12 5 L12 17 M8 13 L12 17 L16 13" stroke-linejoin="round"/>
+            </g>
+          </svg>
+          <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" class="animate-spin">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="35 75" stroke-linecap="round" transform="rotate(-90 12 12)"/>
+          </svg>
         </div>
-        <!-- Scroll Container -->
-        <div ref="scrollContainer" class="absolute inset-0 overflow-y-auto overscroll-contain" :class="isMobile ? 'pb-20' : ''" :style="ptrContentStyle">
+        <span v-if="thresholdReached && !isRefreshing" class="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap mt-0.5">{{ $t('workspace.release_to_refresh') || 'Release to refresh' }}</span>
+        <span v-if="isRefreshing" class="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap mt-0.5">{{ $t('workspace.refreshing') || 'Refreshing' }}</span>
+      </div>
+      <!-- Scrollable Content -->
+      <div ref="scrollContainer" class="flex-1 overflow-y-auto overscroll-contain" :class="isMobile ? 'pb-20' : ''" :style="ptrContentStyle">
         <!-- Settings Panel -->
         <div v-if="showSettings">
           <WorkspaceSettings />
@@ -350,7 +348,6 @@
             <div class="text-xs text-slate-400">{{ $t('workspace.show_archived') }} — <button @click="toggleShowArchived" class="text-primary-600 dark:text-primary-400 hover:underline">{{ $t('workspace.archived_patients') }}</button></div>
           </div>
         </div>
-      </div>
       </div>
     </div>
 
