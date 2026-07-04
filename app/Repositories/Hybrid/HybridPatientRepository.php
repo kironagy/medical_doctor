@@ -84,9 +84,13 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 // Ensure UUID is sent to API to avoid duplication
                 $data['uuid'] = $localData['uuid'];
                 return $this->apiRepo->create($data);
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                // If the remote server rejected the data as invalid, let the UI show the error!
+                throw $e;
+            } catch (\Exception $e) {
+                // Any other API error (500, network, etc) means we fallback to offline mode
                 NetworkStatusService::setOnline(false);
-                Log::warning('Create failed online, queueing offline operation.');
+                Log::warning('Create failed online, queueing offline operation. Error: ' . $e->getMessage());
             }
         }
 

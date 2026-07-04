@@ -61,6 +61,12 @@ trait MakesApiRequests
         if ($response->failed()) {
             $body = $response->json();
             $message = is_array($body) ? ($body['message'] ?? 'Request failed.') : 'Request failed.';
+            
+            if ($response->status() === 422) {
+                $errors = is_array($body) ? ($body['errors'] ?? []) : [];
+                throw \Illuminate\Validation\ValidationException::withMessages($errors);
+            }
+
             throw new RuntimeException($message);
         }
 

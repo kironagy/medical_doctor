@@ -7,10 +7,15 @@
         </div>
         <input type="text" class="input-field ps-10" :placeholder="$t('patients.search_placeholder')" />
       </div>
-      <Link href="/patients/create" class="btn-primary w-full sm:w-auto inline-flex items-center justify-center">
-        <svg class="w-4 h-4 me-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-        {{ $t('patients.new') }}
-      </Link>
+      <div class="flex items-center gap-2 w-full sm:w-auto">
+        <Link href="/patients" preserve-scroll preserve-state class="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm text-slate-500 flex-shrink-0" :title="$t('common.refresh') || 'Refresh'">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+        </Link>
+        <Link href="/patients/create" class="btn-primary w-full sm:w-auto inline-flex items-center justify-center">
+          <svg class="w-4 h-4 me-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+          {{ $t('patients.new') }}
+        </Link>
+      </div>
     </div>
 
     <BaseCard :padding="false">
