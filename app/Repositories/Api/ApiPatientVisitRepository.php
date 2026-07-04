@@ -11,7 +11,8 @@ class ApiPatientVisitRepository implements PatientVisitRepositoryInterface
 
     public function forPatient(string $patientUuid): array
     {
-        return $this->apiCall('GET', '/patients/' . $patientUuid . '/visits')->json()['visits'] ?? [];
+        $body = $this->apiCall('GET', '/patients/' . $patientUuid . '/visits')->json() ?? [];
+        return $body['data'] ?? $body;
     }
 
     public function create(string $patientUuid, array $data): array

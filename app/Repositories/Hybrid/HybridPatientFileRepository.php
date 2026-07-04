@@ -25,7 +25,12 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
 
         foreach ($data as $item) {
             if (is_array($item) && isset($item['uuid'])) {
-                $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'creator']);
+                $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'creator', 'uploader']);
+                // Map API response field names to model field names
+                if (isset($cleanData['description']) && !isset($cleanData['desc'])) {
+                    $cleanData['desc'] = $cleanData['description'];
+                }
+                unset($cleanData['description'], $cleanData['url'], $cleanData['thumbnail_url']);
                 try {
                     \App\Domains\Media\Models\PatientFile::updateOrCreate(
                     ['uuid' => $item['uuid']],

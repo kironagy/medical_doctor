@@ -26,14 +26,17 @@ class HybridPatientRepository implements PatientRepositoryInterface
         foreach ($data as $item) {
             if (is_array($item) && isset($item['uuid'])) {
                 $cleanData = \Illuminate\Support\Arr::except($item, [
-                    'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes'
+                    'primary_doctor', 'visits', 'shares', 'files', 'notes'
                 ]);
                 try {
+                    \App\Domains\Patients\Models\Patient::unguard();
                     \App\Domains\Patients\Models\Patient::updateOrCreate(
                     ['uuid' => $item['uuid']],
                     $cleanData
                 );
+                    \App\Domains\Patients\Models\Patient::reguard();
                 } catch (\Exception $e) {
+                    \App\Domains\Patients\Models\Patient::reguard();
                     \Illuminate\Support\Facades\Log::warning("Failed to sync local cache in " . basename("app/Repositories/Hybrid/HybridPatientRepository.php") . ": " . $e->getMessage());
                 }
             }

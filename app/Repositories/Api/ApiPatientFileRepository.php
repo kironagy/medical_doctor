@@ -11,7 +11,8 @@ class ApiPatientFileRepository implements PatientFileRepositoryInterface
 
     public function forPatient(string $patientUuid): array
     {
-        return $this->apiCall('GET', '/patients/' . $patientUuid . '/files')->json() ?? [];
+        $body = $this->apiCall('GET', '/patients/' . $patientUuid . '/files')->json() ?? [];
+        return $body['data'] ?? $body;
     }
 
     public function find(string $uuid): ?array
