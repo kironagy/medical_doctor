@@ -24,7 +24,7 @@ class NetworkStatusService
         try {
             // Ping the mobile API to check connectivity
             // We use a small timeout to avoid long hangs when offline
-            $apiUrl = env('MOBILE_API_URL');
+            $apiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
             if (!$apiUrl) {
                 return self::$isOnline = false;
             }

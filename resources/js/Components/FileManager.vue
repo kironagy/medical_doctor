@@ -137,28 +137,7 @@ const openFileDialog = async (source = 'files') => {
     if (result !== 'granted') return
   }
 
-  // On Android native, use the standard HTML file input which WebView intercepts
-  // via onShowFileChooser - this works more reliably than the native bridge API
-  if (detectNative()) {
-    if (source === 'camera') {
-      // Trigger camera via input[type=file][capture]
-      if (!isCameraInputReady.value) {
-        const input = document.createElement('input')
-        input.type = 'file'
-        input.accept = 'image/*'
-        input.setAttribute('capture', 'environment')
-        input.style.display = 'none'
-        input.addEventListener('change', handleFileSelect)
-        document.body.appendChild(input)
-        cameraInput.value = input
-        isCameraInputReady.value = true
-      }
-      cameraInput.value?.click()
-    } else {
-      fileInput.value?.click()
-    }
-    return
-  }
+
 
   if (source === 'camera' && isCameraAvailable()) {
     const photo = await takePhoto()
@@ -174,8 +153,10 @@ const openFileDialog = async (source = 'files') => {
       for (const file of files) {
         handleNativeFile(file)
       }
-      return
     }
+    // If we have the native bridge, do not fallback to HTML input, 
+    // as it crashes some Android WebViews!
+    if (detectNative()) return;
   }
 
   fileInput.value?.click()
