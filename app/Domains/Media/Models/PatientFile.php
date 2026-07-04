@@ -39,6 +39,9 @@ class PatientFile extends Model
         if ($this->mime_type && str_starts_with($this->mime_type, 'image/')) {
             return $this->url;
         }
+        if ($this->mime_type && str_starts_with($this->mime_type, 'video/')) {
+            return url('/api/v1/files/' . $this->uuid . '/thumbnail');
+        }
         return null;
     }
 

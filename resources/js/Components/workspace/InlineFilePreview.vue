@@ -22,6 +22,14 @@
             <a v-if="file?.url" :href="file.url" target="_blank" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" title="Download">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
             </a>
+            <!-- Edit Button -->
+            <button v-if="canEdit" @click="openEdit" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" title="Edit">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+            </button>
+            <!-- Delete Button -->
+            <button v-if="canEdit" @click="confirmDelete" class="p-2 text-rose-400 hover:text-rose-300 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" title="Delete">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            </button>
             <button @click="close" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" title="Close (Esc)">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
@@ -30,29 +38,20 @@
 
         <div class="flex-1 flex items-center justify-center p-2 md:p-6 overflow-hidden relative" @wheel="onWheel">
           <div v-if="file?.mime_type?.startsWith('image/')"
-            class="flex items-center justify-center w-full h-full overflow-auto overscroll-contain cursor-zoom-in relative"
+            class="flex items-center justify-center w-full h-full overflow-auto overscroll-contain cursor-zoom-in"
             :class="{ 'cursor-zoom-out': isZoomed }"
             @click="toggleZoom"
-            @touchstart="handleTouchStart"
-            @touchend="handleTouchEnd"
           >
-            <button v-if="!isZoomed && currentIndex > 0" @click.stop="prevImage" class="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-slate-900/60 hover:bg-slate-800 text-white rounded-full backdrop-blur-sm transition-all hidden md:block">
-              <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
-            </button>
             <img
-              :key="file.uuid"
               :src="file.url"
               loading="lazy"
               decoding="async"
-              class="transition-transform duration-200 rounded-lg shadow-2xl"
+              class="transition-transform duration-200 rounded-lg"
               :class="isZoomed ? 'max-w-none' : 'max-w-full max-h-full object-contain'"
               :style="isZoomed ? { transform: 'scale(2)', transformOrigin: zoomOrigin } : {}"
               @mousemove="onImageMouseMove"
               ref="imageRef"
             />
-            <button v-if="!isZoomed && currentIndex < categoryImages.length - 1" @click.stop="nextImage" class="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-slate-900/60 hover:bg-slate-800 text-white rounded-full backdrop-blur-sm transition-all hidden md:block">
-              <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
-            </button>
           </div>
           <div v-else-if="file?.mime_type?.startsWith('video/')" class="w-full max-w-5xl mx-auto">
             <VideoPlayer
@@ -69,14 +68,6 @@
               style="min-height: 75vh;"
               loading="lazy"
             ></iframe>
-          </div>
-          <div v-else-if="file?.mime_type?.startsWith('audio/')" class="w-full max-w-xl mx-auto flex flex-col items-center justify-center p-8 bg-slate-800/80 rounded-2xl shadow-xl backdrop-blur-sm border border-slate-700">
-            <div class="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center mb-6">
-              <svg class="w-12 h-12 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" /></svg>
-            </div>
-            <h3 class="text-white font-bold text-lg mb-2 truncate w-full text-center px-4">{{ file.title || file.file_name }}</h3>
-            <p class="text-slate-400 text-sm mb-8">{{ formatBytes(file.size) }}</p>
-            <audio controls class="w-full" :src="file.url" autoplay></audio>
           </div>
           <div v-else class="text-center p-8 max-w-md">
             <div class="w-20 h-20 mx-auto mb-5 bg-slate-800 dark:bg-slate-700 rounded-2xl flex items-center justify-center">
@@ -98,17 +89,155 @@
       </div>
     </Transition>
   </Teleport>
+
+  <!-- Edit Dialog -->
+  <Teleport to="body">
+    <Transition name="backdrop-fade">
+      <div v-if="showEdit" class="fixed inset-0 z-[200] flex items-end md:items-center justify-center" @click.self="closeEdit">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="closeEdit" />
+        <div class="relative bg-white dark:bg-slate-900 border dark:border-slate-800 w-full md:max-w-lg max-h-[90vh] md:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden"
+             style="padding-bottom: env(safe-area-inset-bottom, 0px)">
+          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10">
+            <h3 class="text-base font-bold text-slate-900 dark:text-white">Edit File</h3>
+            <button @click="closeEdit" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+          <div class="overflow-y-auto overscroll-contain flex-1 p-5 space-y-4">
+            <div>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">File Name</label>
+              <input v-model="editForm.title" type="text" class="input-field w-full" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
+              <textarea v-model="editForm.desc" rows="2" class="input-field w-full" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Notes</label>
+              <textarea v-model="editForm.notes" rows="3" class="input-field w-full" placeholder="Additional notes about this file..." />
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Category</label>
+                <select v-model="editForm.category" class="input-field w-full">
+                  <option value="">Select category</option>
+                  <option v-for="cat in categories" :key="cat.slug" :value="cat.slug">{{ cat.name }}</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Date</label>
+                <input v-model="editForm.date" type="date" class="input-field w-full" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tags</label>
+              <input v-model="editForm.tags" type="text" class="input-field w-full" placeholder="Comma-separated tags" />
+            </div>
+          </div>
+          <div class="sticky bottom-0 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 px-5 py-4 flex justify-end gap-3">
+            <button @click="closeEdit" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">Cancel</button>
+            <BaseButton @click="saveEdit" :disabled="saving" size="sm">
+              <svg v-if="saving" class="w-4 h-4 animate-spin me-1.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+              {{ saving ? 'Saving...' : 'Save' }}
+            </BaseButton>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup>
-import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useWorkspace } from '@/Composables/useWorkspace'
 import VideoPlayer from '@/Components/VideoPlayer.vue'
+import { useDialog } from '@/Composables/useDialog'
+import { useToast } from '@/Composables/useToast'
+import BaseButton from '@/Components/BaseButton.vue'
+import axios from 'axios'
 
-const { showPreview: show, previewFile: file, closePreview: close, allFiles } = useWorkspace()
+const {
+  showPreview: show,
+  previewFile: file,
+  closePreview: close,
+  canEdit,
+  updateFileLocally,
+  removeFileLocally,
+  categories
+} = useWorkspace()
+
 const isZoomed = ref(false)
 const zoomOrigin = ref('center center')
 const imageRef = ref(null)
+
+const showEdit = ref(false)
+const saving = ref(false)
+const editForm = ref({ title: '', desc: '', notes: '', tags: '', category: '', date: '' })
+
+const dialog = useDialog()
+const toast = useToast()
+
+function openEdit() {
+  editForm.value = {
+    title: file.value?.title || file.value?.file_name || '',
+    desc: file.value?.desc || '',
+    notes: file.value?.notes || '',
+    tags: file.value?.tags || '',
+    category: file.value?.category || '',
+    date: file.value?.date || '',
+  }
+  showEdit.value = true
+}
+
+function closeEdit() {
+  showEdit.value = false
+}
+
+async function saveEdit() {
+  saving.value = true
+  try {
+    const payload = {}
+    if (editForm.value.title !== (file.value?.title || file.value?.file_name)) payload.title = editForm.value.title
+    if (editForm.value.desc !== (file.value?.desc || '')) payload.desc = editForm.value.desc
+    if (editForm.value.notes !== (file.value?.notes || '')) payload.notes = editForm.value.notes
+    if (editForm.value.tags !== (file.value?.tags || '')) payload.tags = editForm.value.tags
+    if (editForm.value.category !== (file.value?.category || '')) payload.category = editForm.value.category
+    if (editForm.value.date !== (file.value?.date || '')) payload.date = editForm.value.date
+
+    const res = await axios.put(`/api/v1/files/${file.value.uuid}`, payload)
+    updateFileLocally(res.data)
+    
+    // Dynamically update the current preview file structure
+    file.value = { ...file.value, ...res.data }
+    
+    showEdit.value = false
+    toast.success('File updated')
+  } catch (e) {
+    console.error('Edit failed:', e)
+    toast.error('Failed to update file')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function confirmDelete() {
+  const confirmed = await dialog.confirm({
+    title: 'Delete File',
+    message: `Delete "${file.value?.title || file.value?.file_name}"? This action cannot be undone.`,
+    confirmText: 'Delete',
+    style: 'danger',
+  })
+  if (!confirmed) return
+  try {
+    await axios.delete(`/api/v1/files/${file.value.uuid}`)
+    removeFileLocally(file.value.uuid)
+    close()
+    toast.success('File deleted')
+  } catch (e) {
+    console.error('Delete failed:', e)
+    toast.error('Failed to delete file')
+  }
+}
 
 function toggleZoom() {
   isZoomed.value = !isZoomed.value
@@ -143,70 +272,6 @@ function formatBytes(bytes) {
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
-
-const categoryImages = computed(() => {
-  if (!file.value || !file.value.category) return []
-  return allFiles.value.filter(f => f.category === file.value.category && f.mime_type?.startsWith('image/'))
-})
-
-const currentIndex = computed(() => {
-  if (!file.value) return -1
-  return categoryImages.value.findIndex(f => f.uuid === file.value.uuid)
-})
-
-function prevImage() {
-  if (currentIndex.value > 0) {
-    file.value = categoryImages.value[currentIndex.value - 1]
-    isZoomed.value = false
-  }
-}
-
-function nextImage() {
-  if (currentIndex.value < categoryImages.value.length - 1) {
-    file.value = categoryImages.value[currentIndex.value + 1]
-    isZoomed.value = false
-  }
-}
-
-function handleKeydown(e) {
-  if (!show.value) return
-  if (e.key === 'ArrowLeft') prevImage()
-  if (e.key === 'ArrowRight') nextImage()
-  if (e.key === 'Escape') close()
-}
-
-let touchStartX = 0
-let touchEndX = 0
-
-function handleTouchStart(e) {
-  if (isZoomed.value) return
-  touchStartX = e.changedTouches[0].screenX
-}
-
-function handleTouchEnd(e) {
-  if (isZoomed.value) return
-  touchEndX = e.changedTouches[0].screenX
-  handleSwipe()
-}
-
-function handleSwipe() {
-  const diff = touchEndX - touchStartX
-  if (Math.abs(diff) > 50) {
-    if (diff > 0) {
-      prevImage()
-    } else {
-      nextImage()
-    }
-  }
-}
-
-onMounted(() => {
-  window.addEventListener('keydown', handleKeydown)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleKeydown)
-})
 
 watch(show, (val) => {
   if (!val) {

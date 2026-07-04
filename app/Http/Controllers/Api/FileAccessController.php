@@ -330,8 +330,8 @@ class FileAccessController extends Controller
     public function destroy(Request $request, string $uuid)
     {
         if (env('NATIVEPHP_APP_ID')) {
-            $response = $this->apiRequest()->delete($this->apiBaseUrl() . '/files/' . $uuid);
-            return response()->json($response->json(), $response->status());
+            app(\App\Contracts\Repositories\PatientFileRepositoryInterface::class)->delete($uuid);
+            return response()->json(['message' => 'Deleted']);
         }
 
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();

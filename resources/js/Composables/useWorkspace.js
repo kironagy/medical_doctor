@@ -1,10 +1,10 @@
-import { ref, computed } from 'vue'
-import axios from 'axios'
 import { router } from '@inertiajs/vue3'
+import axios from 'axios'
+import { computed, ref, shallowRef } from 'vue'
 
 const patients = ref([])
 const selectedPatientId = ref(null)
-const workspaceData = ref(null)
+const workspaceData = shallowRef(null)
 const loading = ref(false)
 const loadingPatient = ref(false)
 const searchQuery = ref('')
@@ -133,12 +133,6 @@ async function selectPatient(uuid) {
 }
 
 function openPreview(file) {
-  const mime = file.mime_type || ''
-  const isSupported = mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/') || mime === 'application/pdf'
-  if (!isSupported && file.url) {
-    window.open(file.url, '_blank')
-    return
-  }
   previewFile.value = file
   showPreview.value = true
 }
@@ -163,12 +157,14 @@ function updateFileLocally(updatedFile) {
   const idx = workspaceData.value.files.findIndex(f => f.uuid === updatedFile.uuid)
   if (idx !== -1) {
     workspaceData.value.files[idx] = { ...workspaceData.value.files[idx], ...updatedFile }
+    workspaceData.value = { ...workspaceData.value }
   }
 }
 
 function removeFileLocally(fileUuid) {
   if (!workspaceData.value || !workspaceData.value.files) return
   workspaceData.value.files = workspaceData.value.files.filter(f => f.uuid !== fileUuid)
+  workspaceData.value = { ...workspaceData.value }
 }
 
 function reloadPatientData() {

@@ -174,8 +174,10 @@
                 @click="isMobile ? (activeSheetFile = file) : undefined"
               >
                 <div @click="!isMobile ? openPreview(file) : undefined" class="aspect-[4/3] flex items-center justify-center overflow-hidden">
-                  <img v-if="file.thumbnail_url" :src="file.thumbnail_url" class="object-cover w-full h-full" @error="e => e.target.style.display='none'" loading="lazy" decoding="async" />
-                  <img v-else-if="file.mime_type?.startsWith('image/')" :src="file.url" class="object-cover w-full h-full" loading="lazy" decoding="async" />
+                  <img v-if="file.thumbnail_url" :src="file.thumbnail_url" class="object-cover w-full h-full" @error="e => e.target.style.display='none'" loading="lazy" />
+                  <div v-else-if="file.mime_type?.startsWith('image/')" class="text-slate-400 flex items-center justify-center">
+                    <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                  </div>
                   <div v-else class="text-slate-400 flex flex-col items-center justify-center p-2">
                     <svg v-if="file.mime_type?.startsWith('video/')" class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                     <svg v-else-if="file.mime_type === 'application/pdf'" class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>

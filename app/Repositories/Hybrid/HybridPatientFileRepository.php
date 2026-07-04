@@ -57,15 +57,11 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
         if (isset($item['uuid'])) {
             $item['url'] = url('/api/v1/files/' . $item['uuid']);
             
-            if (!empty($item['thumbnail_url'])) {
-                // Preserve the remote thumbnail_url if provided by API
-                $item['thumbnail_url'] = $item['thumbnail_url'];
-            } elseif (!empty($item['thumbnail_path'])) {
+            if (!empty($item['thumbnail_path']) || !empty($item['thumbnail_url'])) {
+                // We MUST proxy the thumbnail through the local API to inject the Bearer token
                 $item['thumbnail_url'] = url('/api/v1/files/' . $item['uuid'] . '/thumbnail');
             } elseif (isset($item['mime_type']) && str_starts_with($item['mime_type'], 'image/')) {
                 $item['thumbnail_url'] = $item['url'];
-            } else {
-                $item['thumbnail_url'] = null;
             }
         }
         return $item;
