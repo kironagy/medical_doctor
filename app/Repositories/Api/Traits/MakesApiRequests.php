@@ -55,7 +55,7 @@ trait MakesApiRequests
 
         if ($response->unauthorized()) {
             session()->forget('api_token');
-            throw new RuntimeException('Session expired. Please login again.');
+            throw new \Illuminate\Auth\AuthenticationException('Session expired. Please login again.');
         }
 
         if ($response->failed()) {

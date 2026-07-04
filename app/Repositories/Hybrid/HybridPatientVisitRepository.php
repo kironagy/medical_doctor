@@ -39,7 +39,7 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
                 $data = $this->apiRepo->forPatient($patientUuid);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -53,7 +53,7 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->create($patientUuid, $data);
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -75,7 +75,7 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->update($visitId, $data);
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -98,7 +98,7 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
             try {
                 $this->apiRepo->delete($visitId);
                 return;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }

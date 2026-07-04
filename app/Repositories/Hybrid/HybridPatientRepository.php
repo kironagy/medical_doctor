@@ -42,7 +42,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $data = $this->apiRepo->all();
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('Fallback to offline mode: ' . $e->getMessage());
             }
@@ -57,7 +57,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $data = $this->apiRepo->find($uuid);
                 if ($data) $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -80,7 +80,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 // Ensure UUID is sent to API to avoid duplication
                 $data['uuid'] = $localData['uuid'];
                 return $this->apiRepo->create($data);
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('Create failed online, queueing offline operation.');
             }
@@ -104,7 +104,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->update($uuid, $data);
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -127,7 +127,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
             try {
                 $this->apiRepo->delete($uuid);
                 return;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -147,7 +147,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $data = $this->apiRepo->search($term);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -161,7 +161,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $data = $this->apiRepo->shared($userId);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -173,7 +173,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->stats();
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -187,7 +187,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $data = $this->apiRepo->recent($limit);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -201,7 +201,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $data = $this->apiRepo->withTrashed();
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -216,7 +216,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
             try {
                 $this->apiRepo->restore($uuid);
                 return;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -237,7 +237,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
             try {
                 $this->apiRepo->forceDelete($uuid);
                 return;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }

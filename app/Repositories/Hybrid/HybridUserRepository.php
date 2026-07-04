@@ -39,7 +39,7 @@ class HybridUserRepository implements UserRepositoryInterface
                 $data = $this->apiRepo->find($id);
                 if ($data) $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -53,7 +53,7 @@ class HybridUserRepository implements UserRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->update($id, $data);
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -76,7 +76,7 @@ class HybridUserRepository implements UserRepositoryInterface
             try {
                 $this->apiRepo->updatePassword($id, $password);
                 return;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -97,7 +97,7 @@ class HybridUserRepository implements UserRepositoryInterface
             try {
                 $this->apiRepo->updatePreferences($id, $preferences);
                 return;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -117,7 +117,7 @@ class HybridUserRepository implements UserRepositoryInterface
                 $data = $this->apiRepo->doctors();
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -131,7 +131,7 @@ class HybridUserRepository implements UserRepositoryInterface
                 $data = $this->apiRepo->searchDoctors($term);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }

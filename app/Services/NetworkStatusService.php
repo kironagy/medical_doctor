@@ -19,11 +19,7 @@ class NetworkStatusService
             return self::$isOnline;
         }
 
-        // Check if NATIVEPHP_APP_ID is not set, meaning we're on the main web app
-        // The main web app is always considered "online"
-        if (!env('NATIVEPHP_APP_ID')) {
-            return self::$isOnline = true;
-        }
+        // We now ping dynamically at runtime without relying on build flags.
 
         try {
             // Ping the mobile API to check connectivity

@@ -39,7 +39,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 $data = $this->apiRepo->forPatient($patientUuid);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -53,7 +53,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 $data = $this->apiRepo->find($uuid);
                 if ($data) $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -67,7 +67,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->upload($patientUuid, $file, $data);
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -90,7 +90,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
             try {
                 $this->apiRepo->delete($uuid);
                 return;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -110,7 +110,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 $data = $this->apiRepo->byCategory($patientUuid, $categorySlug);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Exception $e) {
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
             }
         }
