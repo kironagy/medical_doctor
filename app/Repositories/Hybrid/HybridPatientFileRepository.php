@@ -7,6 +7,8 @@ use App\Models\PendingOperation;
 use App\Repositories\Api\ApiPatientFileRepository;
 use App\Repositories\Eloquent\EloquentPatientFileRepository;
 use App\Services\NetworkStatusService;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Log;
 
 class HybridPatientFileRepository implements PatientFileRepositoryInterface
 {
@@ -43,7 +45,11 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 $data = $this->apiRepo->forPatient($patientUuid);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientFileRepo] forPatient() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientFileRepo] forPatient() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -57,7 +63,11 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 $data = $this->apiRepo->find($uuid);
                 if ($data) $this->syncLocalCache($data);
                 return $data;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientFileRepo] find() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientFileRepo] find() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -71,7 +81,11 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->upload($patientUuid, $file, $data);
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientFileRepo] upload() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientFileRepo] upload() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -94,7 +108,11 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
             try {
                 $this->apiRepo->delete($uuid);
                 return;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientFileRepo] delete() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientFileRepo] delete() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -114,7 +132,11 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 $data = $this->apiRepo->byCategory($patientUuid, $categorySlug);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientFileRepo] byCategory() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientFileRepo] byCategory() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }

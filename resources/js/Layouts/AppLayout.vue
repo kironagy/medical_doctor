@@ -114,13 +114,7 @@
     </aside>
 
     <!-- Main Content Area -->
-    <main 
-      class="flex-1 flex flex-col min-w-0 pb-20 md:pb-0 relative"
-      ref="mainRef"
-      @touchstart="handleTouchStart"
-      @touchmove="handleTouchMove"
-      @touchend="handleTouchEnd"
-    >
+    <main class="flex-1 flex flex-col min-w-0 pb-20 md:pb-0 relative">
       <!-- Desktop Header -->
       <header class="hidden md:flex items-center justify-between px-8 py-5 bg-white/95 dark:bg-slate-950/95 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10">
         <h1 class="text-2xl font-heading font-bold text-slate-800 dark:text-white">{{ title }}</h1>
@@ -152,15 +146,15 @@
         <svg class="w-4 h-4 me-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
         {{ $t('sync_failed') || 'Sync failed. Will retry later.' }}
       </div>
-      
-      <!-- Pull to refresh indicator -->
-      <div v-if="isRefreshing" class="w-full flex justify-center py-2 transition-all">
-        <svg class="animate-spin text-primary-500 w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-      </div>
 
-      <div class="flex-1 p-4 md:p-8">
-        <slot />
-      </div>
+      <PullToRefresh
+        class="flex-1 flex flex-col"
+        :refresh="handleRefresh"
+      >
+        <div class="p-4 md:p-8">
+          <slot />
+        </div>
+      </PullToRefresh>
     </main>
 
     <!-- Mobile Bottom Navigation -->
@@ -188,6 +182,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { Link, usePage, router } from '@inertiajs/vue3';
 import GlobalSearch from '@/Components/GlobalSearch.vue';
+import PullToRefresh from '@/Components/PullToRefresh.vue';
 import { useTheme } from '@/Composables/useTheme';
 import { useLocale } from '@/Composables/useLocale';
 
@@ -224,38 +219,30 @@ const checkOnlineStatus = async () => {
     }
 };
 
-// Pull-to-refresh logic
-const mainRef = ref(null);
-const touchStartY = ref(0);
-const touchEndY = ref(0);
-const isRefreshing = ref(false);
+let refreshPromise = null
 
-const handleTouchStart = (e) => {
-    if (window.scrollY === 0) {
-        touchStartY.value = e.touches[0].clientY;
-    } else {
-        touchStartY.value = 0;
-    }
-};
+async function handleRefresh() {
+  if (refreshPromise) return refreshPromise
+  refreshPromise = router.reload({
+    preserveState: true,
+    preserveScroll: true,
+    only: inferRefreshOnly(),
+  }).then(() => {
+    refreshPromise = null
+  }).catch(() => {
+    refreshPromise = null
+  })
+  return refreshPromise
+}
 
-const handleTouchMove = (e) => {
-    if (touchStartY.value > 0) {
-        touchEndY.value = e.touches[0].clientY;
-    }
-};
-
-const handleTouchEnd = () => {
-    if (touchStartY.value > 0 && touchEndY.value > touchStartY.value + 80 && !isRefreshing.value) {
-        isRefreshing.value = true;
-        router.reload({
-            onFinish: () => {
-                isRefreshing.value = false;
-            }
-        });
-    }
-    touchStartY.value = 0;
-    touchEndY.value = 0;
-};
+function inferRefreshOnly() {
+  const url = page.url
+  if (url.startsWith('/dashboard')) return ['stats']
+  if (url === '/patients' || url === '/patients/shared') return ['patients']
+  if (url.startsWith('/admin/doctors')) return ['doctors']
+  if (url.startsWith('/settings')) return ['user']
+  return undefined
+}
 
 const LIGHT_THEME_COLOR = '#0d9488';
 const DARK_THEME_COLOR = '#030712';

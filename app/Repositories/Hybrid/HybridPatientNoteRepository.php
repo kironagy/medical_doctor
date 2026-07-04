@@ -7,6 +7,8 @@ use App\Models\PendingOperation;
 use App\Repositories\Api\ApiPatientNoteRepository;
 use App\Repositories\Eloquent\EloquentPatientNoteRepository;
 use App\Services\NetworkStatusService;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Log;
 
 class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
 {
@@ -43,7 +45,11 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
                 $data = $this->apiRepo->forPatient($patientUuid);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientNoteRepo] forPatient() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientNoteRepo] forPatient() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -57,7 +63,11 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->create($patientUuid, $data);
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientNoteRepo] create() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientNoteRepo] create() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -79,7 +89,11 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->update($patientUuid, $noteUuid, $data);
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientNoteRepo] update() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientNoteRepo] update() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -102,7 +116,11 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
             try {
                 $this->apiRepo->delete($patientUuid, $noteUuid);
                 return;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientNoteRepo] delete() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientNoteRepo] delete() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }

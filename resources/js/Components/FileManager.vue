@@ -144,7 +144,11 @@ const openFileDialog = async (source = 'files') => {
     const photo = await takePhoto()
     console.log('PICKER_RETURNED', { source: 'camera', hasPhoto: !!photo })
     if (photo) {
-      handleNativeFile(photo)
+      try {
+        await handleNativeFile(photo)
+      } catch (e) {
+        console.error('CAMERA_UPLOAD_FAILED', e)
+      }
     }
     return
   }
@@ -155,7 +159,11 @@ const openFileDialog = async (source = 'files') => {
     console.log('PICKER_RETURNED', { source: 'files', count: files?.length ?? 0 })
     if (files && files.length > 0) {
       for (const file of files) {
-        handleNativeFile(file)
+        try {
+          await handleNativeFile(file)
+        } catch (e) {
+          console.error('FILE_UPLOAD_FAILED', { error: e, file: file?.name })
+        }
       }
     }
     return
@@ -166,20 +174,27 @@ const openFileDialog = async (source = 'files') => {
 }
 
 const handleNativeFile = async (nativeFile) => {
+  console.log('HANDLE_NATIVE_START', { hasNativeFile: !!nativeFile, type: typeof nativeFile, keys: nativeFile ? Object.keys(nativeFile) : [] })
+
   let file
   if (nativeFile instanceof File) {
+    console.log('NATIVE_FILE_IS_FILE', { name: nativeFile.name, size: nativeFile.size, type: nativeFile.type })
     file = nativeFile
   } else if (nativeFile.uri) {
+    console.log('URI_RECEIVED', { uri: nativeFile.uri, name: nativeFile.name, type: nativeFile.type })
     try {
       const response = await fetch(nativeFile.uri)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const blob = await response.blob()
+      console.log('URI_RESOLVED', { blobSize: blob.size, blobType: blob.type })
       file = new File([blob], nativeFile.name || 'file', { type: nativeFile.type || blob.type })
+      console.log('FILE_CREATED', { name: file.name, size: file.size, type: file.type })
     } catch (e) {
-      console.warn('[Native] Failed to read native file:', e)
+      console.warn('NATIVE_FILE_FETCH_FAILED', { uri: nativeFile.uri, error: e.message })
       return
     }
   } else {
+    console.warn('NATIVE_FILE_UNRECOGNIZED_FORMAT', { nativeFile: JSON.stringify(nativeFile) })
     return
   }
 

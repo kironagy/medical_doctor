@@ -7,6 +7,8 @@ use App\Models\PendingOperation;
 use App\Repositories\Api\ApiUserRepository;
 use App\Repositories\Eloquent\EloquentUserRepository;
 use App\Services\NetworkStatusService;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Log;
 
 class HybridUserRepository implements UserRepositoryInterface
 {
@@ -43,7 +45,11 @@ class HybridUserRepository implements UserRepositoryInterface
                 $data = $this->apiRepo->find($id);
                 if ($data) $this->syncLocalCache($data);
                 return $data;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridUserRepo] find() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridUserRepo] find() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -57,7 +63,11 @@ class HybridUserRepository implements UserRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->update($id, $data);
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridUserRepo] update() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridUserRepo] update() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -80,7 +90,11 @@ class HybridUserRepository implements UserRepositoryInterface
             try {
                 $this->apiRepo->updatePassword($id, $password);
                 return;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridUserRepo] updatePassword() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridUserRepo] updatePassword() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -101,7 +115,11 @@ class HybridUserRepository implements UserRepositoryInterface
             try {
                 $this->apiRepo->updatePreferences($id, $preferences);
                 return;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridUserRepo] updatePreferences() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridUserRepo] updatePreferences() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -121,7 +139,11 @@ class HybridUserRepository implements UserRepositoryInterface
                 $data = $this->apiRepo->doctors();
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridUserRepo] doctors() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridUserRepo] doctors() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -135,7 +157,11 @@ class HybridUserRepository implements UserRepositoryInterface
                 $data = $this->apiRepo->searchDoctors($term);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridUserRepo] searchDoctors() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridUserRepo] searchDoctors() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }

@@ -7,6 +7,8 @@ use App\Models\PendingOperation;
 use App\Repositories\Api\ApiPatientVisitRepository;
 use App\Repositories\Eloquent\EloquentPatientVisitRepository;
 use App\Services\NetworkStatusService;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Log;
 
 class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
 {
@@ -43,7 +45,11 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
                 $data = $this->apiRepo->forPatient($patientUuid);
                 $this->syncLocalCache($data);
                 return $data;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientVisitRepo] forPatient() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientVisitRepo] forPatient() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -57,7 +63,11 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->create($patientUuid, $data);
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientVisitRepo] create() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientVisitRepo] create() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -79,7 +89,11 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 return $this->apiRepo->update($visitId, $data);
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientVisitRepo] update() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientVisitRepo] update() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
@@ -102,7 +116,11 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
             try {
                 $this->apiRepo->delete($visitId);
                 return;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientVisitRepo] delete() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientVisitRepo] delete() - API error: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
         }
