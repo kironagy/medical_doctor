@@ -64,8 +64,32 @@ class ChunkUploadController extends Controller
         ]);
 
         if (env('NATIVEPHP_APP_ID')) {
-            $response = $this->api()->post($this->apiBaseUrl() . '/chunk/init', $request->all());
-            return response()->json($response->json(), $response->status());
+            if ($token = session('api_token')) {
+                try {
+                    decrypt($token);
+                } catch (DecryptException $e) {
+                    Log::error('[ChunkUpload] api_token in session is corrupted, cannot proxy init', ['error' => $e->getMessage()]);
+                    return response()->json(['message' => 'Session error: api_token corrupted, please re-login'], 401);
+                }
+            } else {
+                Log::warning('[ChunkUpload] No api_token in session, proxy will be unauthenticated');
+            }
+
+            try {
+                $response = $this->api()->post($this->apiBaseUrl() . '/chunk/init', $request->all());
+                if ($response->failed()) {
+                    Log::warning('[ChunkUpload] Remote init failed', [
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                    ]);
+                }
+                return response()->json($response->json(), $response->status());
+            } catch (\Throwable $e) {
+                Log::error('[ChunkUpload] Proxy exception during init', [
+                    'error' => $e->getMessage(),
+                ]);
+                return response()->json(['message' => 'Upload initiation failed: ' . $e->getMessage()], 502);
+            }
         }
 
         $patient = is_numeric($request->patient_id)
@@ -102,10 +126,25 @@ class ChunkUploadController extends Controller
         ]);
 
         if (env('NATIVEPHP_APP_ID')) {
-            $response = $this->api()
-                ->attach('chunk', $request->file('chunk')->get(), 'chunk')
-                ->post($this->apiBaseUrl() . '/chunk/chunk', $request->except('chunk'));
-            return response()->json($response->json(), $response->status());
+            try {
+                $response = $this->api()
+                    ->attach('chunk', $request->file('chunk')->get(), 'chunk')
+                    ->post($this->apiBaseUrl() . '/chunk/chunk', $request->except('chunk'));
+                if ($response->failed()) {
+                    Log::warning('[ChunkUpload] Remote chunk upload failed', [
+                        'index' => $request->chunk_index,
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                    ]);
+                }
+                return response()->json($response->json(), $response->status());
+            } catch (\Throwable $e) {
+                Log::error('[ChunkUpload] Proxy exception during chunk upload', [
+                    'index' => $request->chunk_index,
+                    'error' => $e->getMessage(),
+                ]);
+                return response()->json(['message' => 'Chunk upload failed: ' . $e->getMessage()], 502);
+            }
         }
 
         $session = $this->sessionService->findOrFail($request->upload_id);
@@ -129,8 +168,21 @@ class ChunkUploadController extends Controller
         ]);
 
         if (env('NATIVEPHP_APP_ID')) {
-            $response = $this->api()->post($this->apiBaseUrl() . '/chunk/complete', $request->all());
-            return response()->json($response->json(), $response->status());
+            try {
+                $response = $this->api()->post($this->apiBaseUrl() . '/chunk/complete', $request->all());
+                if ($response->failed()) {
+                    Log::warning('[ChunkUpload] Remote complete failed', [
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                    ]);
+                }
+                return response()->json($response->json(), $response->status());
+            } catch (\Throwable $e) {
+                Log::error('[ChunkUpload] Proxy exception during complete', [
+                    'error' => $e->getMessage(),
+                ]);
+                return response()->json(['message' => 'Upload completion failed: ' . $e->getMessage()], 502);
+            }
         }
 
         $session = $this->sessionService->findOrFail($request->upload_id);

@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Contracts\Repositories\PatientFileRepositoryInterface;
+use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Domains\Media\Models\PatientFile;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
 use App\Services\ApiProxy;
+use App\Services\NetworkStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -14,14 +17,12 @@ class CategoryFileController extends Controller
 {
     public function files(Request $request, string $patientUuid, string $slug)
     {
-        if (ApiProxy::isEnabled()) {
+        if (ApiProxy::isEnabled() && NetworkStatusService::isOnline()) {
             try {
-                $response = ApiProxy::get('/patients/' . $patientUuid . '/categories/' . $slug . '/files', $request->all());
-                if ($response->successful()) {
-                    return ApiProxy::proxyResponse($response);
-                }
+                app(PatientRepositoryInterface::class)->findByUuid($patientUuid);
+                app(PatientFileRepositoryInterface::class)->forPatient($patientUuid);
             } catch (\Throwable $e) {
-                Log::warning('[CategoryFileController] Proxy request failed, falling back to local DB', [
+                Log::warning('[CategoryFileController] Remote sync failed, using local cache', [
                     'patient_uuid' => $patientUuid,
                     'category' => $slug,
                     'error' => $e->getMessage(),
