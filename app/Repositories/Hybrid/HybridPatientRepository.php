@@ -56,38 +56,73 @@ class HybridPatientRepository implements PatientRepositoryInterface
 
     public function all(): array
     {
+        $start = microtime(true);
+        $source = 'local';
+        $data = null;
+
         if (NetworkStatusService::isOnline()) {
             try {
+                $source = 'api';
                 $data = $this->apiRepo->all();
                 $this->syncLocalCache($data);
-                return $data;
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientRepo] all() - API unavailable, falling back to local: ' . $e->getMessage());
+                $source = 'local_fallback';
             } catch (\Throwable $e) {
                 Log::warning('[HybridPatientRepo] all() - API error, falling back to local: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
+                $source = 'local_fallback';
             }
         }
-        return $this->localRepo->all();
+
+        if ($data === null) {
+            $data = $this->localRepo->all();
+        }
+
+        $elapsed = (microtime(true) - $start) * 1000;
+        Log::channel('single')->info('PROFILER_REPO_ALL', [
+            'source' => $source,
+            'time_ms' => round($elapsed, 2)
+        ]);
+
+        return $data;
     }
 
     public function find(string $uuid): ?array
     {
+        $start = microtime(true);
+        $source = 'local';
+        $data = null;
+
         if (NetworkStatusService::isOnline()) {
             try {
+                $source = 'api';
                 $data = $this->apiRepo->find($uuid);
                 if ($data) $this->syncLocalCache($data);
-                return $data;
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientRepo] find() - API unavailable, falling back to local: ' . $e->getMessage());
+                $source = 'local_fallback';
             } catch (\Throwable $e) {
                 Log::warning('[HybridPatientRepo] find() - API error, falling back to local: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
+                $source = 'local_fallback';
             }
         }
-        return $this->localRepo->find($uuid);
+
+        if (!$data) {
+            $data = $this->localRepo->find($uuid);
+        }
+
+        $elapsed = (microtime(true) - $start) * 1000;
+        Log::channel('single')->info('PROFILER_REPO_FIND', [
+            'uuid' => $uuid,
+            'source' => $source,
+            'time_ms' => round($elapsed, 2)
+        ]);
+
+        return $data;
     }
 
     public function findByUuid(string $uuid): array

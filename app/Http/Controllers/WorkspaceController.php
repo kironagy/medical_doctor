@@ -164,11 +164,15 @@ class WorkspaceController extends Controller
 
     public function patientData(string $uuid)
     {
+        $t0 = microtime(true);
         $patient = $this->patientRepo->findByUuid($uuid);
-
+        $t1 = microtime(true);
         $files = $this->fileRepo->forPatient($uuid);
+        $t2 = microtime(true);
         $notes = $this->noteRepo->forPatient($uuid);
+        $t3 = microtime(true);
         $visits = $this->visitRepo->forPatient($uuid);
+        $t4 = microtime(true);
 
         $nextVisit = collect($visits)->first(fn($v) => ($v['visit_date'] ?? '') >= now()->toDateString());
         $latestVisit = $visits[0] ?? null;
@@ -189,8 +193,9 @@ class WorkspaceController extends Controller
         $patientData['next_appointment_date'] = $nextVisit['visit_date'] ?? null;
 
         $user = auth()->user();
+        $t5 = microtime(true);
 
-        return response()->json([
+        $payload = [
             'patient' => $patientData,
             'files' => $files,
             'notes' => $notes,
@@ -203,7 +208,24 @@ class WorkspaceController extends Controller
                 'can_share' => $user?->can('share', new Patient()) ?? false,
                 'is_primary' => ($patient['primary_doctor_id'] ?? null) === $user?->id,
             ],
+        ];
+
+        $t6 = microtime(true);
+        $response = response()->json($payload);
+        $t7 = microtime(true);
+
+        \Illuminate\Support\Facades\Log::channel('single')->info('Controller: patientData Profiling', [
+            'repo_patient_ms' => round(($t1 - $t0) * 1000, 2),
+            'repo_files_ms' => round(($t2 - $t1) * 1000, 2),
+            'repo_notes_ms' => round(($t3 - $t2) * 1000, 2),
+            'repo_visits_ms' => round(($t4 - $t3) * 1000, 2),
+            'controller_processing_ms' => round(($t5 - $t4) * 1000, 2),
+            'payload_assembly_ms' => round(($t6 - $t5) * 1000, 2),
+            'json_encoding_ms' => round(($t7 - $t6) * 1000, 2),
+            'total_ms' => round(($t7 - $t0) * 1000, 2)
         ]);
+
+        return $response;
     }
 
     public function exportPatient(string $uuid)

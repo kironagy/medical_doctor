@@ -388,6 +388,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { router } from '@inertiajs/vue3'
 import { useWorkspace } from '@/Composables/useWorkspace'
 import { useDialog } from '@/Composables/useDialog'
 import { useToast } from '@/Composables/useToast'
@@ -849,12 +850,46 @@ async function submitNoteForm() {
   }
 }
 
+let removeStart = null
+let removeFinish = null
+
 onMounted(() => {
+  performance.mark('vue-mount-start')
+  
+  try {
+    const payloadSize = JSON.stringify(props).length
+    console.log(`⏱️ Props Size: ${(payloadSize / 1024).toFixed(2)} KB`)
+  } catch (e) {
+    console.log('⏱️ Props Size: unable to stringify')
+  }
+
   setPatients(props.patients)
+  requestAnimationFrame(() => {
+    performance.mark('vue-mount-end')
+    performance.measure('Vue Hydration/Mount', 'vue-mount-start', 'vue-mount-end')
+    console.log(`⏱️ Vue Mount Time: ${performance.getEntriesByName('Vue Hydration/Mount')[0].duration.toFixed(2)}ms`)
+    performance.clearMarks()
+    performance.clearMeasures()
+  })
+
+  removeStart = router.on('start', () => {
+    performance.mark('inertia-nav-start')
+  })
+  
+  removeFinish = router.on('finish', () => {
+    performance.mark('inertia-nav-end')
+    performance.measure('Inertia Navigation', 'inertia-nav-start', 'inertia-nav-end')
+    const measures = performance.getEntriesByName('Inertia Navigation')
+    if (measures.length > 0) {
+      console.log(`⏱️ Inertia Nav Overhead: ${measures[measures.length - 1].duration.toFixed(2)}ms`)
+    }
+  })
 })
 
 onUnmounted(() => {
   closeAllMenus()
   showSettings.value = false
+  if (removeStart) removeStart()
+  if (removeFinish) removeFinish()
 })
 </script>

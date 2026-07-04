@@ -182,6 +182,8 @@
                       e.target.style.display='none';
                       e.target.nextElementSibling?.classList.remove('hidden');
                     }
+                  }" @load="e => {
+                    console.log(`⏱️ Image Load Time [${file.uuid}]: ${performance.now().toFixed(2)}ms`)
                   }" loading="lazy" />
                   <div :class="{ 'hidden': file.thumbnail_url }" class="w-full h-full flex items-center justify-center z-10 bg-slate-50 dark:bg-slate-800">
                     <div v-if="file.mime_type?.startsWith('image/')" class="text-slate-400 flex items-center justify-center">
