@@ -133,6 +133,12 @@ async function selectPatient(uuid) {
 }
 
 function openPreview(file) {
+  const mime = file.mime_type || ''
+  const isSupported = mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/') || mime === 'application/pdf'
+  if (!isSupported && file.url) {
+    window.open(file.url, '_blank')
+    return
+  }
   previewFile.value = file
   showPreview.value = true
 }
