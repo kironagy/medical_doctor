@@ -46,7 +46,8 @@ class FileAccessController extends Controller
 
     private function logStream(string $uuid, string $method, ?string $range, int $status, int $bytes): void
     {
-        if (!config('app.debug')) return;
+        if (!config('app.debug'))
+            return;
         Log::channel('daily')->info('STREAM', [
             'uuid' => $uuid,
             'method' => $method,
@@ -61,7 +62,9 @@ class FileAccessController extends Controller
         $file = $this->resolveFile($request, $uuid);
 
         $url = URL::temporarySignedRoute(
-            'api.files.stream', now()->addHours(6), ['uuid' => $file->uuid]
+            'api.files.stream',
+            now()->addHours(6),
+            ['uuid' => $file->uuid]
         );
 
         return response()->json(['url' => $url]);
@@ -91,7 +94,8 @@ class FileAccessController extends Controller
             @ini_set('output_handler', '');
             @ini_set('zlib.output_compression', 0);
             @ini_set('max_execution_time', 3600);
-            while (ob_get_level()) ob_end_clean();
+            while (ob_get_level())
+                ob_end_clean();
 
             $fp = fopen($absolutePath, 'rb');
             $this->logStream($uuid, 'GET', null, 200, $fileSize);
@@ -139,7 +143,8 @@ class FileAccessController extends Controller
         @ini_set('output_handler', '');
         @ini_set('zlib.output_compression', 0);
         @ini_set('max_execution_time', 3600);
-        while (ob_get_level()) ob_end_clean();
+        while (ob_get_level())
+            ob_end_clean();
 
         $fp = fopen($absolutePath, 'rb');
         if ($start > 0) {
@@ -174,15 +179,15 @@ class FileAccessController extends Controller
         $path = $file->thumbnail_path;
         if ($path && Storage::disk('local')->exists($path)) {
             return response()->file(Storage::disk('local')->path($path), [
-                'Content-Type'  => 'image/jpeg',
+                'Content-Type' => 'image/jpeg',
                 'Cache-Control' => 'private, max-age=86400',
             ]);
         }
 
         if ($file->file_path && Storage::disk('local')->exists($file->file_path)) {
             $inputAbs = Storage::disk('local')->path($file->file_path);
-            $thumbRel  = substr($file->file_path, 0, strrpos($file->file_path, '.')) . '_thumb.jpg';
-            $thumbAbs  = Storage::disk('local')->path($thumbRel);
+            $thumbRel = substr($file->file_path, 0, strrpos($file->file_path, '.')) . '_thumb.jpg';
+            $thumbAbs = Storage::disk('local')->path($thumbRel);
 
             $ffmpegExists = false;
             if (function_exists('exec')) {
@@ -190,13 +195,24 @@ class FileAccessController extends Controller
                     $whichCmd = DIRECTORY_SEPARATOR === '\\' ? 'where ffmpeg' : 'which ffmpeg';
                     @exec($whichCmd, $output, $returnVar);
                     $ffmpegExists = ($returnVar === 0);
-                } catch (\Throwable $e) {}
+                } catch (\Throwable $e) {
+                }
             }
 
             if ($ffmpegExists) {
                 $process = new \Symfony\Component\Process\Process([
-                    'ffmpeg', '-y', '-ss', '1', '-i', $inputAbs,
-                    '-vframes', '1', '-vf', 'scale=-1:300', '-q:v', '5',
+                    'ffmpeg',
+                    '-y',
+                    '-ss',
+                    '1',
+                    '-i',
+                    $inputAbs,
+                    '-vframes',
+                    '1',
+                    '-vf',
+                    'scale=-1:300',
+                    '-q:v',
+                    '5',
                     $thumbAbs,
                 ]);
                 $process->setTimeout(10);
@@ -205,7 +221,7 @@ class FileAccessController extends Controller
                     if ($process->isSuccessful() && file_exists($thumbAbs) && filesize($thumbAbs) > 512) {
                         $file->update(['thumbnail_path' => $thumbRel]);
                         return response()->file($thumbAbs, [
-                            'Content-Type'  => 'image/jpeg',
+                            'Content-Type' => 'image/jpeg',
                             'Cache-Control' => 'private, max-age=86400',
                         ]);
                     }
@@ -223,8 +239,8 @@ class FileAccessController extends Controller
                         $maxDim = 300;
                         $ratio = min($maxDim / max($srcW, 1), $maxDim / max($srcH, 1));
                         if ($ratio < 1) {
-                            $dstW = (int)round($srcW * $ratio);
-                            $dstH = (int)round($srcH * $ratio);
+                            $dstW = (int) round($srcW * $ratio);
+                            $dstH = (int) round($srcH * $ratio);
                             $srcImg = @imagecreatefromstring(file_get_contents($inputAbs));
                             if ($srcImg) {
                                 $dstImg = imagecreatetruecolor($dstW, $dstH);
@@ -243,16 +259,17 @@ class FileAccessController extends Controller
                         } else {
                             // Already small image, just return the original image
                             return response()->file($inputAbs, [
-                                'Content-Type'  => $file->mime_type,
+                                'Content-Type' => $file->mime_type,
                                 'Cache-Control' => 'private, max-age=86400',
                             ]);
                         }
                     }
-                } catch (\Throwable $e) {}
+                } catch (\Throwable $e) {
+                }
 
                 // Default fallback for any image: stream the original
                 return response()->file($inputAbs, [
-                    'Content-Type'  => $file->mime_type,
+                    'Content-Type' => $file->mime_type,
                     'Cache-Control' => 'private, max-age=86400',
                 ]);
             }
@@ -266,11 +283,11 @@ class FileAccessController extends Controller
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         return response()->json([
-            'uuid'          => $file->uuid,
+            'uuid' => $file->uuid,
             'upload_status' => $file->upload_status,
-            'type'          => $file->type,
+            'type' => $file->type,
             'thumbnail_url' => $file->thumbnail_url,
-            'hls_url'       => null,
+            'hls_url' => null,
         ]);
     }
 

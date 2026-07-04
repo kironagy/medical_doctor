@@ -858,7 +858,7 @@ let removeFinish = null
 
 onMounted(() => {
   performance.mark('vue-mount-start')
-  
+
   try {
     const payloadSize = JSON.stringify(props).length
     console.log(`⏱️ Props Size: ${(payloadSize / 1024).toFixed(2)} KB`)
@@ -878,7 +878,7 @@ onMounted(() => {
   removeStart = router.on('start', () => {
     performance.mark('inertia-nav-start')
   })
-  
+
   removeFinish = router.on('finish', () => {
     performance.mark('inertia-nav-end')
     performance.measure('Inertia Navigation', 'inertia-nav-start', 'inertia-nav-end')
