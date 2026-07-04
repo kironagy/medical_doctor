@@ -37,7 +37,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 }
 
                 $cleanData = \Illuminate\Support\Arr::except($item, [
-                    'primary_doctor', 'visits', 'shares', 'files', 'notes'
+                    'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes'
                 ]);
                 try {
                     \App\Domains\Patients\Models\Patient::unguard();

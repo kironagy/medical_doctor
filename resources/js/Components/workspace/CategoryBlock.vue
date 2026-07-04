@@ -173,16 +173,26 @@
                 class="group relative bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden hover:shadow-sm transition-shadow cursor-pointer"
                 @click="isMobile ? (activeSheetFile = file) : undefined"
               >
-                <div @click="!isMobile ? openPreview(file) : undefined" class="aspect-[4/3] flex items-center justify-center overflow-hidden">
-                  <img v-if="file.thumbnail_url" :src="file.thumbnail_url" class="object-cover w-full h-full" @error="e => e.target.style.display='none'" loading="lazy" />
-                  <div v-else-if="file.mime_type?.startsWith('image/')" class="text-slate-400 flex items-center justify-center">
-                    <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                  </div>
-                  <div v-else class="text-slate-400 flex flex-col items-center justify-center p-2">
-                    <svg v-if="file.mime_type?.startsWith('video/')" class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                    <svg v-else-if="file.mime_type === 'application/pdf'" class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                    <svg v-else class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    <span class="text-[10px] font-medium mt-1 uppercase">{{ file.extension || 'FILE' }}</span>
+                <div @click="!isMobile ? openPreview(file) : undefined" class="aspect-[4/3] flex items-center justify-center overflow-hidden w-full relative">
+                  <img v-if="file.thumbnail_url" :src="file.thumbnail_url" class="object-cover w-full h-full absolute inset-0 z-0" @error="e => {
+                    const relativeUrl = '/api/v1/files/' + file.uuid + '/thumbnail';
+                    if (!e.target.src.endsWith(relativeUrl)) {
+                      e.target.src = relativeUrl;
+                    } else {
+                      e.target.style.display='none';
+                      e.target.nextElementSibling?.classList.remove('hidden');
+                    }
+                  }" loading="lazy" />
+                  <div :class="{ 'hidden': file.thumbnail_url }" class="w-full h-full flex items-center justify-center z-10 bg-slate-50 dark:bg-slate-800">
+                    <div v-if="file.mime_type?.startsWith('image/')" class="text-slate-400 flex items-center justify-center">
+                      <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    </div>
+                    <div v-else class="text-slate-400 flex flex-col items-center justify-center p-2">
+                      <svg v-if="file.mime_type?.startsWith('video/')" class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                      <svg v-else-if="file.mime_type === 'application/pdf'" class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                      <svg v-else class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                      <span class="text-[10px] font-medium mt-1 uppercase">{{ file.extension || 'FILE' }}</span>
+                    </div>
                   </div>
                 </div>
                 <div class="p-1.5">

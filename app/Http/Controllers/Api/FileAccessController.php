@@ -84,9 +84,13 @@ class FileAccessController extends Controller
 
     public function generateSignedUrl(Request $request, string $uuid)
     {
-        if (env('NATIVEPHP_APP_ID')) {
-            $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/signed-url');
-            return response()->json($response->json(), $response->status());
+        if (env('NATIVEPHP_APP_ID') && \App\Services\NetworkStatusService::isOnline()) {
+            try {
+                $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/signed-url');
+                return response()->json($response->json(), $response->status());
+            } catch (\Exception $e) {
+                Log::warning('[FileAccess] Failed to generate remote signed URL, falling back to local: ' . $e->getMessage());
+            }
         }
 
         $file = $this->resolveFile($request, $uuid);
@@ -100,12 +104,15 @@ class FileAccessController extends Controller
 
     public function streamDirect(Request $request, string $uuid)
     {
-        if (env('NATIVEPHP_APP_ID')) {
-            $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/signed-url');
-            if ($response->successful() && $url = $response->json('url')) {
-                return redirect()->away($url);
+        if (env('NATIVEPHP_APP_ID') && \App\Services\NetworkStatusService::isOnline()) {
+            try {
+                $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/signed-url');
+                if ($response->successful() && $url = $response->json('url')) {
+                    return redirect()->away($url);
+                }
+            } catch (\Exception $e) {
+                Log::warning('[FileAccess] Failed to redirect to remote signed URL, falling back to local: ' . $e->getMessage());
             }
-            abort(404, 'File not found on remote server.');
         }
 
         $file = $this->resolveFile($request, $uuid);
@@ -202,17 +209,20 @@ class FileAccessController extends Controller
 
     public function thumbnailDirect(string $uuid)
     {
-        if (env('NATIVEPHP_APP_ID')) {
-            $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/thumbnail');
-            if ($response->successful()) {
-                $body = $response->body();
-                $contentType = $response->header('Content-Type') ?? 'image/jpeg';
-                return response($body, 200, [
-                    'Content-Type' => $contentType,
-                    'Cache-Control' => 'public, max-age=86400, immutable',
-                ]);
+        if (env('NATIVEPHP_APP_ID') && \App\Services\NetworkStatusService::isOnline()) {
+            try {
+                $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/thumbnail');
+                if ($response->successful()) {
+                    $body = $response->body();
+                    $contentType = $response->header('Content-Type') ?? 'image/jpeg';
+                    return response($body, 200, [
+                        'Content-Type' => $contentType,
+                        'Cache-Control' => 'public, max-age=86400, immutable',
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::warning('[FileAccess] Failed to get remote thumbnail, falling back to local: ' . $e->getMessage());
             }
-            return response()->noContent();
         }
 
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
@@ -272,9 +282,21 @@ class FileAccessController extends Controller
                                     ]);
                                 }
                             }
+                        } else {
+                            // Already small image, just return the original image
+                            return response()->file($inputAbs, [
+                                'Content-Type'  => $file->mime_type,
+                                'Cache-Control' => 'private, max-age=86400',
+                            ]);
                         }
                     }
                 } catch (\Throwable $e) {}
+
+                // Default fallback for any image: stream the original
+                return response()->file($inputAbs, [
+                    'Content-Type'  => $file->mime_type,
+                    'Cache-Control' => 'private, max-age=86400',
+                ]);
             }
         }
 

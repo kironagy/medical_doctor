@@ -136,6 +136,26 @@ class FileController extends Controller
         ]);
     }
 
+    public function thumbnail(Request $request, string $fileUuid)
+    {
+        $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
+        Gate::authorize('view', $file->patient);
+
+        $path = $file->thumbnail_path;
+        if ($path && Storage::disk('local')->exists($path)) {
+            return response()->file(Storage::disk('local')->path($path), [
+                'Content-Type'  => 'image/jpeg',
+                'Cache-Control' => 'public, max-age=86400, immutable',
+            ]);
+        }
+
+        if (str_starts_with($file->mime_type ?? '', 'image/')) {
+            return $this->stream($request, $fileUuid);
+        }
+
+        return response()->noContent();
+    }
+
     public function destroy(Request $request, string $fileUuid)
     {
         $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();

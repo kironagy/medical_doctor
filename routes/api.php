@@ -54,6 +54,7 @@ Route::prefix('v1')->group(function () {
             Route::delete('/files/{fileUuid}', [FileController::class, 'destroy']);
             Route::get('/files/{fileUuid}', [FileController::class, 'show']);
             Route::get('/files/{fileUuid}/stream', [FileController::class, 'stream'])->name('mobile.files.stream');
+            Route::get('/files/{fileUuid}/thumbnail', [FileController::class, 'thumbnail'])->name('mobile.files.thumbnail');
 
             // Doctors
             Route::get('/doctors', [DoctorController::class, 'index']);

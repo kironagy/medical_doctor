@@ -38,6 +38,22 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 }
 
                 $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'creator', 'uploader']);
+                // Resolve local patient_id via UUID to prevent foreign key or patient mismatches
+                $patientUuid = $item['patient_uuid'] ?? ($item['patient']['uuid'] ?? null);
+                if ($patientUuid) {
+                    $localPatient = \App\Domains\Patients\Models\Patient::where('uuid', $patientUuid)->first();
+                    if ($localPatient) {
+                        $cleanData['patient_id'] = $localPatient->id;
+                    }
+                }
+                
+                // Generate a local file path if missing from remote API metadata response
+                if (empty($cleanData['file_path'])) {
+                    $pUuid = $patientUuid ?? 'unknown';
+                    $fileName = $item['file_name'] ?? ($item['title'] ?? 'file');
+                    $cleanData['file_path'] = "patients/{$pUuid}/{$fileName}";
+                }
+
                 // Map API response field names to model field names
                 if (isset($cleanData['description']) && !isset($cleanData['desc'])) {
                     $cleanData['desc'] = $cleanData['description'];
@@ -66,11 +82,12 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
     private function rewriteUrls(array $item): array
     {
         if (isset($item['uuid'])) {
-            $item['url'] = url('/api/v1/files/' . $item['uuid']);
+            $baseUrl = rtrim(config('app.url'), '/');
+            $item['url'] = $baseUrl . '/api/v1/files/' . $item['uuid'];
             
             if (!empty($item['thumbnail_path']) || !empty($item['thumbnail_url'])) {
                 // We MUST proxy the thumbnail through the local API to inject the Bearer token
-                $item['thumbnail_url'] = url('/api/v1/files/' . $item['uuid'] . '/thumbnail');
+                $item['thumbnail_url'] = $baseUrl . '/api/v1/files/' . $item['uuid'] . '/thumbnail';
             } elseif (isset($item['mime_type']) && str_starts_with($item['mime_type'], 'image/')) {
                 $item['thumbnail_url'] = $item['url'];
             }

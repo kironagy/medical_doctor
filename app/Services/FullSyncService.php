@@ -38,9 +38,47 @@ class FullSyncService
 
                 try {
                     // This pulls child files, notes, visits from API and caches them locally
-                    $this->fileRepo->forPatient($p['uuid']);
+                    $files = $this->fileRepo->forPatient($p['uuid']);
                     $this->noteRepo->forPatient($p['uuid']);
                     $this->visitRepo->forPatient($p['uuid']);
+
+                    // Download actual files and thumbnails to local disk for offline preview
+                    foreach ($files as $fileData) {
+                        $uuid = $fileData['uuid'] ?? null;
+                        if (!$uuid) continue;
+
+                        $fileModel = \App\Domains\Media\Models\PatientFile::where('uuid', $uuid)->first();
+                        if (!$fileModel) continue;
+
+                        $filePath = $fileModel->file_path;
+                        $thumbPath = $fileModel->thumbnail_path;
+
+                        // 1. Download file binary if missing
+                        if ($filePath && !\Illuminate\Support\Facades\Storage::disk('local')->exists($filePath)) {
+                            try {
+                                $response = \App\Services\ApiProxy::get('/files/' . $uuid . '/stream');
+                                if ($response->successful()) {
+                                    \Illuminate\Support\Facades\Storage::disk('local')->put($filePath, $response->body());
+                                    Log::info("[FullSyncService] Downloaded file binary: {$filePath}");
+                                }
+                            } catch (\Throwable $dlErr) {
+                                Log::warning("[FullSyncService] Failed to download file binary for {$uuid}: " . $dlErr->getMessage());
+                            }
+                        }
+
+                        // 2. Download thumbnail binary if missing
+                        if ($thumbPath && !\Illuminate\Support\Facades\Storage::disk('local')->exists($thumbPath)) {
+                            try {
+                                $response = \App\Services\ApiProxy::get('/files/' . $uuid . '/thumbnail');
+                                if ($response->successful()) {
+                                    \Illuminate\Support\Facades\Storage::disk('local')->put($thumbPath, $response->body());
+                                    Log::info("[FullSyncService] Downloaded thumbnail binary: {$thumbPath}");
+                                }
+                            } catch (\Throwable $dlErr) {
+                                Log::warning("[FullSyncService] Failed to download thumbnail for {$uuid}: " . $dlErr->getMessage());
+                            }
+                        }
+                    }
                 } catch (\Throwable $e) {
                     Log::warning("[FullSyncService] Failed to sync child resources for patient {$p['uuid']}: " . $e->getMessage());
                 }

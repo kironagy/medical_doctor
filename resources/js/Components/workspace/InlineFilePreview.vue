@@ -43,27 +43,33 @@
             @click="toggleZoom"
           >
             <img
-              :src="file.url"
+              :src="fileUrl"
               loading="lazy"
               decoding="async"
               class="transition-transform duration-200 rounded-lg"
               :class="isZoomed ? 'max-w-none' : 'max-w-full max-h-full object-contain'"
               :style="isZoomed ? { transform: 'scale(2)', transformOrigin: zoomOrigin } : {}"
               @mousemove="onImageMouseMove"
+              @error="e => {
+                const relativeUrl = '/api/v1/files/' + file.uuid;
+                if (!e.target.src.endsWith(relativeUrl)) {
+                  e.target.src = relativeUrl;
+                }
+              }"
               ref="imageRef"
             />
           </div>
           <div v-else-if="file?.mime_type?.startsWith('video/')" class="w-full max-w-5xl mx-auto">
             <VideoPlayer
-              :src="file.url"
+              :src="fileUrl"
               :type="file.mime_type"
-              :poster="file.thumbnail_url"
+              :poster="thumbnailPostUrl"
               class="rounded-lg overflow-hidden"
             />
           </div>
           <div v-else-if="file?.mime_type === 'application/pdf'" class="w-full h-full">
             <iframe
-              :src="`${file.url}#view=FitH`"
+              :src="`${fileUrl}#view=FitH`"
               class="w-full h-full rounded-lg bg-white dark:bg-slate-900"
               style="min-height: 75vh;"
               loading="lazy"
@@ -169,6 +175,35 @@ const {
 const isZoomed = ref(false)
 const zoomOrigin = ref('center center')
 const imageRef = ref(null)
+
+const signedUrl = ref('')
+const signedThumbnailUrl = ref('')
+
+const fileUrl = computed(() => {
+  return signedUrl.value || file.value?.url || ''
+})
+
+const thumbnailPostUrl = computed(() => {
+  return signedThumbnailUrl.value || file.value?.thumbnail_url || ''
+})
+
+const fetchSignedUrls = async () => {
+  if (!file.value?.uuid) return
+  try {
+    const res = await axios.get(`/api/v1/files/${file.value.uuid}/signed-url`)
+    signedUrl.value = res.data.url
+  } catch (e) {
+    console.warn('Failed to fetch signed URL, using direct URL', e)
+  }
+}
+
+watch(file, async (newFile) => {
+  signedUrl.value = ''
+  signedThumbnailUrl.value = ''
+  if (newFile) {
+    await fetchSignedUrls()
+  }
+}, { immediate: true })
 
 const showEdit = ref(false)
 const saving = ref(false)
