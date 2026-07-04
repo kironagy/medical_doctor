@@ -36,6 +36,8 @@
           >
             <img
               :src="file.url"
+              loading="lazy"
+              decoding="async"
               class="transition-transform duration-200 rounded-lg"
               :class="isZoomed ? 'max-w-none' : 'max-w-full max-h-full object-contain'"
               :style="isZoomed ? { transform: 'scale(2)', transformOrigin: zoomOrigin } : {}"

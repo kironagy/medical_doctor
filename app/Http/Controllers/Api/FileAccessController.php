@@ -101,17 +101,11 @@ class FileAccessController extends Controller
     public function streamDirect(Request $request, string $uuid)
     {
         if (env('NATIVEPHP_APP_ID')) {
-            $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/stream');
-            if ($response->failed()) {
-                abort(404, 'File not found on remote server.');
+            $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/signed-url');
+            if ($response->successful() && $url = $response->json('url')) {
+                return redirect()->away($url);
             }
-            return response($response->body(), 200, [
-                'Content-Type' => $response->header('Content-Type') ?? 'application/octet-stream',
-                'Content-Length' => $response->header('Content-Length') ?? strlen($response->body()),
-                'Content-Disposition' => $response->header('Content-Disposition') ?? 'inline',
-                'Accept-Ranges' => $response->header('Accept-Ranges') ?? 'bytes',
-                'Cache-Control' => $response->header('Cache-Control') ?? 'private, no-transform, max-age=3600',
-            ]);
+            abort(404, 'File not found on remote server.');
         }
 
         $file = $this->resolveFile($request, $uuid);
@@ -213,7 +207,10 @@ class FileAccessController extends Controller
             if ($response->successful()) {
                 $body = $response->body();
                 $contentType = $response->header('Content-Type') ?? 'image/jpeg';
-                return response($body, 200, ['Content-Type' => $contentType]);
+                return response($body, 200, [
+                    'Content-Type' => $contentType,
+                    'Cache-Control' => 'public, max-age=86400, immutable',
+                ]);
             }
             return response()->noContent();
         }

@@ -152,6 +152,19 @@ function refreshWorkspaceData() {
   }
 }
 
+function updateFileLocally(updatedFile) {
+  if (!workspaceData.value || !workspaceData.value.files) return
+  const idx = workspaceData.value.files.findIndex(f => f.uuid === updatedFile.uuid)
+  if (idx !== -1) {
+    workspaceData.value.files[idx] = { ...workspaceData.value.files[idx], ...updatedFile }
+  }
+}
+
+function removeFileLocally(fileUuid) {
+  if (!workspaceData.value || !workspaceData.value.files) return
+  workspaceData.value.files = workspaceData.value.files.filter(f => f.uuid !== fileUuid)
+}
+
 function reloadPatientData() {
   if (selectedPatientId.value) {
     selectPatient(selectedPatientId.value)
@@ -304,6 +317,8 @@ export function useWorkspace() {
     openPreview,
     closePreview,
     refreshWorkspaceData,
+    updateFileLocally,
+    removeFileLocally,
     reloadPatientData,
     navigateTo,
     addPatient,

@@ -196,9 +196,9 @@
                   mode="overlay"
                   :categories="allCategories"
                   @preview="openPreview"
-                  @file-updated="refreshWorkspaceData()"
-                  @file-moved="refreshWorkspaceData()"
-                  @file-deleted="refreshWorkspaceData()"
+                  @file-updated="updateFileLocally"
+                  @file-moved="updateFileLocally"
+                  @file-deleted="removeFileLocally($event.uuid)"
                 />
               </div>
             </div>
@@ -243,9 +243,9 @@
             mode="sheet"
             :categories="allCategories"
             @preview="openPreview"
-            @file-updated="refreshWorkspaceData(); activeSheetFile = null"
-            @file-moved="refreshWorkspaceData(); activeSheetFile = null"
-            @file-deleted="refreshWorkspaceData(); activeSheetFile = null"
+            @file-updated="updateFileLocally($event); activeSheetFile = null"
+            @file-moved="updateFileLocally($event); activeSheetFile = null"
+            @file-deleted="removeFileLocally($event.uuid); activeSheetFile = null"
             @close="activeSheetFile = null"
           />
 
@@ -412,7 +412,7 @@ const props = defineProps({
   allCategories: { type: Array, default: () => [] },
 })
 
-const { toggleCategory, isCategoryExpanded, canEdit, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile, allFiles, allNotes } = useWorkspace()
+const { toggleCategory, isCategoryExpanded, canEdit, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile, allFiles, allNotes, updateFileLocally, removeFileLocally } = useWorkspace()
 const { uploadFile, cancelUpload, pauseUpload, resumeUpload, retryUpload, uploads } = useUploads()
 const dialog = useDialog()
 const toast = useToast()

@@ -35,8 +35,8 @@
           <div class="px-5 pb-4">
             <div class="flex items-center gap-4 mb-4 pb-4 border-b border-slate-100 dark:border-slate-800">
               <div class="w-14 h-14 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden shrink-0">
-                <img v-if="file.thumbnail_url" :src="file.thumbnail_url" class="w-full h-full object-cover" @error="e => e.target.style.display='none'" />
-                <img v-else-if="file.mime_type?.startsWith('image/')" :src="file.url" class="w-full h-full object-cover" />
+                <img v-if="file.thumbnail_url" :src="file.thumbnail_url" loading="lazy" decoding="async" class="w-full h-full object-cover" @error="e => e.target.style.display='none'" />
+                <img v-else-if="file.mime_type?.startsWith('image/')" :src="file.url" loading="lazy" decoding="async" class="w-full h-full object-cover" />
                 <svg v-else class="w-7 h-7 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
               </div>
               <div class="min-w-0 flex-1">

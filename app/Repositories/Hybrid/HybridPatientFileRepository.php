@@ -52,13 +52,26 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
         }
     }
 
+    private function rewriteUrls(array $item): array
+    {
+        if (isset($item['uuid'])) {
+            $item['url'] = url('/api/v1/files/' . $item['uuid']);
+            if (!empty($item['thumbnail_path']) || !empty($item['thumbnail_url'])) {
+                $item['thumbnail_url'] = url('/api/v1/files/' . $item['uuid'] . '/thumbnail');
+            } elseif (isset($item['mime_type']) && str_starts_with($item['mime_type'], 'image/')) {
+                $item['thumbnail_url'] = $item['url'];
+            }
+        }
+        return $item;
+    }
+
     public function forPatient(string $patientUuid): array
     {
         if (NetworkStatusService::isOnline()) {
             try {
                 $data = $this->apiRepo->forPatient($patientUuid);
                 $this->syncLocalCache($data);
-                return $data;
+                return array_map([$this, 'rewriteUrls'], $data);
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientFileRepo] forPatient() - API unavailable: ' . $e->getMessage());
@@ -75,8 +88,11 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 $data = $this->apiRepo->find($uuid);
-                if ($data) $this->syncLocalCache($data);
-                return $data;
+                if ($data) {
+                    $this->syncLocalCache([$data]);
+                    return $this->rewriteUrls($data);
+                }
+                return null;
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientFileRepo] find() - API unavailable: ' . $e->getMessage());
@@ -94,7 +110,8 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
 
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->upload($patientUuid, $file, $data);
+                $apiData = $this->apiRepo->upload($patientUuid, $file, $data);
+                return $this->rewriteUrls($apiData);
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientFileRepo] upload() - API unavailable: ' . $e->getMessage());
@@ -145,7 +162,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
             try {
                 $data = $this->apiRepo->byCategory($patientUuid, $categorySlug);
                 $this->syncLocalCache($data);
-                return $data;
+                return array_map([$this, 'rewriteUrls'], $data);
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientFileRepo] byCategory() - API unavailable: ' . $e->getMessage());
