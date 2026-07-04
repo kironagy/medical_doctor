@@ -8,6 +8,7 @@ use App\Repositories\Api\ApiPatientFileRepository;
 use App\Repositories\Eloquent\EloquentPatientFileRepository;
 use App\Services\NetworkStatusService;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
 class HybridPatientFileRepository implements PatientFileRepositoryInterface
@@ -31,6 +32,14 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                     $cleanData['desc'] = $cleanData['description'];
                 }
                 unset($cleanData['description'], $cleanData['url'], $cleanData['thumbnail_url']);
+                // uploaded_by_id is NOT NULL in the DB, but the API only sends nested uploader
+                if (empty($cleanData['uploaded_by_id'])) {
+                    if (isset($item['uploader']['id'])) {
+                        $cleanData['uploaded_by_id'] = $item['uploader']['id'];
+                    } else {
+                        $cleanData['uploaded_by_id'] = Auth::id();
+                    }
+                }
                 try {
                     \App\Domains\Media\Models\PatientFile::updateOrCreate(
                     ['uuid' => $item['uuid']],

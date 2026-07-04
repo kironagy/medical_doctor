@@ -53,6 +53,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/patients/{uuid}/files', [FileController::class, 'store']);
             Route::delete('/files/{fileUuid}', [FileController::class, 'destroy']);
             Route::get('/files/{fileUuid}', [FileController::class, 'show']);
+            Route::get('/files/{fileUuid}/stream', [FileController::class, 'stream'])->name('mobile.files.stream');
 
             // Doctors
             Route::get('/doctors', [DoctorController::class, 'index']);

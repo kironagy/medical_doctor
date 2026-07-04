@@ -10,6 +10,7 @@ use App\Domains\ActivityLogs\Services\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FileController extends Controller
 {
@@ -100,6 +101,39 @@ class FileController extends Controller
         ]);
 
         return response()->json(new FileResource($file), 201);
+    }
+
+    public function stream(Request $request, string $fileUuid)
+    {
+        $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
+        Gate::authorize('view', $file->patient);
+
+        $path = $file->file_path;
+        if (!Storage::disk('local')->exists($path)) {
+            abort(404, 'File not found on disk.');
+        }
+
+        $absolutePath = Storage::disk('local')->path($path);
+        $mime = mime_content_type($absolutePath) ?: 'application/octet-stream';
+        $size = filesize($absolutePath);
+
+        return new StreamedResponse(function () use ($absolutePath) {
+            $fp = fopen($absolutePath, 'rb');
+            if ($fp) {
+                $buf = 1024 * 1024;
+                while (!feof($fp)) {
+                    echo fread($fp, $buf);
+                    fflush($fp);
+                }
+                fclose($fp);
+            }
+        }, 200, [
+            'Content-Type' => $mime,
+            'Content-Length' => $size,
+            'Content-Disposition' => 'inline; filename="' . $file->file_name . '"',
+            'Accept-Ranges' => 'bytes',
+            'Cache-Control' => 'private, no-transform, max-age=3600',
+        ]);
     }
 
     public function destroy(Request $request, string $fileUuid)

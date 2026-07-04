@@ -103,7 +103,7 @@
                     :placeholder="$t('category.search_placeholder')"
                     class="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500 text-slate-700 dark:text-slate-300"
                   />
-                <svg v-if="searching" class="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+
               </div>
               <div class="relative">
                   <select v-model="dateFilter" @change="onDateFilterChange" class="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 pr-8">
@@ -155,17 +155,12 @@
             </div>
           </div>
 
-          <!-- Loading State -->
-          <div v-if="loading && files.length === 0" class="text-center py-8">
-            <div class="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          </div>
-
           <!-- Files Grid -->
-          <div v-if="!loading && files.length > 0">
+          <div v-if="files.length > 0">
             <div class="flex items-center justify-between mb-2">
               <h4 class="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                 {{ $t('category.files') }}
-                <span v-if="searchQuery" class="text-slate-400 font-normal lowercase ms-1">({{ meta.total }} {{ $t('category.results') }})</span>
+                <span v-if="searchQuery" class="text-slate-400 font-normal lowercase ms-1">({{ totalItems }} {{ $t('category.results') }})</span>
               </h4>
               <button v-if="canEdit && !showUploadArea" @click="showUploadArea = true" class="text-[11px] font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 flex items-center gap-1">
                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
@@ -201,15 +196,15 @@
                   mode="overlay"
                   :categories="allCategories"
                   @preview="openPreview"
-                  @file-updated="fetchFiles(currentPage)"
-                  @file-moved="fetchFiles(currentPage)"
-                  @file-deleted="fetchFiles(currentPage)"
+                  @file-updated="refreshWorkspaceData()"
+                  @file-moved="refreshWorkspaceData()"
+                  @file-deleted="refreshWorkspaceData()"
                 />
               </div>
             </div>
 
             <!-- Pagination -->
-            <div v-if="meta.last_page > 1" class="flex items-center justify-center gap-1 mt-4">
+            <div v-if="totalPages > 1" class="flex items-center justify-center gap-1 mt-4">
               <button
                 @click="goToPage(currentPage - 1)"
                 :disabled="currentPage <= 1"
@@ -231,9 +226,9 @@
               </template>
               <button
                 @click="goToPage(currentPage + 1)"
-                :disabled="currentPage >= meta.last_page"
+                :disabled="currentPage >= totalPages"
                 class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-                :class="currentPage >= meta.last_page ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                :class="currentPage >= totalPages ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'"
               >
                 {{ $t('category.next') }}
               </button>
@@ -248,14 +243,14 @@
             mode="sheet"
             :categories="allCategories"
             @preview="openPreview"
-            @file-updated="fetchFiles(currentPage); activeSheetFile = null"
-            @file-moved="fetchFiles(currentPage); activeSheetFile = null"
-            @file-deleted="fetchFiles(currentPage); activeSheetFile = null"
+            @file-updated="refreshWorkspaceData(); activeSheetFile = null"
+            @file-moved="refreshWorkspaceData(); activeSheetFile = null"
+            @file-deleted="refreshWorkspaceData(); activeSheetFile = null"
             @close="activeSheetFile = null"
           />
 
           <!-- Search Empty State -->
-          <div v-if="!loading && searchQuery && files.length === 0 && notes.length === 0 && !showUploadArea" class="text-center py-8 px-4">
+          <div v-if="searchQuery && files.length === 0 && notes.length === 0 && !showUploadArea" class="text-center py-8 px-4">
             <div class="w-16 h-16 mx-auto mb-4 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center">
               <svg class="w-8 h-8 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             </div>
@@ -300,7 +295,7 @@
           </div>
 
           <!-- Empty State (no filters, no files) -->
-          <div v-if="!loading && !searchQuery && files.length === 0 && notes.length === 0 && !showUploadArea" class="text-center py-8 px-4">
+          <div v-if="!searchQuery && files.length === 0 && notes.length === 0 && !showUploadArea" class="text-center py-8 px-4">
             <div class="w-16 h-16 mx-auto mb-4 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center">
               <svg class="w-8 h-8 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
             </div>
@@ -417,7 +412,7 @@ const props = defineProps({
   allCategories: { type: Array, default: () => [] },
 })
 
-const { toggleCategory, isCategoryExpanded, canEdit, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile } = useWorkspace()
+const { toggleCategory, isCategoryExpanded, canEdit, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile, allFiles, allNotes } = useWorkspace()
 const { uploadFile, cancelUpload, pauseUpload, resumeUpload, retryUpload, uploads } = useUploads()
 const dialog = useDialog()
 const toast = useToast()
@@ -425,15 +420,9 @@ const toast = useToast()
 const expanded = computed(() => isCategoryExpanded(props.slug))
 const hasLoaded = computed(() => isCategoryLoaded(props.slug))
 
-// Data state
-const files = ref([])
-const notes = ref([])
-const meta = ref({ current_page: 1, last_page: 1, per_page: 6, total: 0, from: 0, to: 0 })
-const loading = ref(false)
-const searching = ref(false)
-const initialLoadDone = ref(false)
-
-// Search & filters
+// Pagination & filters (client-side — workspace already has all data)
+const currentPage = ref(1)
+const perPage = 6
 const searchQuery = ref('')
 const dateFilter = ref('')
 const timeFilter = ref('')
@@ -442,12 +431,114 @@ const customDateFrom = ref('')
 const customDateTo = ref('')
 const customTimeFrom = ref('')
 const customTimeTo = ref('')
+const initialLoadDone = ref(false)
 
-// Computed
-const currentPage = computed(() => meta.value.current_page)
-const totalPages = computed(() => meta.value.last_page)
-const totalItems = computed(() => meta.value.total)
-const notesCount = computed(() => notes.value.length)
+const categoryFiles = computed(() => {
+  return allFiles.value.filter(f => f.category === props.slug)
+})
+const categoryNotes = computed(() => {
+  return allNotes.value.filter(n => n.category === props.slug)
+})
+
+const filteredFilesRaw = computed(() => {
+  let result = [...categoryFiles.value]
+
+  // Search
+  const q = searchQuery.value.trim().toLowerCase()
+  if (q) {
+    result = result.filter(f =>
+      (f.title && f.title.toLowerCase().includes(q)) ||
+      (f.file_name && f.file_name.toLowerCase().includes(q)) ||
+      (f.desc && f.desc.toLowerCase().includes(q)) ||
+      (f.description && f.description.toLowerCase().includes(q)) ||
+      (f.mime_type && f.mime_type.toLowerCase().includes(q)) ||
+      (f.type && f.type.toLowerCase().includes(q))
+    )
+  }
+
+  // Date filter
+  const dr = getDateRange()
+  if (dr.date_from) {
+    const from = new Date(dr.date_from + 'T00:00:00')
+    result = result.filter(f => f.created_at && new Date(f.created_at) >= from)
+  }
+  if (dr.date_to) {
+    const to = new Date(dr.date_to + 'T23:59:59')
+    result = result.filter(f => f.created_at && new Date(f.created_at) <= to)
+  }
+
+  // Time filter
+  const tr = getTimeRange()
+  if (tr.time_from) {
+    const [h1, m1] = tr.time_from.split(':').map(Number)
+    result = result.filter(f => {
+      if (!f.created_at) return false
+      const d = new Date(f.created_at)
+      return d.getHours() > h1 || (d.getHours() === h1 && d.getMinutes() >= m1)
+    })
+  }
+  if (tr.time_to) {
+    const [h2, m2] = tr.time_to.split(':').map(Number)
+    result = result.filter(f => {
+      if (!f.created_at) return false
+      const d = new Date(f.created_at)
+      return d.getHours() < h2 || (d.getHours() === h2 && d.getMinutes() <= m2)
+    })
+  }
+
+  // Sort
+  switch (sortBy.value) {
+    case 'oldest':
+      result.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
+      break
+    case 'name_asc':
+      result.sort((a, b) => (a.file_name || '').localeCompare(b.file_name || ''))
+      break
+    case 'name_desc':
+      result.sort((a, b) => (b.file_name || '').localeCompare(a.file_name || ''))
+      break
+    case 'largest':
+      result.sort((a, b) => (b.size || 0) - (a.size || 0))
+      break
+    case 'smallest':
+      result.sort((a, b) => (a.size || 0) - (b.size || 0))
+      break
+    case 'recently_updated':
+      result.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
+      break
+    case 'newest':
+    default:
+      result.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
+      break
+  }
+
+  return result
+})
+
+const totalItems = computed(() => filteredFilesRaw.value.length)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalItems.value / perPage)))
+const notesCount = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return categoryNotes.value.length
+  return categoryNotes.value.filter(n =>
+    (n.content && n.content.toLowerCase().includes(q))
+  ).length
+})
+
+// Paginated file slice
+const files = computed(() => {
+  const start = (currentPage.value - 1) * perPage
+  return filteredFilesRaw.value.slice(start, start + perPage)
+})
+
+// Filtered notes (only search — no pagination)
+const notes = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return categoryNotes.value
+  return categoryNotes.value.filter(n =>
+    (n.content && n.content.toLowerCase().includes(q))
+  )
+})
 
 const hasActiveFilters = computed(() => {
   return searchQuery.value || dateFilter.value || timeFilter.value || sortBy.value !== 'newest'
@@ -455,8 +546,8 @@ const hasActiveFilters = computed(() => {
 
 const displayedPages = computed(() => {
   const pages = []
-  const total = meta.value.last_page
-  const current = meta.value.current_page
+  const total = totalPages.value
+  const current = currentPage.value
   if (total <= 7) {
     for (let i = 1; i <= total; i++) pages.push(i)
     return pages
@@ -474,54 +565,6 @@ const displayedPages = computed(() => {
 const activeUploads = computed(() => {
   return uploads.value.filter(j => j.metadata?.category === props.slug && j.status !== 'completed' && j.status !== 'cancelled')
 })
-
-// Fetch files from server
-async function fetchFiles(page) {
-  if (!selectedPatient.value?.uuid) return
-  const targetPage = page || 1
-  loading.value = true
-  try {
-    const params = {
-      page: targetPage,
-      per_page: 6,
-      sort: sortBy.value || 'newest',
-    }
-    if (searchQuery.value.trim()) {
-      params.search = searchQuery.value.trim()
-    }
-    if (dateFilter.value) {
-      const range = getDateRange()
-      if (range.date_from) params.date_from = range.date_from
-      if (range.date_to) params.date_to = range.date_to
-    }
-    if (dateFilter.value === 'custom') {
-      if (customDateFrom.value) params.date_from = customDateFrom.value
-      if (customDateTo.value) params.date_to = customDateTo.value
-    }
-    if (timeFilter.value) {
-      const range = getTimeRange()
-      if (range.time_from) params.time_from = range.time_from
-      if (range.time_to) params.time_to = range.time_to
-    }
-    if (timeFilter.value === 'custom') {
-      if (customTimeFrom.value) params.time_from = customTimeFrom.value
-      if (customTimeTo.value) params.time_to = customTimeTo.value
-    }
-    const res = await axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params })
-    files.value = res.data.data || []
-    meta.value = res.data.meta || { current_page: 1, last_page: 1, per_page: 6, total: 0, from: 0, to: 0 }
-    notes.value = res.data.notes || []
-    initialLoadDone.value = true
-  } catch (e) {
-    console.error('Failed to fetch category files', e)
-    files.value = []
-    meta.value = { current_page: 1, last_page: 1, per_page: 6, total: 0, from: 0, to: 0 }
-    notes.value = []
-  } finally {
-    loading.value = false
-    searching.value = false
-  }
-}
 
 function getDateRange() {
   const now = new Date()
@@ -576,13 +619,8 @@ function getTimeRange() {
 }
 
 function goToPage(page) {
-  if (page < 1 || page > meta.value.last_page) return
-  fetchFiles(page)
-}
-
-// Search is handled by the watch(searchQuery, ...) below - this is kept only for the searching state
-function onSearchInput() {
-  searching.value = true
+  if (page < 1 || page > totalPages.value) return
+  currentPage.value = page
 }
 
 function onDateFilterChange() {
@@ -590,7 +628,7 @@ function onDateFilterChange() {
     customDateFrom.value = ''
     customDateTo.value = ''
   }
-  fetchFiles(1)
+  currentPage.value = 1
 }
 
 function onTimeFilterChange() {
@@ -598,11 +636,11 @@ function onTimeFilterChange() {
     customTimeFrom.value = ''
     customTimeTo.value = ''
   }
-  fetchFiles(1)
+  currentPage.value = 1
 }
 
 function onSortChange() {
-  fetchFiles(1)
+  currentPage.value = 1
 }
 
 function clearFilters() {
@@ -614,28 +652,25 @@ function clearFilters() {
   customDateTo.value = ''
   customTimeFrom.value = ''
   customTimeTo.value = ''
-  fetchFiles(1)
+  currentPage.value = 1
 }
 
-// Debounced search watcher - always debounce to avoid immediate fetch
+// Debounced search — resets to page 1
 let searchTimer
 watch(searchQuery, () => {
   clearTimeout(searchTimer)
-  if (initialLoadDone.value) {
-    searchTimer = setTimeout(() => fetchFiles(1), 350)
-  }
+  searchTimer = setTimeout(() => { currentPage.value = 1 }, 350)
 })
 
-// Trigger fetch when expanded for the first time
+// Mark category loaded when expanded for the first time
 watch(expanded, (val) => {
-  if (val && !hasLoaded.value) {
+  if (val) {
     markCategoryLoaded(props.slug)
-    fetchFiles(1)
+    initialLoadDone.value = true
   }
 }, { immediate: true })
 
-// Refresh after upload - only watches uploads matching this category
-// Uses a lightweight counter ref updated by the upload system
+// After upload completes, refresh entire workspace
 const localCompleteCount = ref(0)
 watch(uploads, (list) => {
   let c = 0
@@ -645,7 +680,7 @@ watch(uploads, (list) => {
   }
   if (c > localCompleteCount.value) {
     localCompleteCount.value = c
-    fetchFiles(1)
+    refreshWorkspaceData()
     toast.success('Upload complete')
   }
 }, { flush: 'post' })
@@ -834,7 +869,7 @@ async function submitNote() {
     showCategoryMenu.value = false
     showNoteModal.value = false
     noteContent.value = ''
-    fetchFiles(currentPage.value)
+    refreshWorkspaceData()
     toast.success('Note added')
   } catch (e) { console.error('Add note failed', e) }
 }

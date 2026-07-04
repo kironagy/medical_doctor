@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Contracts\Repositories\PatientFileRepositoryInterface;
 use App\Http\Controllers\Controller;
 use App\Services\Upload\UploadSessionService;
 use App\Services\Upload\ChunkUploadService;
@@ -175,6 +176,18 @@ class ChunkUploadController extends Controller
                         'status' => $response->status(),
                         'body' => $response->body(),
                     ]);
+                } else {
+                    $body = $response->json();
+                    if (!empty($body['uuid'])) {
+                        try {
+                            app(PatientFileRepositoryInterface::class)->find($body['uuid']);
+                        } catch (\Throwable $syncErr) {
+                            Log::warning('[ChunkUpload] Failed to sync uploaded file to local cache', [
+                                'uuid' => $body['uuid'],
+                                'error' => $syncErr->getMessage(),
+                            ]);
+                        }
+                    }
                 }
                 return response()->json($response->json(), $response->status());
             } catch (\Throwable $e) {

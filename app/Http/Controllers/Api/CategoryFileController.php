@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Contracts\Repositories\PatientFileRepositoryInterface;
 use App\Contracts\Repositories\PatientRepositoryInterface;
+use App\Domains\Auth\Scopes\DoctorIsolationScope;
 use App\Domains\Media\Models\PatientFile;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
@@ -30,7 +31,8 @@ class CategoryFileController extends Controller
             }
         }
 
-        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
+        $patient = Patient::withoutGlobalScope(DoctorIsolationScope::class)
+            ->where('uuid', $patientUuid)->firstOrFail();
 
         $page = (int) $request->input('page', 1);
         $perPage = (int) $request->input('per_page', 6);
@@ -44,7 +46,8 @@ class CategoryFileController extends Controller
         if ($perPage < 1 || $perPage > 100) $perPage = 6;
         if ($page < 1) $page = 1;
 
-        $fileQuery = PatientFile::where('patient_id', $patient->id)
+        $fileQuery = PatientFile::withoutGlobalScope(DoctorIsolationScope::class)
+            ->where('patient_id', $patient->id)
             ->where('category', $slug);
 
         // Date filtering
@@ -111,7 +114,8 @@ class CategoryFileController extends Controller
         $files = $fileQuery->with('uploader:id,name')->paginate($perPage, ['*'], 'page', $page);
 
         // Notes search (not paginated - typically few per category)
-        $noteQuery = PatientNote::where('patient_id', $patient->id)
+        $noteQuery = PatientNote::withoutGlobalScope(DoctorIsolationScope::class)
+            ->where('patient_id', $patient->id)
             ->where('category', $slug);
 
         if ($search && strlen(trim($search)) > 0) {

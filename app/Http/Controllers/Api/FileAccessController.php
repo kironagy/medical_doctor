@@ -101,11 +101,17 @@ class FileAccessController extends Controller
     public function streamDirect(Request $request, string $uuid)
     {
         if (env('NATIVEPHP_APP_ID')) {
-            $remoteUrl = $this->apiBaseUrl() . '/files/' . $uuid . '/stream';
-            $encryptedToken = session('api_token');
-            $token = $encryptedToken ? decrypt($encryptedToken) : null;
-            $url = $remoteUrl . '?token=' . urlencode($token ?? '');
-            return redirect()->away($url);
+            $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/stream');
+            if ($response->failed()) {
+                abort(404, 'File not found on remote server.');
+            }
+            return response($response->body(), 200, [
+                'Content-Type' => $response->header('Content-Type') ?? 'application/octet-stream',
+                'Content-Length' => $response->header('Content-Length') ?? strlen($response->body()),
+                'Content-Disposition' => $response->header('Content-Disposition') ?? 'inline',
+                'Accept-Ranges' => $response->header('Accept-Ranges') ?? 'bytes',
+                'Cache-Control' => $response->header('Cache-Control') ?? 'private, no-transform, max-age=3600',
+            ]);
         }
 
         $file = $this->resolveFile($request, $uuid);
