@@ -5,39 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Domains\Media\Models\PatientFile;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
-use Illuminate\Contracts\Encryption\DecryptException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FileAccessController extends Controller
 {
-    private function apiRequest(): ?\Illuminate\Http\Client\PendingRequest
-    {
-    if (!\App\Services\NetworkStatusService::isOnline()) {
-            return null;
-        }
-        $encryptedToken = session('api_token');
-        $token = null;
-        if ($encryptedToken) {
-            try {
-                $token = decrypt($encryptedToken);
-            } catch (DecryptException $e) {
-                Log::warning('Failed to decrypt API token', ['error' => $e->getMessage()]);
-            }
-        }
-        return Http::timeout(30)
-            ->withHeaders(['Accept' => 'application/json'])
-            ->when($token, fn($c) => $c->withToken($token));
-    }
-
-    private function apiBaseUrl(): string
-    {
-        return config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
-    }
-
     private function resolveFile(Request $request, string $uuid): PatientFile
     {
         if ($request->hasValidSignature()) {
@@ -84,15 +58,6 @@ class FileAccessController extends Controller
 
     public function generateSignedUrl(Request $request, string $uuid)
     {
-        if (\App\Services\NetworkStatusService::isOnline()) {
-            try {
-                $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/signed-url');
-                return response()->json($response->json(), $response->status());
-            } catch (\Exception $e) {
-                Log::warning('[FileAccess] Failed to generate remote signed URL, falling back to local: ' . $e->getMessage());
-            }
-        }
-
         $file = $this->resolveFile($request, $uuid);
 
         $url = URL::temporarySignedRoute(
@@ -104,36 +69,11 @@ class FileAccessController extends Controller
 
     public function streamDirect(Request $request, string $uuid)
     {
-        if (\App\Services\NetworkStatusService::isOnline()) {
-            try {
-                $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/signed-url');
-                if ($response->successful() && $url = $response->json('url')) {
-                    return redirect()->away($url);
-                }
-            } catch (\Exception $e) {
-                Log::warning('[FileAccess] Failed to redirect to remote signed URL, falling back to local: ' . $e->getMessage());
-            }
-        }
-
         $file = $this->resolveFile($request, $uuid);
 
         $path = $file->file_path;
         if (!Storage::disk('local')->exists($path)) {
-            if (\App\Services\NetworkStatusService::isOnline()) {
-                try {
-                    $response = \App\Services\ApiProxy::get('/files/' . $uuid . '/stream');
-                    if ($response->successful()) {
-                        Storage::disk('local')->put($path, $response->body());
-                    } else {
-                        abort(404, 'File not found on remote server.');
-                    }
-                } catch (\Exception $e) {
-                    Log::error('[FileAccess] Failed to proxy missing file binary: ' . $e->getMessage());
-                    abort(502, 'Failed to fetch file from production server.');
-                }
-            } else {
-                abort(404, 'File not found on disk and device is offline.');
-            }
+            abort(404, 'File not found on disk.');
         }
 
         $absolutePath = Storage::disk('local')->path($path);
@@ -223,40 +163,11 @@ class FileAccessController extends Controller
 
     public function thumbnailDirect(string $uuid)
     {
-        if (\App\Services\NetworkStatusService::isOnline()) {
-            try {
-                $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/thumbnail');
-                if ($response->successful()) {
-                    $body = $response->body();
-                    $contentType = $response->header('Content-Type') ?? 'image/jpeg';
-                    return response($body, 200, [
-                        'Content-Type' => $contentType,
-                        'Cache-Control' => 'public, max-age=86400, immutable',
-                    ]);
-                }
-            } catch (\Exception $e) {
-                Log::warning('[FileAccess] Failed to get remote thumbnail, falling back to local: ' . $e->getMessage());
-            }
-        }
-
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         $path = $file->thumbnail_path;
         if (empty($path) || !Storage::disk('local')->exists($path)) {
-            if (\App\Services\NetworkStatusService::isOnline()) {
-                try {
-                    $response = \App\Services\ApiProxy::get('/files/' . $uuid . '/thumbnail');
-                    if ($response->successful()) {
-                        if (empty($path)) {
-                            $path = "patients/thumbnails/{$uuid}.jpg";
-                            $file->update(['thumbnail_path' => $path]);
-                        }
-                        Storage::disk('local')->put($path, $response->body());
-                    }
-                } catch (\Exception $e) {
-                    Log::warning('[FileAccess] Failed to proxy missing thumbnail: ' . $e->getMessage());
-                }
-            }
+            return response()->noContent();
         }
 
         // Re-read path and verify it exists
@@ -352,11 +263,6 @@ class FileAccessController extends Controller
 
     public function status(string $uuid)
     {
-        if (\App\Services\NetworkStatusService::isOnline()) {
-            $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/status');
-            return response()->json($response->json(), $response->status());
-        }
-
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         return response()->json([
@@ -370,11 +276,6 @@ class FileAccessController extends Controller
 
     public function update(Request $request, string $uuid)
     {
-        if (\App\Services\NetworkStatusService::isOnline()) {
-            $response = $this->apiRequest()->put($this->apiBaseUrl() . '/files/' . $uuid, $request->all());
-            return response()->json($response->json(), $response->status());
-        }
-
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         if ($request->user()->cannot('update', $file->patient)) {
@@ -398,11 +299,6 @@ class FileAccessController extends Controller
 
     public function destroy(Request $request, string $uuid)
     {
-        if (\App\Services\NetworkStatusService::isOnline()) {
-            app(\App\Contracts\Repositories\PatientFileRepositoryInterface::class)->delete($uuid);
-            return response()->json(['message' => 'Deleted']);
-        }
-
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         if ($request->user()->cannot('delete', $file->patient)) {

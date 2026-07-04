@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\ApiProxy;
 use Illuminate\Http\Request;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientShare;
@@ -14,10 +13,6 @@ class PatientShareController extends Controller
 {
     public function searchDoctors(Request $request)
     {
-        if (ApiProxy::isEnabled()) {
-            return ApiProxy::proxyResponse(ApiProxy::get('/doctors/search', ['q' => $request->get('q', '')]));
-        }
-
         $query = $request->get('q', '');
 
         $doctors = User::role('doctor')
@@ -38,10 +33,6 @@ class PatientShareController extends Controller
 
     public function index(Request $request, string $patientUuid)
     {
-        if (ApiProxy::isEnabled()) {
-            return ApiProxy::proxyResponse(ApiProxy::get('/patients/' . $patientUuid . '/shares'));
-        }
-
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('view', $patient);
 
@@ -55,10 +46,6 @@ class PatientShareController extends Controller
 
     public function store(Request $request, string $patientUuid)
     {
-        if (ApiProxy::isEnabled()) {
-            return ApiProxy::proxyResponse(ApiProxy::post('/patients/' . $patientUuid . '/shares', $request->all()));
-        }
-
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('share', $patient);
 
@@ -90,10 +77,6 @@ class PatientShareController extends Controller
 
     public function destroy(Request $request, string $patientUuid, string $shareId)
     {
-        if (ApiProxy::isEnabled()) {
-            return ApiProxy::proxyResponse(ApiProxy::delete('/patients/' . $patientUuid . '/shares/' . $shareId));
-        }
-
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('share', $patient);
 

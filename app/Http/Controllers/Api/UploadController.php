@@ -7,10 +7,8 @@ use App\Domains\Media\Services\UploadService;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Resources\FileResource;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Exception;
-use Illuminate\Contracts\Encryption\DecryptException;
 
 class UploadController extends Controller
 {
@@ -25,10 +23,6 @@ class UploadController extends Controller
             'category' => 'sometimes|string|max:100',
             'date' => 'sometimes|date',
         ]);
-
-        if (\App\Services\NetworkStatusService::isOnline()) {
-            return $this->forwardUpload($request, $patientUuid);
-        }
 
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
 
@@ -59,58 +53,6 @@ class UploadController extends Controller
                 'error' => $e->getMessage(),
                 'user_id' => auth()->id(),
             ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Upload failed: ' . $e->getMessage(),
-            ], 422);
-        }
-    }
-
-    private function forwardUpload(Request $request, string $patientUuid): \Illuminate\Http\JsonResponse
-    {
-        $encryptedToken = session('api_token');
-        $token = null;
-        if ($encryptedToken) {
-            try {
-                $token = decrypt($encryptedToken);
-            } catch (DecryptException $e) {
-                Log::warning('Failed to decrypt API token in upload proxy', ['error' => $e->getMessage()]);
-            }
-        }
-
-        $apiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
-
-        try {
-            $http = Http::timeout(120)
-                ->withHeaders(['Accept' => 'application/json'])
-                ->when($token, fn($c) => $c->withToken($token))
-                ->attach('file', $request->file('file')->get(), $request->file('file')->getClientOriginalName());
-
-            foreach ($request->only(['title', 'desc', 'category', 'date']) as $key => $value) {
-                if ($value !== null) {
-                    $http = $http->attach($key, $value);
-                }
-            }
-
-            $response = $http->post($apiUrl . '/patients/' . $patientUuid . '/files');
-
-            if ($response->successful()) {
-                return response()->json($response->json(), $response->status());
-            }
-
-            Log::error('Upload proxy failed', [
-                'status' => $response->status(),
-                'body' => $response->body(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => $response->json()['message'] ?? 'Upload failed on remote server.',
-            ], $response->status());
-
-        } catch (Exception $e) {
-            Log::error('Upload proxy exception', ['error' => $e->getMessage()]);
 
             return response()->json([
                 'success' => false,

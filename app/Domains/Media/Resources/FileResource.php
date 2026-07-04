@@ -21,12 +21,8 @@ class FileResource extends JsonResource
             'category' => $this->category,
             'date' => $this->date?->format('Y-m-d'),
             'file_name' => $this->file_name,
-            'url' => $request->is('*mobile*')
-                ? url('/api/v1/mobile/files/' . $this->uuid . '/stream')
-                : $this->url,
-            'thumbnail_url' => $request->is('*mobile*')
-                ? url('/api/v1/mobile/files/' . $this->uuid . '/thumbnail')
-                : $this->thumbnail_url,
+            'url' => $this->url,
+            'thumbnail_url' => $this->thumbnail_url,
             'upload_status' => $this->upload_status, // Always 'ready' with direct uploads
             'created_at' => $this->created_at?->toIso8601String(),
 

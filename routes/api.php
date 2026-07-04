@@ -88,12 +88,5 @@ Route::prefix('v1')->group(function () {
 });
 
 Route::post('/native/sync', function () {
-    \App\Services\NetworkStatusService::clearCache();
-    if (\App\Services\NetworkStatusService::isOnline()) {
-        \App\Jobs\SyncPendingOperationsJob::withChain([
-            new \App\Jobs\FullSyncJob()
-        ])->dispatch();
-        return response()->json(['status' => 'sync_started']);
-    }
-    return response()->json(['status' => 'offline'], 503);
+    return response()->json(['error' => 'Not available'], 403);
 });

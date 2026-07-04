@@ -3,7 +3,6 @@
 namespace App\Jobs;
 
 use App\Services\FullSyncService;
-use App\Services\NetworkStatusService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -16,10 +15,6 @@ class FullSyncJob implements ShouldQueue
 
     public function handle(FullSyncService $syncService): void
     {
-        if (!NetworkStatusService::isOnline()) {
-            return;
-        }
-
         $syncService->syncAll();
     }
 }

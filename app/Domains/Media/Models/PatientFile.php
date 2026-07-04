@@ -28,20 +28,21 @@ class PatientFile extends Model
 
     public function getUrlAttribute()
     {
-        // Use request-relative URL so it works in both mobile and web contexts
-        return url('/api/v1/files/' . $this->uuid);
+        $baseUrl = rtrim(config('app.url'), '/');
+        return $baseUrl . '/api/v1/files/' . $this->uuid;
     }
 
     public function getThumbnailUrlAttribute()
     {
+        $baseUrl = rtrim(config('app.url'), '/');
         if ($this->thumbnail_path) {
-            return url('/api/v1/files/' . $this->uuid . '/thumbnail');
+            return $baseUrl . '/api/v1/files/' . $this->uuid . '/thumbnail';
         }
         if ($this->mime_type && str_starts_with($this->mime_type, 'image/')) {
             return $this->url;
         }
         if ($this->mime_type && str_starts_with($this->mime_type, 'video/')) {
-            return url('/api/v1/files/' . $this->uuid . '/thumbnail');
+            return $baseUrl . '/api/v1/files/' . $this->uuid . '/thumbnail';
         }
         return null;
     }

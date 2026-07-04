@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\ApiProxy;
 use Illuminate\Http\Request;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Users\Models\User;
@@ -16,10 +15,6 @@ class GlobalSearchController extends Controller
 
         if (strlen($query) < 2) {
             return response()->json([]);
-        }
-
-        if (ApiProxy::isEnabled()) {
-            return ApiProxy::proxyResponse(ApiProxy::get('/search', ['q' => $query]));
         }
 
         $results = [];

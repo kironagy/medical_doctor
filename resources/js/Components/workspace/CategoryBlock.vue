@@ -1,3 +1,4 @@
+<template>
   <div class="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
     <div class="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
       <button @click="toggleCategory(slug)" class="flex items-center gap-3 flex-1 text-left">
@@ -64,7 +65,7 @@
 
     <Transition name="accordion">
       <div v-if="expanded" class="border-t border-slate-100 dark:border-slate-800">
-        <div v-if="!loading" class="p-4 space-y-4">
+        <div v-if="hasLoaded && !loading" class="p-4 space-y-4">
 
           <!-- Upload Progress -->
           <div v-if="activeUploads.length > 0" class="space-y-2">
@@ -143,14 +144,14 @@
               <button v-if="hasActiveFilters" @click="clearFilters" class="text-[11px] text-rose-600 hover:text-rose-700 font-medium px-2 py-1">{{ $t('category.clear') }}</button>
             </div>
             <div v-if="dateFilter === 'custom'" class="flex items-center gap-2">
-              <input v-model="customDateFrom" type="date" @change="currentPage = 1" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+              <input v-model="customDateFrom" type="date" @change="loadCategoryData(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
               <span class="text-xs text-slate-400">{{ $t('category.to') }}</span>
-              <input v-model="customDateTo" type="date" @change="currentPage = 1" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+              <input v-model="customDateTo" type="date" @change="loadCategoryData(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
             </div>
             <div v-if="timeFilter === 'custom'" class="flex items-center gap-2">
-              <input v-model="customTimeFrom" type="time" @change="currentPage = 1" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+              <input v-model="customTimeFrom" type="time" @change="loadCategoryData(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
               <span class="text-xs text-slate-400">{{ $t('category.to') }}</span>
-              <input v-model="customTimeTo" type="time" @change="currentPage = 1" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+              <input v-model="customTimeTo" type="time" @change="loadCategoryData(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
             </div>
           </div>
 
@@ -342,6 +343,9 @@
           </div>
 
         </div>
+        <div v-else-if="loading" class="p-6 text-center">
+          <div class="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+        </div>
         <div v-else class="p-6 text-center">
           <div class="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
         </div>
@@ -431,7 +435,7 @@ const toast = useToast()
 const expanded = computed(() => isCategoryExpanded(props.slug))
 const hasLoaded = computed(() => isCategoryLoaded(props.slug))
 
-// Pagination & filters (client-side only - workspace data already has everything)
+// Pagination & filters (server-side now)
 const currentPage = ref(1)
 const perPage = 6
 const searchQuery = ref('')
@@ -442,17 +446,63 @@ const customDateFrom = ref('')
 const customDateTo = ref('')
 const customTimeFrom = ref('')
 const customTimeTo = ref('')
+const initialLoadDone = ref(false)
 const loading = ref(false)
+const serverFiles = ref([])
+const serverNotes = ref([])
+const serverMeta = ref({ total: 0, current_page: 1, last_page: 1 })
 
-// Use workspace data directly - NO separate API calls
+// Lazy load category data when expanded
+async function loadCategoryData(page = 1) {
+  if (!selectedPatient.value?.uuid) return
+
+  loading.value = true
+  try {
+    const params = {
+      page,
+      per_page: perPage,
+      sort: sortBy.value
+    }
+
+    if (searchQuery.value) params.search = searchQuery.value
+    if (dateFilter.value && customDateFrom.value) params.date_from = customDateFrom.value
+    if (dateFilter.value && customDateTo.value) params.date_to = customDateTo.value
+    if (timeFilter.value && customTimeFrom.value) params.time_from = customTimeFrom.value
+    if (timeFilter.value && customTimeTo.value) params.time_to = customTimeTo.value
+
+    const response = await axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params })
+    serverFiles.value = response.data.data
+    serverNotes.value = response.data.notes
+    serverMeta.value = response.data.meta
+    currentPage.value = response.data.meta.current_page
+  } catch (e) {
+    console.error('Failed to load category data', e)
+    toast.error('Failed to load files')
+  } finally {
+    loading.value = false
+  }
+}
+
 const categoryFiles = computed(() => {
+  // Use server-loaded files if available, otherwise fall back to allFiles
+  if (initialLoadDone.value && serverFiles.value.length > 0) {
+    return serverFiles.value
+  }
   return allFiles.value.filter(f => f.category === props.slug)
 })
 const categoryNotes = computed(() => {
+  if (initialLoadDone.value && serverNotes.value.length > 0) {
+    return serverNotes.value
+  }
   return allNotes.value.filter(n => n.category === props.slug)
 })
 
 const filteredFilesRaw = computed(() => {
+  // If we have server files, we don't need to filter client-side
+  if (initialLoadDone.value && serverFiles.value.length > 0) {
+    return serverFiles.value
+  }
+
   let result = [...categoryFiles.value]
 
   // Search
@@ -527,8 +577,19 @@ const filteredFilesRaw = computed(() => {
   return result
 })
 
-const totalItems = computed(() => filteredFilesRaw.value.length)
-const totalPages = computed(() => Math.max(1, Math.ceil(totalItems.value / perPage)))
+const totalItems = computed(() => {
+  if (initialLoadDone.value && serverMeta.value.total !== undefined) {
+    return serverMeta.value.total
+  }
+  return filteredFilesRaw.value.length
+})
+
+const totalPages = computed(() => {
+  if (initialLoadDone.value && serverMeta.value.last_page !== undefined) {
+    return serverMeta.value.last_page
+  }
+  return Math.max(1, Math.ceil(totalItems.value / perPage))
+})
 
 const notesCount = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -540,6 +601,11 @@ const notesCount = computed(() => {
 
 // Paginated file slice
 const files = computed(() => {
+  // If we have server files, they're already paginated
+  if (initialLoadDone.value && serverFiles.value.length > 0) {
+    return serverFiles.value
+  }
+
   const start = (currentPage.value - 1) * perPage
   return filteredFilesRaw.value.slice(start, start + perPage)
 })
@@ -634,6 +700,9 @@ function getTimeRange() {
 function goToPage(page) {
   if (page < 1 || page > totalPages.value) return
   currentPage.value = page
+  if (initialLoadDone.value) {
+    loadCategoryData(page)
+  }
 }
 
 function onDateFilterChange() {
@@ -642,6 +711,9 @@ function onDateFilterChange() {
     customDateTo.value = ''
   }
   currentPage.value = 1
+  if (initialLoadDone.value) {
+    loadCategoryData(1)
+  }
 }
 
 function onTimeFilterChange() {
@@ -650,10 +722,16 @@ function onTimeFilterChange() {
     customTimeTo.value = ''
   }
   currentPage.value = 1
+  if (initialLoadDone.value) {
+    loadCategoryData(1)
+  }
 }
 
 function onSortChange() {
   currentPage.value = 1
+  if (initialLoadDone.value) {
+    loadCategoryData(1)
+  }
 }
 
 function clearFilters() {
@@ -666,6 +744,9 @@ function clearFilters() {
   customTimeFrom.value = ''
   customTimeTo.value = ''
   currentPage.value = 1
+  if (initialLoadDone.value) {
+    loadCategoryData(1)
+  }
 }
 
 // Debounced search — resets to page 1
@@ -674,18 +755,22 @@ watch(searchQuery, () => {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
     currentPage.value = 1
+    if (initialLoadDone.value) {
+      loadCategoryData(1)
+    }
   }, 350)
 })
 
-// Mark category loaded when expanded for the first time
-// NO immediate API call - use workspace data directly
+// Mark category loaded when expanded for the first time, and load data
 watch(expanded, (val) => {
   if (val) {
     markCategoryLoaded(props.slug)
+    initialLoadDone.value = true
+    loadCategoryData(1)
   }
-})
+}, { immediate: true })
 
-// After upload completes, refresh workspace data
+// After upload completes, refresh category data
 const localCompleteCount = ref(0)
 watch(uploads, (list) => {
   let c = 0
@@ -695,7 +780,11 @@ watch(uploads, (list) => {
   }
   if (c > localCompleteCount.value) {
     localCompleteCount.value = c
-    refreshWorkspaceData()
+    if (initialLoadDone.value) {
+      loadCategoryData(1)
+    } else {
+      refreshWorkspaceData()
+    }
     toast.success('Upload complete')
   }
 }, { flush: 'post' })
@@ -909,82 +998,73 @@ async function submitVisit() {
 }
 
 function addTimelineEntry() {
-  showCategoryMenu.value = false
-  dialog.confirm({
-    title: 'Add Timeline Entry',
-    message: 'This feature is coming soon.',
-    confirmText: 'OK',
-    showCancel: false,
-  })
+  addNote()
 }
 
 function openRename() {
-  showCategoryMenu.value = false
   renameValue.value = props.name
   showRenameModal.value = true
 }
 
 async function submitRename() {
-  if (!renameValue.value) return
+  if (!renameValue.value || renameValue.value === props.name) { showRenameModal.value = false; return }
+  showCategoryMenu.value = false
+  showRenameModal.value = false
   try {
-    await axios.put('/api/v1/categories/rename', {
-      old_slug: props.slug,
-      new_name: renameValue.value,
-    })
-    showRenameModal.value = false
+    await axios.put('/api/v1/categories', { categories: [{ slug: props.slug, name: renameValue.value, icon: props.icon, color: props.color }] })
     refreshWorkspaceData()
     toast.success('Category renamed')
   } catch (e) { console.error('Rename failed', e) }
 }
 
 function openChangeColor() {
-  showCategoryMenu.value = false
   colorValue.value = props.color
   showColorModal.value = true
 }
 
 async function submitColor() {
+  if (!colorValue.value) { showColorModal.value = false; return }
+  showCategoryMenu.value = false
+  showColorModal.value = false
   try {
-    await axios.put('/api/v1/categories/color', {
-      slug: props.slug,
-      color: colorValue.value,
-    })
-    showColorModal.value = false
+    await axios.put('/api/v1/categories', { categories: [{ slug: props.slug, name: props.name, icon: props.icon, color: colorValue.value }] })
     refreshWorkspaceData()
-    toast.success('Color updated')
-  } catch (e) { console.error('Color update failed', e) }
+    toast.success('Color changed')
+  } catch (e) { console.error('Color change failed', e) }
 }
 
 async function deleteCategory() {
   showCategoryMenu.value = false
   const confirmed = await dialog.confirm({
     title: 'Delete Category',
-    message: `Are you sure you want to delete "${props.name}"? Files in this category will not be deleted.`,
+    message: `Delete the "${props.name}" category?`,
     confirmText: 'Delete',
-    confirmClass: 'danger',
+    style: 'danger',
   })
   if (!confirmed) return
   try {
     await axios.delete(`/api/v1/categories/${props.slug}`)
     refreshWorkspaceData()
     toast.success('Category deleted')
-  } catch (e) { console.error('Delete failed', e) }
+  } catch (e) { console.error('Delete category failed', e) }
 }
 
 function formatSize(bytes) {
-  if (!bytes) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+  if (!bytes || bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
-function formatSpeed(bytesPerSecond) {
-  if (!bytesPerSecond) return ''
-  return formatSize(bytesPerSecond) + '/s'
+function formatSpeed(bps) {
+  if (!bps || bps <= 0) return ''
+  return formatSize(bps) + '/s'
 }
 </script>
+
+<style scoped>
+.accordion-enter-active, .accordion-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; overflow: hidden; }
+.accordion-enter-from, .accordion-leave-to { opacity: 0; transform: translateY(-8px); }
+.accordion-enter-to, .accordion-leave-from { opacity: 1; transform: translateY(0); }
+</style>
