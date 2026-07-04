@@ -16,7 +16,7 @@ class FileAccessController extends Controller
 {
     private function apiRequest(): ?\Illuminate\Http\Client\PendingRequest
     {
-        if (!env('NATIVEPHP_APP_ID')) {
+    if (!\App\Services\NetworkStatusService::isOnline()) {
             return null;
         }
         $encryptedToken = session('api_token');
@@ -84,7 +84,7 @@ class FileAccessController extends Controller
 
     public function generateSignedUrl(Request $request, string $uuid)
     {
-        if (env('NATIVEPHP_APP_ID') && \App\Services\NetworkStatusService::isOnline()) {
+        if (\App\Services\NetworkStatusService::isOnline()) {
             try {
                 $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/signed-url');
                 return response()->json($response->json(), $response->status());
@@ -104,7 +104,7 @@ class FileAccessController extends Controller
 
     public function streamDirect(Request $request, string $uuid)
     {
-        if (env('NATIVEPHP_APP_ID') && \App\Services\NetworkStatusService::isOnline()) {
+        if (\App\Services\NetworkStatusService::isOnline()) {
             try {
                 $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/signed-url');
                 if ($response->successful() && $url = $response->json('url')) {
@@ -223,7 +223,7 @@ class FileAccessController extends Controller
 
     public function thumbnailDirect(string $uuid)
     {
-        if (env('NATIVEPHP_APP_ID') && \App\Services\NetworkStatusService::isOnline()) {
+        if (\App\Services\NetworkStatusService::isOnline()) {
             try {
                 $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/thumbnail');
                 if ($response->successful()) {
@@ -352,7 +352,7 @@ class FileAccessController extends Controller
 
     public function status(string $uuid)
     {
-        if (env('NATIVEPHP_APP_ID')) {
+        if (\App\Services\NetworkStatusService::isOnline()) {
             $response = $this->apiRequest()->get($this->apiBaseUrl() . '/files/' . $uuid . '/status');
             return response()->json($response->json(), $response->status());
         }
@@ -370,7 +370,7 @@ class FileAccessController extends Controller
 
     public function update(Request $request, string $uuid)
     {
-        if (env('NATIVEPHP_APP_ID')) {
+        if (\App\Services\NetworkStatusService::isOnline()) {
             $response = $this->apiRequest()->put($this->apiBaseUrl() . '/files/' . $uuid, $request->all());
             return response()->json($response->json(), $response->status());
         }
@@ -398,7 +398,7 @@ class FileAccessController extends Controller
 
     public function destroy(Request $request, string $uuid)
     {
-        if (env('NATIVEPHP_APP_ID')) {
+        if (\App\Services\NetworkStatusService::isOnline()) {
             app(\App\Contracts\Repositories\PatientFileRepositoryInterface::class)->delete($uuid);
             return response()->json(['message' => 'Deleted']);
         }

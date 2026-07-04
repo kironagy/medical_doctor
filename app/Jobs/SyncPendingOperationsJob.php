@@ -38,13 +38,13 @@ class SyncPendingOperationsJob implements ShouldQueue
 
     private function processOperation(PendingOperation $operation): void
     {
-        $apiUrl = env('MOBILE_API_URL', 'https://prof-hosam-fekry.online/api/v1/mobile');
+        $apiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
         $payload = $operation->payload ?? [];
         $endpoint = $this->getEndpoint($operation->entity_type, $operation->action, $operation->uuid, $payload);
         $method = $this->getMethod($operation->action);
-        
+
         $url = rtrim($apiUrl, '/') . $endpoint;
-        
+
         $encryptedToken = session('api_token');
         $token = null;
         if ($encryptedToken) {
@@ -52,7 +52,7 @@ class SyncPendingOperationsJob implements ShouldQueue
                 $token = decrypt($encryptedToken);
             } catch (\Exception $e) {}
         }
-        
+
         $http = Http::timeout(120)
             ->withHeaders(['Accept' => 'application/json'])
             ->when($token, fn($c) => $c->withToken($token));
@@ -62,7 +62,7 @@ class SyncPendingOperationsJob implements ShouldQueue
             if ($localPath && \Illuminate\Support\Facades\Storage::disk('local')->exists($localPath)) {
                 $fileContents = \Illuminate\Support\Facades\Storage::disk('local')->get($localPath);
                 $fileFields = \Illuminate\Support\Arr::except($payload, ['local_file_path', 'file_name', 'patient_uuid']);
-                
+
                 $http = $http->attach('file', $fileContents, $payload['file_name']);
                 foreach ($fileFields as $k => $v) {
                     if ($v !== null) $http = $http->attach($k, $v);
@@ -75,7 +75,7 @@ class SyncPendingOperationsJob implements ShouldQueue
             $jsonPayload = \Illuminate\Support\Arr::except($payload, ['patient_uuid']);
             $response = $http->send($method, $url, $jsonPayload);
         }
-            
+
         if ($response->successful()) {
             $resBody = $response->json();
             $newUuid = $resBody['uuid'] ?? $resBody['data']['uuid'] ?? null;

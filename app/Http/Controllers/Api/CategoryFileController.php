@@ -18,7 +18,8 @@ class CategoryFileController extends Controller
 {
     public function files(Request $request, string $patientUuid, string $slug)
     {
-        if (ApiProxy::isEnabled() && NetworkStatusService::isOnline()) {
+        // Ensure data is cached locally if online
+        if (NetworkStatusService::isOnline()) {
             try {
                 app(PatientRepositoryInterface::class)->findByUuid($patientUuid);
                 app(PatientFileRepositoryInterface::class)->forPatient($patientUuid);
@@ -33,6 +34,10 @@ class CategoryFileController extends Controller
 
         $patient = Patient::withoutGlobalScope(DoctorIsolationScope::class)
             ->where('uuid', $patientUuid)->firstOrFail();
+
+        if (!$patient) {
+            return response()->json(['data' => [], 'meta' => [], 'notes' => [], 'notes_count' => 0]);
+        }
 
         $page = (int) $request->input('page', 1);
         $perPage = (int) $request->input('per_page', 6);
@@ -137,8 +142,11 @@ class CategoryFileController extends Controller
 
         $notes = $noteQuery->with('author:id,name,email')->latest()->get();
 
+        // Use FileResource for proper mobile URL generation
+        $fileData = \App\Domains\Media\Resources\FileResource::collection($files);
+
         return response()->json([
-            'data' => $files->items(),
+            'data' => $fileData->resolve($request),
             'meta' => [
                 'current_page' => $files->currentPage(),
                 'last_page' => $files->lastPage(),

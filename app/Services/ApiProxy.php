@@ -10,7 +10,7 @@ class ApiProxy
 {
     public static function isEnabled(): bool
     {
-        return env('NATIVEPHP_APP_ID') !== null;
+        return \App\Services\NetworkStatusService::isOnline();
     }
 
     private static function client(): PendingRequest

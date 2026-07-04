@@ -27,15 +27,22 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
-        $nativeAppId = env('NATIVEPHP_APP_ID');
-        $isMobile = $nativeAppId !== null;
+        Log::debug('[AuthController] login() - attempting runtime network-based login');
 
-        Log::debug('[AuthController] login() | NATIVEPHP_APP_ID=' . ($nativeAppId ?? 'null') . ' | isMobile=' . ($isMobile ? 'true' : 'false'));
-
-        if ($isMobile) {
-            return $this->apiLogin($request, $credentials);
+        // Always try remote API first if online
+        if (\App\Services\NetworkStatusService::isOnline()) {
+            try {
+                return $this->apiLogin($request, $credentials);
+            } catch (\RuntimeException $e) {
+                Log::warning('[AuthController] API login failed, falling back to local: ' . $e->getMessage());
+                \App\Services\NetworkStatusService::setOnline(false);
+            } catch (\Exception $e) {
+                Log::warning('[AuthController] API login error, falling back to local: ' . $e->getMessage());
+                \App\Services\NetworkStatusService::setOnline(false);
+            }
         }
 
+        // Fallback to local authentication
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
             return redirect()->intended('dashboard');
@@ -118,7 +125,7 @@ class AuthController extends Controller
         );
 
         $roleNames = $userData['roles'] ?? (isset($userData['role']) ? [$userData['role']] : ['doctor']);
-        
+
         // Persist and sync roles in local SQLite database
         foreach ($roleNames as $name) {
             \Spatie\Permission\Models\Role::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
@@ -133,21 +140,19 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        if (env('NATIVEPHP_APP_ID') !== null) {
-            try {
-                $token = session('api_token');
-                if ($token) {
-                    $mobileApiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
-                    $logoutUrl = str_replace('/mobile', '', $mobileApiUrl) . '/logout';
-                    Http::withToken(decrypt($token))
-                        ->timeout(10)
-                        ->post($logoutUrl);
-                }
-            } catch (\Exception $e) {
-                // Ignore logout errors
+        try {
+            $token = session('api_token');
+            if ($token && \App\Services\NetworkStatusService::isOnline()) {
+                $mobileApiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+                $logoutUrl = str_replace('/mobile', '', $mobileApiUrl) . '/logout';
+                Http::withToken(decrypt($token))
+                    ->timeout(10)
+                    ->post($logoutUrl);
             }
-            session()->forget(['api_token', 'api_user_data']);
+        } catch (\Exception $e) {
+            // Ignore logout errors
         }
+        session()->forget(['api_token', 'api_user_data']);
 
         Auth::logout();
         $request->session()->invalidate();

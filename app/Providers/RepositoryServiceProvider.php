@@ -24,28 +24,12 @@ class RepositoryServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $isNative = env('NATIVEPHP_APP_ID') !== null;
+        Log::debug('[RepositoryServiceProvider] BINDING HYBRID REPOS (runtime network detection)');
 
-        Log::debug('[RepositoryServiceProvider] ' . ($isNative ? 'BINDING HYBRID REPOS (NativePHP)' : 'BINDING ELOQUENT REPOS (Website)'));
-
-        $this->app->bind(PatientRepositoryInterface::class, $isNative
-            ? \App\Repositories\Hybrid\HybridPatientRepository::class
-            : EloquentPatientRepository::class);
-
-        $this->app->bind(UserRepositoryInterface::class, $isNative
-            ? \App\Repositories\Hybrid\HybridUserRepository::class
-            : EloquentUserRepository::class);
-
-        $this->app->bind(PatientFileRepositoryInterface::class, $isNative
-            ? \App\Repositories\Hybrid\HybridPatientFileRepository::class
-            : EloquentPatientFileRepository::class);
-
-        $this->app->bind(PatientNoteRepositoryInterface::class, $isNative
-            ? \App\Repositories\Hybrid\HybridPatientNoteRepository::class
-            : EloquentPatientNoteRepository::class);
-
-        $this->app->bind(PatientVisitRepositoryInterface::class, $isNative
-            ? \App\Repositories\Hybrid\HybridPatientVisitRepository::class
-            : EloquentPatientVisitRepository::class);
+        $this->app->bind(PatientRepositoryInterface::class, \App\Repositories\Hybrid\HybridPatientRepository::class);
+        $this->app->bind(UserRepositoryInterface::class, \App\Repositories\Hybrid\HybridUserRepository::class);
+        $this->app->bind(PatientFileRepositoryInterface::class, \App\Repositories\Hybrid\HybridPatientFileRepository::class);
+        $this->app->bind(PatientNoteRepositoryInterface::class, \App\Repositories\Hybrid\HybridPatientNoteRepository::class);
+        $this->app->bind(PatientVisitRepositoryInterface::class, \App\Repositories\Hybrid\HybridPatientVisitRepository::class);
     }
 }

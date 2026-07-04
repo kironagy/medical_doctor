@@ -15,17 +15,17 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $nativeAppId = env('NATIVEPHP_APP_ID');
-        Log::debug('[AppServiceProvider] NATIVEPHP_APP_ID=' . ($nativeAppId ?? 'null'));
+        Log::debug('[AppServiceProvider] Registering ApiUserProvider for runtime auth');
 
-        if ($nativeAppId) {
-            Log::debug('[AppServiceProvider] Registering ApiUserProvider and switching auth driver');
-            Auth::provider('api_users', function ($app, $config) {
-                return new \App\Auth\ApiUserProvider();
-            });
+        Auth::provider('api_users', function ($app, $config) {
+            return new \App\Auth\ApiUserProvider();
+        });
 
-            config(['auth.providers.users.driver' => 'api_users']);
-            Log::debug('[AppServiceProvider] Auth driver switched to: ' . config('auth.providers.users.driver'));
-        }
+        // The auth driver decision is now purely runtime:
+        // When online, the ApiUserProvider fetches from the remote API.
+        // When offline, the EloquentUserProvider falls back to local SQLite.
+        // Both providers are available; the NetworkStatusService inside the repos
+        // determines which data source to use at query time.
+        config(['auth.providers.users.driver' => 'api_users']);
     }
 }

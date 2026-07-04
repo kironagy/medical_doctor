@@ -26,7 +26,7 @@ class UploadController extends Controller
             'date' => 'sometimes|date',
         ]);
 
-        if (env('NATIVEPHP_APP_ID')) {
+        if (\App\Services\NetworkStatusService::isOnline()) {
             return $this->forwardUpload($request, $patientUuid);
         }
 
