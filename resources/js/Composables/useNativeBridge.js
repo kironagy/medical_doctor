@@ -240,11 +240,11 @@ export function useNativeBridge() {
   }
 
   function isCameraAvailable() {
-    return hasNativeBridge() || isNativeAndroid()
+    return !!window.native?.camera?.takePhoto
   }
 
   function isFilePickerAvailable() {
-    return hasNativeBridge() || isNativeAndroid()
+    return !!window.native?.files?.pick
   }
 
   function isPermissionsApiAvailable() {
