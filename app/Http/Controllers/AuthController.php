@@ -91,12 +91,19 @@ class AuthController extends Controller
         session(['api_token' => encrypt($token)]);
         session(['api_user_data' => $userData]);
 
+        $remoteId = $userData['id'] ?? 1;
+        $email = $userData['email'] ?? $credentials['email'];
+
+        // Resolve SQLite unique constraint conflicts by deleting any local stale records that have the same email but a different ID.
+        // This happens if the live database was reset but the local SQLite database still has old data.
+        \App\Domains\Users\Models\User::where('email', $email)->where('id', '!=', $remoteId)->delete();
+
         // Persist the user to the local SQLite database for offline constraints
         $user = \App\Domains\Users\Models\User::updateOrCreate(
-            ['id' => $userData['id'] ?? 1],
+            ['id' => $remoteId],
             [
-                'name' => $userData['name'] ?? $credentials['email'],
-                'email' => $userData['email'] ?? $credentials['email'],
+                'name' => $userData['name'] ?? $email,
+                'email' => $email,
                 'role' => $userData['role'] ?? ($userData['roles'][0] ?? 'doctor'),
                 'phone' => $userData['phone'] ?? '',
                 'address' => $userData['address'] ?? '',

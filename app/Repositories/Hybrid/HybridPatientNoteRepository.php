@@ -24,10 +24,14 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
         foreach ($data as $item) {
             if (is_array($item) && isset($item['uuid'])) {
                 $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'author']);
-                \App\Domains\Patients\Models\PatientNote::updateOrCreate(
+                try {
+                    \App\Domains\Patients\Models\PatientNote::updateOrCreate(
                     ['uuid' => $item['uuid']],
                     $cleanData
                 );
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::warning("Failed to sync local cache in " . basename("app/Repositories/Hybrid/HybridPatientNoteRepository.php") . ": " . $e->getMessage());
+                }
             }
         }
     }

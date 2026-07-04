@@ -24,10 +24,14 @@ class HybridUserRepository implements UserRepositoryInterface
         foreach ($data as $item) {
             if (is_array($item) && isset($item['id'])) {
                 $cleanData = \Illuminate\Support\Arr::except($item, ['roles', 'permissions']);
-                \App\Domains\Users\Models\User::updateOrCreate(
+                try {
+                    \App\Domains\Users\Models\User::updateOrCreate(
                     ['id' => $item['id']],
                     $cleanData
                 );
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::warning("Failed to sync local cache in " . basename("app/Repositories/Hybrid/HybridUserRepository.php") . ": " . $e->getMessage());
+                }
             }
         }
     }

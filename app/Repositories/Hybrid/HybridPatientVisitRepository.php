@@ -24,10 +24,14 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
         foreach ($data as $item) {
             if (is_array($item) && isset($item['id'])) {
                 $cleanData = \Illuminate\Support\Arr::except($item, ['doctor', 'patient']);
-                \App\Domains\Patients\Models\PatientVisit::updateOrCreate(
+                try {
+                    \App\Domains\Patients\Models\PatientVisit::updateOrCreate(
                     ['id' => $item['id']],
                     $cleanData
                 );
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::warning("Failed to sync local cache in " . basename("app/Repositories/Hybrid/HybridPatientVisitRepository.php") . ": " . $e->getMessage());
+                }
             }
         }
     }

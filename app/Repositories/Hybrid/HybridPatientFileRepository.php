@@ -24,10 +24,14 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
         foreach ($data as $item) {
             if (is_array($item) && isset($item['uuid'])) {
                 $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'creator']);
-                \App\Domains\Media\Models\PatientFile::updateOrCreate(
+                try {
+                    \App\Domains\Media\Models\PatientFile::updateOrCreate(
                     ['uuid' => $item['uuid']],
                     $cleanData
                 );
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::warning("Failed to sync local cache in " . basename("app/Repositories/Hybrid/HybridPatientFileRepository.php") . ": " . $e->getMessage());
+                }
             }
         }
     }
