@@ -8,15 +8,24 @@ use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
 use App\Services\ApiProxy;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class CategoryFileController extends Controller
 {
     public function files(Request $request, string $patientUuid, string $slug)
     {
         if (ApiProxy::isEnabled()) {
-            $response = ApiProxy::get('/patients/' . $patientUuid . '/categories/' . $slug . '/files', $request->all());
-            if ($response->successful()) {
-                return ApiProxy::proxyResponse($response);
+            try {
+                $response = ApiProxy::get('/patients/' . $patientUuid . '/categories/' . $slug . '/files', $request->all());
+                if ($response->successful()) {
+                    return ApiProxy::proxyResponse($response);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[CategoryFileController] Proxy request failed, falling back to local DB', [
+                    'patient_uuid' => $patientUuid,
+                    'category' => $slug,
+                    'error' => $e->getMessage(),
+                ]);
             }
         }
 
