@@ -10,21 +10,9 @@
       
       <!-- Main Menu -->
         <div class="px-3 py-2 space-y-1 mt-4">
-          <Link href="/dashboard" class="flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors" :class="$page.url.startsWith('/dashboard') ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'">
+          <Link href="/workspace" class="flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors" :class="$page.url.startsWith('/workspace') ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'">
             <svg class="w-5 h-5 me-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
-            {{ $t('nav.dashboard') }}
-          </Link>
-          <Link href="/patients" class="flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors" :class="$page.url === '/patients' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'">
-            <svg class="w-5 h-5 me-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-            {{ $t('nav.patients') }}
-          </Link>
-          <Link href="/patients/shared" class="flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors" :class="$page.url === '/patients/shared' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'">
-            <svg class="w-5 h-5 me-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-            {{ $t('nav.patients') }} (Shared)
-          </Link>
-          <Link href="/settings" class="flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors" :class="$page.url.startsWith('/settings') ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'">
-            <svg class="w-5 h-5 me-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-            {{ $t('nav.settings') }}
+            {{ $t('nav.workspace') || 'Workspace' }}
           </Link>
         </div>
 
@@ -70,21 +58,9 @@
       
       <!-- Mobile Main Menu -->
       <div class="px-3 py-2 space-y-1 mt-4 overflow-y-auto flex-1">
-        <Link href="/dashboard" @click="mobileMenuOpen = false" class="flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors" :class="$page.url.startsWith('/dashboard') ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'">
-          <svg class="w-5 h-5 me-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /></svg>
-          {{ $t('nav.dashboard') }}
-        </Link>
-        <Link href="/patients" @click="mobileMenuOpen = false" class="flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors" :class="$page.url === '/patients' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'">
-          <svg class="w-5 h-5 me-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-          {{ $t('nav.patients') }}
-        </Link>
-        <Link href="/patients/shared" @click="mobileMenuOpen = false" class="flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors" :class="$page.url === '/patients/shared' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'">
-          <svg class="w-5 h-5 me-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-          {{ $t('nav.patients') }} (Shared)
-        </Link>
-        <Link href="/settings" @click="mobileMenuOpen = false" class="flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors" :class="$page.url.startsWith('/settings') ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'">
-          <svg class="w-5 h-5 me-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-          {{ $t('nav.settings') }}
+        <Link href="/workspace" @click="mobileMenuOpen = false" class="flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors" :class="$page.url.startsWith('/workspace') ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'">
+          <svg class="w-5 h-5 me-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+          {{ $t('nav.workspace') || 'Workspace' }}
         </Link>
         
         <!-- Mobile Admin Menu -->
@@ -160,13 +136,9 @@
     <!-- Mobile Bottom Navigation -->
     <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 pb-safe z-50 will-change-transform shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.08)] dark:shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
       <div class="flex justify-around items-center h-16">
-        <Link href="/dashboard" class="flex flex-col items-center justify-center w-full h-full" :class="$page.url.startsWith('/dashboard') ? 'text-primary-600 dark:text-primary-400' : 'text-slate-500 dark:text-slate-400'">
-          <svg class="w-6 h-6 mb-1 transition-transform" :class="$page.url.startsWith('/dashboard') ? 'scale-110' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" :stroke-width="$page.url.startsWith('/dashboard') ? '2.5' : '2'"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-          <span class="text-[10px] font-medium">{{ $t('nav.home') || 'Home' }}</span>
-        </Link>
-        <Link href="/patients" class="flex flex-col items-center justify-center w-full h-full" :class="$page.url === '/patients' ? 'text-primary-600 dark:text-primary-400' : 'text-slate-500 dark:text-slate-400'">
-          <svg class="w-6 h-6 mb-1 transition-transform" :class="$page.url === '/patients' ? 'scale-110' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" :stroke-width="$page.url === '/patients' ? '2.5' : '2'"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-          <span class="text-[10px] font-medium">{{ $t('nav.patients') }}</span>
+        <Link href="/workspace" class="flex flex-col items-center justify-center w-full h-full" :class="$page.url.startsWith('/workspace') ? 'text-primary-600 dark:text-primary-400' : 'text-slate-500 dark:text-slate-400'">
+          <svg class="w-6 h-6 mb-1 transition-transform" :class="$page.url.startsWith('/workspace') ? 'scale-110' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" :stroke-width="$page.url.startsWith('/workspace') ? '2.5' : '2'"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+          <span class="text-[10px] font-medium">{{ $t('nav.workspace') || 'Workspace' }}</span>
         </Link>
         <button @click="mobileMenuOpen = !mobileMenuOpen" class="flex flex-col items-center justify-center w-full h-full text-slate-500 dark:text-slate-400 focus:outline-none">
           <svg class="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
@@ -236,11 +208,6 @@ async function handleRefresh() {
 }
 
 function inferRefreshOnly() {
-  const url = page.url
-  if (url.startsWith('/dashboard')) return ['stats']
-  if (url === '/patients' || url === '/patients/shared') return ['patients']
-  if (url.startsWith('/admin/doctors')) return ['doctors']
-  if (url.startsWith('/settings')) return ['user']
   return undefined
 }
 
