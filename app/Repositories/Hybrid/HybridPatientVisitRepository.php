@@ -19,18 +19,29 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
 
     private function syncLocalCache(array $data): void
     {
-        if (isset($data['id']) && !is_array($data['id'])) {
+        if (isset($data['uuid']) && !is_array($data['uuid'])) {
             $data = [$data];
         }
 
         foreach ($data as $item) {
-            if (is_array($item) && isset($item['id'])) {
-                $cleanData = \Illuminate\Support\Arr::except($item, ['doctor', 'patient']);
+            if (is_array($item) && isset($item['uuid'])) {
+                // Conflict resolution: skip if local SQLite record has newer changes
+                $localRecord = \App\Domains\Patients\Models\PatientVisit::where('uuid', $item['uuid'])->first();
+                if ($localRecord) {
+                    $localTime = $localRecord->client_updated_at ?? $localRecord->updated_at;
+                    $serverTime = isset($item['updated_at']) ? new \Carbon\Carbon($item['updated_at']) : null;
+                    if ($serverTime && $localTime && $localTime->gt($serverTime)) {
+                        Log::info("Conflict detected for Visit {$item['uuid']}: device has newer changes. Keeping local.");
+                        continue;
+                    }
+                }
+
+                $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'doctor', 'patient']);
                 try {
                     \App\Domains\Patients\Models\PatientVisit::updateOrCreate(
-                    ['id' => $item['id']],
-                    $cleanData
-                );
+                        ['uuid' => $item['uuid']],
+                        $cleanData
+                    );
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::warning("Failed to sync local cache in " . basename("app/Repositories/Hybrid/HybridPatientVisitRepository.php") . ": " . $e->getMessage());
                 }

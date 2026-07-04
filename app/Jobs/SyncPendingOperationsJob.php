@@ -38,8 +38,9 @@ class SyncPendingOperationsJob implements ShouldQueue
 
     private function processOperation(PendingOperation $operation): void
     {
-        $apiUrl = env('MOBILE_API_URL');
-        $endpoint = $this->getEndpoint($operation->entity_type, $operation->action, $operation->uuid);
+        $apiUrl = env('MOBILE_API_URL', 'https://prof-hosam-fekry.online/api/v1/mobile');
+        $payload = $operation->payload ?? [];
+        $endpoint = $this->getEndpoint($operation->entity_type, $operation->action, $operation->uuid, $payload);
         $method = $this->getMethod($operation->action);
         
         $url = rtrim($apiUrl, '/') . $endpoint;
@@ -52,30 +53,79 @@ class SyncPendingOperationsJob implements ShouldQueue
             } catch (\Exception $e) {}
         }
         
-        $response = Http::timeout(30)
-            ->withHeaders(['Accept' => 'application/json', 'Content-Type' => 'application/json'])
-            ->when($token, fn($c) => $c->withToken($token))
-            ->send($method, $url, [
-                'json' => $operation->payload
-            ]);
-            
-        if (!$response->successful() && $response->status() !== 404 && $response->status() !== 409) {
-            // 404 (not found on update/delete) or 409 (conflict) can be considered non-retriable or handled.
-            // But for safety, throw exception on 5xx or general 4xx to retry.
-            if ($response->serverError()) {
-                throw new \Exception('API returned server error: ' . $response->status());
+        $http = Http::timeout(120)
+            ->withHeaders(['Accept' => 'application/json'])
+            ->when($token, fn($c) => $c->withToken($token));
+
+        if ($operation->entity_type === 'PatientFile' && $operation->action === 'create') {
+            $localPath = $payload['local_file_path'] ?? null;
+            if ($localPath && \Illuminate\Support\Facades\Storage::disk('local')->exists($localPath)) {
+                $fileContents = \Illuminate\Support\Facades\Storage::disk('local')->get($localPath);
+                $fileFields = \Illuminate\Support\Arr::except($payload, ['local_file_path', 'file_name', 'patient_uuid']);
+                
+                $http = $http->attach('file', $fileContents, $payload['file_name']);
+                foreach ($fileFields as $k => $v) {
+                    if ($v !== null) $http = $http->attach($k, $v);
+                }
+                $response = $http->post($url);
+            } else {
+                throw new \Exception("Local file not found for sync: " . $localPath);
             }
+        } else {
+            $jsonPayload = \Illuminate\Support\Arr::except($payload, ['patient_uuid']);
+            $response = $http->send($method, $url, $jsonPayload);
+        }
+            
+        if ($response->successful()) {
+            $resBody = $response->json();
+            $newUuid = $resBody['uuid'] ?? $resBody['data']['uuid'] ?? null;
+            if ($newUuid && $newUuid !== $operation->uuid) {
+                $modelClass = match ($operation->entity_type) {
+                    'Patient' => \App\Domains\Patients\Models\Patient::class,
+                    'PatientNote' => \App\Domains\Patients\Models\PatientNote::class,
+                    'PatientVisit' => \App\Domains\Patients\Models\PatientVisit::class,
+                    'PatientFile' => \App\Domains\Media\Models\PatientFile::class,
+                    default => null,
+                };
+                if ($modelClass) {
+                    $modelClass::where('uuid', $operation->uuid)->update(['uuid' => $newUuid]);
+                }
+            }
+        } else {
+            // Delete operation if rejected by server to prevent blocking the queue
+            if ($response->status() === 422 || $response->status() === 409 || $response->status() === 404 || $response->status() === 403) {
+                Log::warning("Sync operation rejected by API: " . $operation->id . " Status: " . $response->status(), [
+                    'body' => $response->body()
+                ]);
+                return;
+            }
+            throw new \Exception('Sync failed with status ' . $response->status() . ': ' . $response->body());
         }
     }
 
-    private function getEndpoint(string $entityType, string $action, string $uuid): string
+    private function getEndpoint(string $entityType, string $action, string $uuid, ?array $payload): string
     {
-        // Convert entity type (e.g. 'Patient') to endpoint (e.g. '/patients')
-        $base = '/' . strtolower(\Illuminate\Support\Str::plural($entityType));
-        if ($action === 'create') {
-            return $base;
-        }
-        return $base . '/' . $uuid;
+        $patientUuid = $payload['patient_uuid'] ?? '';
+
+        return match ($entityType) {
+            'Patient' => match ($action) {
+                'create' => '/patients',
+                default => '/patients/' . $uuid,
+            },
+            'PatientNote' => match ($action) {
+                'create' => "/patients/{$patientUuid}/notes",
+                default => "/patients/{$patientUuid}/notes/{$uuid}",
+            },
+            'PatientVisit' => match ($action) {
+                'create' => "/patients/{$patientUuid}/visits",
+                default => "/patients/{$patientUuid}/visits/{$uuid}",
+            },
+            'PatientFile' => match ($action) {
+                'create' => "/patients/{$patientUuid}/files",
+                default => "/files/{$uuid}",
+            },
+            default => throw new \Exception("Unknown entity type: {$entityType}"),
+        };
     }
 
     private function getMethod(string $action): string

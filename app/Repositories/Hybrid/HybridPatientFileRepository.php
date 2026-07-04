@@ -26,6 +26,17 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
 
         foreach ($data as $item) {
             if (is_array($item) && isset($item['uuid'])) {
+                // Conflict resolution: skip if local SQLite record has newer changes
+                $localRecord = \App\Domains\Media\Models\PatientFile::where('uuid', $item['uuid'])->first();
+                if ($localRecord) {
+                    $localTime = $localRecord->client_updated_at ?? $localRecord->updated_at;
+                    $serverTime = isset($item['updated_at']) ? new \Carbon\Carbon($item['updated_at']) : null;
+                    if ($serverTime && $localTime && $localTime->gt($serverTime)) {
+                        Log::info("Conflict detected for File {$item['uuid']}: device has newer changes. Keeping local.");
+                        continue;
+                    }
+                }
+
                 $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'creator', 'uploader']);
                 // Map API response field names to model field names
                 if (isset($cleanData['description']) && !isset($cleanData['desc'])) {
@@ -42,9 +53,9 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 }
                 try {
                     \App\Domains\Media\Models\PatientFile::updateOrCreate(
-                    ['uuid' => $item['uuid']],
-                    $cleanData
-                );
+                        ['uuid' => $item['uuid']],
+                        $cleanData
+                    );
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::warning("Failed to sync local cache in " . basename("app/Repositories/Hybrid/HybridPatientFileRepository.php") . ": " . $e->getMessage());
                 }

@@ -64,7 +64,7 @@ class ChunkUploadController extends Controller
             'metadata.date' => 'sometimes|nullable|date',
         ]);
 
-        if (env('NATIVEPHP_APP_ID')) {
+        if (env('NATIVEPHP_APP_ID') && \App\Services\NetworkStatusService::isOnline()) {
             if ($token = session('api_token')) {
                 try {
                     decrypt($token);
@@ -126,7 +126,7 @@ class ChunkUploadController extends Controller
             'chunk' => 'required|file|max:51200',
         ]);
 
-        if (env('NATIVEPHP_APP_ID')) {
+        if (env('NATIVEPHP_APP_ID') && \App\Services\NetworkStatusService::isOnline()) {
             try {
                 $response = $this->api()
                     ->attach('chunk', $request->file('chunk')->get(), 'chunk')
@@ -168,7 +168,7 @@ class ChunkUploadController extends Controller
             'upload_id' => 'required|string|size:36',
         ]);
 
-        if (env('NATIVEPHP_APP_ID')) {
+        if (env('NATIVEPHP_APP_ID') && \App\Services\NetworkStatusService::isOnline()) {
             try {
                 $response = $this->api()->post($this->apiBaseUrl() . '/chunk/complete', $request->all());
                 if ($response->failed()) {
@@ -205,6 +205,23 @@ class ChunkUploadController extends Controller
 
         $patientFile = $this->mergeService->merge($session);
 
+        if (env('NATIVEPHP_APP_ID') && !\App\Services\NetworkStatusService::isOnline()) {
+            \App\Models\PendingOperation::create([
+                'uuid' => $patientFile->uuid,
+                'entity_type' => 'PatientFile',
+                'action' => 'create',
+                'payload' => [
+                    'patient_uuid' => $session->patient->uuid,
+                    'title' => $patientFile->title,
+                    'desc' => $patientFile->desc,
+                    'category' => $patientFile->category,
+                    'date' => $patientFile->date?->format('Y-m-d'),
+                    'file_name' => $patientFile->file_name,
+                    'local_file_path' => $patientFile->file_path,
+                ],
+            ]);
+        }
+
         return response()->json([
             'uuid' => $patientFile->uuid,
             'upload_status' => $patientFile->upload_status,
@@ -216,7 +233,7 @@ class ChunkUploadController extends Controller
 
     public function cancel(Request $request, string $uuid)
     {
-        if (env('NATIVEPHP_APP_ID')) {
+        if (env('NATIVEPHP_APP_ID') && \App\Services\NetworkStatusService::isOnline()) {
             $response = $this->api()->post($this->apiBaseUrl() . '/chunk/' . $uuid . '/cancel');
             return response()->json($response->json(), $response->status());
         }
@@ -233,7 +250,7 @@ class ChunkUploadController extends Controller
 
     public function status(Request $request, string $uuid)
     {
-        if (env('NATIVEPHP_APP_ID')) {
+        if (env('NATIVEPHP_APP_ID') && \App\Services\NetworkStatusService::isOnline()) {
             $response = $this->api()->get($this->apiBaseUrl() . '/chunk/' . $uuid . '/status');
             return response()->json($response->json(), $response->status());
         }

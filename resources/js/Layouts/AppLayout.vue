@@ -157,10 +157,13 @@ import GlobalSearch from '@/Components/GlobalSearch.vue';
 import PullToRefresh from '@/Components/PullToRefresh.vue';
 import { useTheme } from '@/Composables/useTheme';
 import { useLocale } from '@/Composables/useLocale';
+import { useToast } from '@/Composables/useToast';
+import { useWorkspace } from '@/Composables/useWorkspace';
 
 const page = usePage();
 const { theme } = useTheme();
 const { locale } = useLocale();
+const toast = useToast();
 
 const mobileMenuOpen = ref(false);
 
@@ -176,12 +179,23 @@ const checkOnlineStatus = async () => {
 
     if (wasOffline && !isOffline.value) {
         // Back online! Trigger sync
+        toast.success('Back online');
         isSyncing.value = true;
         try {
-            await fetch('/api/native/sync', { method: 'POST', headers: { 'Accept': 'application/json' }});
-            syncCompleted.value = true;
-            setTimeout(() => { syncCompleted.value = false; }, 3000);
-            router.reload();
+            const res = await fetch('/api/native/sync', { method: 'POST', headers: { 'Accept': 'application/json' }});
+            if (res.status === 200) {
+                syncCompleted.value = true;
+                toast.success('Synchronization completed');
+                setTimeout(() => { syncCompleted.value = false; }, 3000);
+            } else {
+                syncError.value = true;
+                setTimeout(() => { syncError.value = false; }, 3000);
+            }
+            
+            // Reactive updates without page reload
+            const ws = useWorkspace();
+            ws.refreshPatientList();
+            ws.refreshWorkspaceData();
         } catch (e) {
             syncError.value = true;
             setTimeout(() => { syncError.value = false; }, 3000);
@@ -236,6 +250,21 @@ onMounted(() => {
   
   window.addEventListener('online', checkOnlineStatus);
   window.addEventListener('offline', checkOnlineStatus);
+
+  // Initial Pull Sync when online on startup
+  if (navigator.onLine) {
+      isSyncing.value = true;
+      fetch('/api/native/sync', { method: 'POST', headers: { 'Accept': 'application/json' }})
+        .then(() => {
+            const ws = useWorkspace();
+            ws.refreshPatientList();
+            ws.refreshWorkspaceData();
+        })
+        .catch(() => {})
+        .finally(() => {
+            isSyncing.value = false;
+        });
+  }
 });
 
 onUnmounted(() => {

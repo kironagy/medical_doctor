@@ -25,15 +25,26 @@ class HybridPatientRepository implements PatientRepositoryInterface
 
         foreach ($data as $item) {
             if (is_array($item) && isset($item['uuid'])) {
+                // Conflict resolution: skip if local SQLite record has newer changes
+                $localRecord = \App\Domains\Patients\Models\Patient::where('uuid', $item['uuid'])->first();
+                if ($localRecord) {
+                    $localTime = $localRecord->client_updated_at ?? $localRecord->updated_at;
+                    $serverTime = isset($item['updated_at']) ? new \Carbon\Carbon($item['updated_at']) : null;
+                    if ($serverTime && $localTime && $localTime->gt($serverTime)) {
+                        Log::info("Conflict detected for Patient {$item['uuid']}: device has newer changes. Keeping local.");
+                        continue;
+                    }
+                }
+
                 $cleanData = \Illuminate\Support\Arr::except($item, [
                     'primary_doctor', 'visits', 'shares', 'files', 'notes'
                 ]);
                 try {
                     \App\Domains\Patients\Models\Patient::unguard();
                     \App\Domains\Patients\Models\Patient::updateOrCreate(
-                    ['uuid' => $item['uuid']],
-                    $cleanData
-                );
+                        ['uuid' => $item['uuid']],
+                        $cleanData
+                    );
                     \App\Domains\Patients\Models\Patient::reguard();
                 } catch (\Exception $e) {
                     \App\Domains\Patients\Models\Patient::reguard();
