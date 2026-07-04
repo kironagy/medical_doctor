@@ -70,6 +70,13 @@ Route::prefix('v1')->group(function () {
             // Profile
             Route::put('/profile', [DoctorController::class, 'updateProfile']);
             Route::put('/profile/password', [DoctorController::class, 'updatePassword']);
+
+            // Chunk Uploads
+            Route::post('/chunk/init', [\App\Http\Controllers\Api\ChunkUploadController::class, 'init']);
+            Route::post('/chunk/chunk', [\App\Http\Controllers\Api\ChunkUploadController::class, 'chunk']);
+            Route::post('/chunk/complete', [\App\Http\Controllers\Api\ChunkUploadController::class, 'complete']);
+            Route::post('/chunk/{uuid}/cancel', [\App\Http\Controllers\Api\ChunkUploadController::class, 'cancel']);
+            Route::get('/chunk/{uuid}/status', [\App\Http\Controllers\Api\ChunkUploadController::class, 'status']);
         });
     });
 });
