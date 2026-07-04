@@ -208,6 +208,8 @@ async function handleRefresh() {
 }
 
 function inferRefreshOnly() {
+  const url = page.url
+  if (url.startsWith('/admin/doctors')) return ['doctors']
   return undefined
 }
 

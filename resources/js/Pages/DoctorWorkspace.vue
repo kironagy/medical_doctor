@@ -71,8 +71,27 @@
         </div>
       </Teleport>
 
-      <!-- Scrollable Content -->
-      <div ref="scrollContainer" class="flex-1 overflow-y-auto overscroll-contain" :class="isMobile ? 'pb-20' : ''">
+      <!-- PTR Wrapper -->
+      <div class="flex-1 relative overflow-hidden" @touchstart="handleTouchStart" @touchmove="handleTouchMove" @touchend="handleTouchEnd" @touchcancel="handleTouchEnd">
+        <!-- PTR Indicator -->
+        <div v-if="ptrVisible" class="absolute left-0 right-0 flex flex-col items-center justify-center pointer-events-none z-20" style="top:-64px;height:64px" :style="{ transform: `translateY(${pullDistance}px)` }">
+          <div class="w-9 h-9 rounded-full bg-white dark:bg-slate-800 shadow-lg flex items-center justify-center text-primary-600 dark:text-primary-400" :style="{ transform: `scale(${ptrScale})`, opacity: ptrOpacity }">
+            <svg v-if="!isRefreshing" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.15"/>
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" :stroke-dasharray="`${ptrArcLen} ${ptrCircumference}`" transform="rotate(-90 12 12)"/>
+              <g :style="{ transform: `rotate(${ptrArrowRotation}deg)`, transformOrigin: '12px 12px' }">
+                <path d="M12 5 L12 17 M8 13 L12 17 L16 13" stroke-linejoin="round"/>
+              </g>
+            </svg>
+            <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" class="animate-spin">
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="35 75" stroke-linecap="round" transform="rotate(-90 12 12)"/>
+            </svg>
+          </div>
+          <span v-if="thresholdReached && !isRefreshing" class="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap mt-0.5">{{ $t('workspace.release_to_refresh') || 'Release to refresh' }}</span>
+          <span v-if="isRefreshing" class="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap mt-0.5">{{ $t('workspace.refreshing') || 'Refreshing' }}</span>
+        </div>
+        <!-- Scroll Container -->
+        <div ref="scrollContainer" class="absolute inset-0 overflow-y-auto overscroll-contain" :class="isMobile ? 'pb-20' : ''" :style="ptrContentStyle">
         <!-- Settings Panel -->
         <div v-if="showSettings">
           <WorkspaceSettings />
@@ -332,6 +351,7 @@
           </div>
         </div>
       </div>
+      </div>
     </div>
 
     <!-- Mobile Bottom Bar -->
@@ -389,6 +409,7 @@ import WorkspaceSettings from '@/Components/workspace/WorkspaceSettings.vue'
 import SharePatientModal from '@/Components/workspace/SharePatientModal.vue'
 import WorkspaceModal from '@/Components/workspace/WorkspaceModal.vue'
 import BaseButton from '@/Components/BaseButton.vue'
+import { usePullToRefresh } from '@/Composables/usePullToRefresh'
 
 const props = defineProps({
   patients: Array,
@@ -439,6 +460,37 @@ const toast = useToast()
 const { t } = useI18n()
 
 const scrollContainer = ref(null)
+
+const {
+  pullDistance, pullProgress, isPulling, isRefreshing, thresholdReached,
+  handleTouchStart, handleTouchMove, handleTouchEnd,
+} = usePullToRefresh({
+  scrollContainer,
+  onRefresh: async () => {
+    if (refreshPromise) return
+    refreshPromise = (async () => {
+      await refreshPatientList()
+      await refreshWorkspaceData()
+    })()
+    try { await refreshPromise } finally { refreshPromise = null }
+  },
+})
+
+const PTR_RADIUS = 12
+const PTR_CIRCUMFERENCE = 2 * Math.PI * PTR_RADIUS
+
+const ptrVisible = computed(() => pullDistance.value > 0 || isRefreshing.value)
+const ptrScale = computed(() => 0.3 + pullProgress.value * 0.7)
+const ptrOpacity = computed(() => Math.min(pullProgress.value * 2, 1))
+const ptrArcLen = computed(() => pullProgress.value * PTR_CIRCUMFERENCE)
+const ptrArrowRotation = computed(() => pullProgress.value * 180)
+const ptrContentStyle = computed(() => ({
+  transform: `translateY(${pullDistance.value}px)`,
+  willChange: 'transform',
+}))
+
+let refreshPromise = null
+
 const summaryRef = ref(null)
 const actionsRef = ref(null)
 const recordsRef = ref(null)

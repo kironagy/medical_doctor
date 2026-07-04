@@ -11,6 +11,7 @@ export function usePullToRefresh(options = {}) {
     threshold = THRESHOLD,
     maxPull = MAX_PULL,
     damping = DAMPING,
+    scrollContainer = null,
   } = options
 
   const pullDistance = ref(0)
@@ -22,6 +23,13 @@ export function usePullToRefresh(options = {}) {
   let touchStartY = 0
   let isTouching = false
   let snapRaf = null
+  let hapticTriggered = false
+
+  function getScrollTop() {
+    const el = scrollContainer?.value
+    if (el) return el.scrollTop
+    return (document.scrollingElement || document.documentElement)?.scrollTop ?? 0
+  }
 
   function dampen(dy) {
     return dy / (1 + dy / maxPull)
@@ -31,13 +39,22 @@ export function usePullToRefresh(options = {}) {
     pullDistance.value = v
   }
 
+  function triggerHaptic() {
+    try {
+      if (window.native?.haptic?.impact) {
+        window.native.haptic.impact('medium')
+        return
+      }
+      if (navigator.vibrate) navigator.vibrate(10)
+    } catch (_) {}
+  }
+
   function handleTouchStart(e) {
     if (isRefreshing.value) return
     if (isPulling.value) {
       cancelSnap()
     }
-    const scrollEl = document.scrollingElement || document.documentElement
-    if (scrollEl.scrollTop > 0) return
+    if (getScrollTop() > 0) return
     touchStartY = e.touches[0].clientY
     isTouching = true
   }
@@ -49,6 +66,10 @@ export function usePullToRefresh(options = {}) {
       e.preventDefault()
       isPulling.value = true
       setPull(dampen(dy))
+      if (pullDistance.value >= threshold && !hapticTriggered) {
+        hapticTriggered = true
+        triggerHaptic()
+      }
     } else {
       if (pullDistance.value !== 0) setPull(0)
     }
@@ -57,6 +78,7 @@ export function usePullToRefresh(options = {}) {
   function handleTouchEnd() {
     if (!isTouching) return
     isTouching = false
+    hapticTriggered = false
     if (thresholdReached.value) {
       isRefreshing.value = true
       isPulling.value = false

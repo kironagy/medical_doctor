@@ -121,6 +121,11 @@ const props = defineProps({
     type: String,
     default: '#0d9488',
   },
+  scrollContainer: {
+    type: Object,
+    required: false,
+    default: null,
+  },
 })
 
 const emit = defineEmits(['refresh'])
@@ -146,6 +151,7 @@ const {
     }
   },
   threshold: props.threshold,
+  scrollContainer: props.scrollContainer,
 })
 
 const indicatorStyle = computed(() => {
@@ -158,10 +164,8 @@ const indicatorStyle = computed(() => {
 
 const contentStyle = computed(() => {
   const t = pullDistance.value
-  const transition = isPulling.value ? 'none' : 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
   return {
     transform: `translateY(${t}px)`,
-    transition,
     willChange: 'transform',
   }
 })
