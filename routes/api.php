@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\Mobile\DashboardController;
 use App\Http\Controllers\Api\Mobile\DoctorController;
 use App\Http\Controllers\Api\Mobile\ShareController;
 use App\Http\Controllers\Api\Mobile\SearchController;
+use App\Http\Controllers\Api\CategoryFileController;
 
 Route::get('/files/{uuid}/stream', [FileAccessController::class, 'streamDirect'])
     ->middleware('signed')
@@ -23,6 +24,9 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
+
+        // Category files endpoint
+        Route::get('/patients/{patientUuid}/categories/{slug}/files', [CategoryFileController::class, 'files']);
 
         // Mobile API endpoints
         Route::prefix('mobile')->group(function () {

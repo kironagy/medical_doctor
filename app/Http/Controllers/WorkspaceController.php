@@ -80,12 +80,12 @@ class WorkspaceController extends Controller
         ]);
     }
 
-    public function patientList()
+    public function patientList(Request $request)
     {
-        $patients = $this->patientRepo->all();
-        return response()->json([
-            'patients' => $patients,
-        ]);
+        $page = $request->input('page', 1);
+        $status = $request->input('status');
+        $result = $this->patientRepo->paginated(10, $page, $status);
+        return response()->json($result);
     }
 
     public function storePatient(Request $request)
@@ -167,7 +167,11 @@ class WorkspaceController extends Controller
         $t0 = microtime(true);
         $patient = $this->patientRepo->findByUuid($uuid);
         $t1 = microtime(true);
-        $files = $this->fileRepo->forPatient($uuid);
+
+        // Get all files for stats, but only return first 50 initially to prevent large payload
+        $allFiles = $this->fileRepo->forPatient($uuid);
+        $files = array_slice($allFiles, 0, 50);
+
         $t2 = microtime(true);
         $notes = $this->noteRepo->forPatient($uuid);
         $t3 = microtime(true);
@@ -178,12 +182,12 @@ class WorkspaceController extends Controller
         $latestVisit = $visits[0] ?? null;
 
         $stats = [
-            'total_files' => count($files),
+            'total_files' => count($allFiles),
             'total_notes' => count($notes),
             'total_visits' => count($visits),
-            'recent_uploads' => array_slice($files, 0, 5),
+            'recent_uploads' => array_slice($allFiles, 0, 5),
             'upcoming_visit' => $nextVisit,
-            'last_prescription' => collect($files)->first(fn($f) => ($f['category'] ?? '') === 'medications'),
+            'last_prescription' => collect($allFiles)->first(fn($f) => ($f['category'] ?? '') === 'medications'),
         ];
 
         $categories = $this->getCategories(auth()->user());
@@ -222,7 +226,9 @@ class WorkspaceController extends Controller
             'controller_processing_ms' => round(($t5 - $t4) * 1000, 2),
             'payload_assembly_ms' => round(($t6 - $t5) * 1000, 2),
             'json_encoding_ms' => round(($t7 - $t6) * 1000, 2),
-            'total_ms' => round(($t7 - $t0) * 1000, 2)
+            'total_ms' => round(($t7 - $t0) * 1000, 2),
+            'total_files_count' => count($allFiles),
+            'returned_files_count' => count($files),
         ]);
 
         return $response;

@@ -70,6 +70,16 @@ class ApiPatientRepository implements PatientRepositoryInterface
         return $body['data'] ?? $body['patients'] ?? [];
     }
 
+    public function paginated(int $perPage = 10, int $page = 1, ?string $status = null): array
+    {
+        $params = ['per_page' => $perPage, 'page' => $page];
+        if ($status) {
+            $params['status'] = $status;
+        }
+        $body = $this->apiCall('GET', '/patients', $params)->json() ?? [];
+        return $body;
+    }
+
     public function withTrashed(): array
     {
         return $this->all();

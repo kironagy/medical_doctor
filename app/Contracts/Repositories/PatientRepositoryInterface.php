@@ -5,6 +5,7 @@ namespace App\Contracts\Repositories;
 interface PatientRepositoryInterface
 {
     public function all(): array;
+    public function paginated(int $perPage = 10, int $page = 1, ?string $status = null): array;
     public function find(string $uuid): ?array;
     public function findByUuid(string $uuid): array;
     public function create(array $data): array;

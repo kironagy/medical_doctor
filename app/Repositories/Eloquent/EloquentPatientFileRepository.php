@@ -11,7 +11,14 @@ class EloquentPatientFileRepository implements PatientFileRepositoryInterface
     public function forPatient(string $patientUuid): array
     {
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
-        return $patient->files()->latest()->get()->toArray();
+        return $patient->files()
+            ->latest()
+            ->select([
+                'id', 'uuid', 'patient_id', 'title', 'file_name', 'mime_type', 
+                'size', 'category', 'date', 'created_at', 'updated_at', 'desc', 'notes', 'tags'
+            ])
+            ->get()
+            ->toArray();
     }
 
     public function find(string $uuid): ?array

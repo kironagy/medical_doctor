@@ -65,7 +65,7 @@
 
     <Transition name="accordion">
       <div v-if="expanded" class="border-t border-slate-100 dark:border-slate-800">
-        <div v-if="hasLoaded" class="p-4 space-y-4">
+        <div v-if="hasLoaded && !loading" class="p-4 space-y-4">
 
           <!-- Upload Progress -->
           <div v-if="activeUploads.length > 0" class="space-y-2">
@@ -144,14 +144,14 @@
               <button v-if="hasActiveFilters" @click="clearFilters" class="text-[11px] text-rose-600 hover:text-rose-700 font-medium px-2 py-1">{{ $t('category.clear') }}</button>
             </div>
             <div v-if="dateFilter === 'custom'" class="flex items-center gap-2">
-              <input v-model="customDateFrom" type="date" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+              <input v-model="customDateFrom" type="date" @change="loadCategoryData(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
               <span class="text-xs text-slate-400">{{ $t('category.to') }}</span>
-              <input v-model="customDateTo" type="date" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+              <input v-model="customDateTo" type="date" @change="loadCategoryData(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
             </div>
             <div v-if="timeFilter === 'custom'" class="flex items-center gap-2">
-              <input v-model="customTimeFrom" type="time" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+              <input v-model="customTimeFrom" type="time" @change="loadCategoryData(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
               <span class="text-xs text-slate-400">{{ $t('category.to') }}</span>
-              <input v-model="customTimeTo" type="time" @change="fetchFiles(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
+              <input v-model="customTimeTo" type="time" @change="loadCategoryData(1)" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500" />
             </div>
           </div>
 
@@ -343,6 +343,9 @@
           </div>
 
         </div>
+        <div v-else-if="loading" class="p-6 text-center">
+          <div class="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+        </div>
         <div v-else class="p-6 text-center">
           <div class="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
         </div>
@@ -432,7 +435,7 @@ const toast = useToast()
 const expanded = computed(() => isCategoryExpanded(props.slug))
 const hasLoaded = computed(() => isCategoryLoaded(props.slug))
 
-// Pagination & filters (client-side — workspace already has all data)
+// Pagination & filters (server-side now)
 const currentPage = ref(1)
 const perPage = 6
 const searchQuery = ref('')
@@ -444,15 +447,62 @@ const customDateTo = ref('')
 const customTimeFrom = ref('')
 const customTimeTo = ref('')
 const initialLoadDone = ref(false)
+const loading = ref(false)
+const serverFiles = ref([])
+const serverNotes = ref([])
+const serverMeta = ref({ total: 0, current_page: 1, last_page: 1 })
+
+// Lazy load category data when expanded
+async function loadCategoryData(page = 1) {
+  if (!selectedPatient.value?.uuid) return
+
+  loading.value = true
+  try {
+    const params = {
+      page,
+      per_page: perPage,
+      sort: sortBy.value
+    }
+
+    if (searchQuery.value) params.search = searchQuery.value
+    if (dateFilter.value && customDateFrom.value) params.date_from = customDateFrom.value
+    if (dateFilter.value && customDateTo.value) params.date_to = customDateTo.value
+    if (timeFilter.value && customTimeFrom.value) params.time_from = customTimeFrom.value
+    if (timeFilter.value && customTimeTo.value) params.time_to = customTimeTo.value
+
+    const response = await axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params })
+    serverFiles.value = response.data.data
+    serverNotes.value = response.data.notes
+    serverMeta.value = response.data.meta
+    currentPage.value = response.data.meta.current_page
+  } catch (e) {
+    console.error('Failed to load category data', e)
+    toast.error('Failed to load files')
+  } finally {
+    loading.value = false
+  }
+}
 
 const categoryFiles = computed(() => {
+  // Use server-loaded files if available, otherwise fall back to allFiles
+  if (initialLoadDone.value && serverFiles.value.length > 0) {
+    return serverFiles.value
+  }
   return allFiles.value.filter(f => f.category === props.slug)
 })
 const categoryNotes = computed(() => {
+  if (initialLoadDone.value && serverNotes.value.length > 0) {
+    return serverNotes.value
+  }
   return allNotes.value.filter(n => n.category === props.slug)
 })
 
 const filteredFilesRaw = computed(() => {
+  // If we have server files, we don't need to filter client-side
+  if (initialLoadDone.value && serverFiles.value.length > 0) {
+    return serverFiles.value
+  }
+
   let result = [...categoryFiles.value]
 
   // Search
@@ -527,8 +577,20 @@ const filteredFilesRaw = computed(() => {
   return result
 })
 
-const totalItems = computed(() => filteredFilesRaw.value.length)
-const totalPages = computed(() => Math.max(1, Math.ceil(totalItems.value / perPage)))
+const totalItems = computed(() => {
+  if (initialLoadDone.value && serverMeta.value.total !== undefined) {
+    return serverMeta.value.total
+  }
+  return filteredFilesRaw.value.length
+})
+
+const totalPages = computed(() => {
+  if (initialLoadDone.value && serverMeta.value.last_page !== undefined) {
+    return serverMeta.value.last_page
+  }
+  return Math.max(1, Math.ceil(totalItems.value / perPage))
+})
+
 const notesCount = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return categoryNotes.value.length
@@ -539,6 +601,11 @@ const notesCount = computed(() => {
 
 // Paginated file slice
 const files = computed(() => {
+  // If we have server files, they're already paginated
+  if (initialLoadDone.value && serverFiles.value.length > 0) {
+    return serverFiles.value
+  }
+
   const start = (currentPage.value - 1) * perPage
   return filteredFilesRaw.value.slice(start, start + perPage)
 })
@@ -633,6 +700,9 @@ function getTimeRange() {
 function goToPage(page) {
   if (page < 1 || page > totalPages.value) return
   currentPage.value = page
+  if (initialLoadDone.value) {
+    loadCategoryData(page)
+  }
 }
 
 function onDateFilterChange() {
@@ -641,6 +711,9 @@ function onDateFilterChange() {
     customDateTo.value = ''
   }
   currentPage.value = 1
+  if (initialLoadDone.value) {
+    loadCategoryData(1)
+  }
 }
 
 function onTimeFilterChange() {
@@ -649,10 +722,16 @@ function onTimeFilterChange() {
     customTimeTo.value = ''
   }
   currentPage.value = 1
+  if (initialLoadDone.value) {
+    loadCategoryData(1)
+  }
 }
 
 function onSortChange() {
   currentPage.value = 1
+  if (initialLoadDone.value) {
+    loadCategoryData(1)
+  }
 }
 
 function clearFilters() {
@@ -665,24 +744,33 @@ function clearFilters() {
   customTimeFrom.value = ''
   customTimeTo.value = ''
   currentPage.value = 1
+  if (initialLoadDone.value) {
+    loadCategoryData(1)
+  }
 }
 
 // Debounced search — resets to page 1
 let searchTimer
 watch(searchQuery, () => {
   clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => { currentPage.value = 1 }, 350)
+  searchTimer = setTimeout(() => {
+    currentPage.value = 1
+    if (initialLoadDone.value) {
+      loadCategoryData(1)
+    }
+  }, 350)
 })
 
-// Mark category loaded when expanded for the first time
+// Mark category loaded when expanded for the first time, and load data
 watch(expanded, (val) => {
   if (val) {
     markCategoryLoaded(props.slug)
     initialLoadDone.value = true
+    loadCategoryData(1)
   }
 }, { immediate: true })
 
-// After upload completes, refresh entire workspace
+// After upload completes, refresh category data
 const localCompleteCount = ref(0)
 watch(uploads, (list) => {
   let c = 0
@@ -692,7 +780,11 @@ watch(uploads, (list) => {
   }
   if (c > localCompleteCount.value) {
     localCompleteCount.value = c
-    refreshWorkspaceData()
+    if (initialLoadDone.value) {
+      loadCategoryData(1)
+    } else {
+      refreshWorkspaceData()
+    }
     toast.success('Upload complete')
   }
 }, { flush: 'post' })

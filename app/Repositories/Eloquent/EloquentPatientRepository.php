@@ -13,6 +13,32 @@ class EloquentPatientRepository implements PatientRepositoryInterface
         return Patient::latest()->get()->toArray();
     }
 
+    public function paginated(int $perPage = 10, int $page = 1, ?string $status = null): array
+    {
+        $query = Patient::latest();
+        
+        if ($status === 'archived') {
+            $query = Patient::onlyTrashed()->latest();
+        }
+        
+        $paginator = $query->paginate(
+            perPage: $perPage,
+            page: $page
+        );
+        
+        return [
+            'data' => $paginator->items(),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ]
+        ];
+    }
+
     public function find(string $uuid): ?array
     {
         $patient = Patient::where('uuid', $uuid)->first();

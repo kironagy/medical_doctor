@@ -301,6 +301,43 @@ class HybridPatientRepository implements PatientRepositoryInterface
         return $this->localRepo->withTrashed();
     }
 
+    public function paginated(int $perPage = 10, int $page = 1, ?string $status = null): array
+    {
+        $start = microtime(true);
+        $source = 'local';
+        $data = null;
+
+        if (NetworkStatusService::isOnline()) {
+            try {
+                $source = 'api';
+                $data = $this->apiRepo->paginated($perPage, $page, $status);
+                if (isset($data['data'])) {
+                    $this->syncLocalCache($data['data']);
+                }
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientRepo] paginated() - API unavailable, falling back to local: ' . $e->getMessage());
+                $source = 'local_fallback';
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientRepo] paginated() - API error, falling back to local: ' . $e->getMessage());
+                NetworkStatusService::setOnline(false);
+                $source = 'local_fallback';
+            }
+        }
+
+        if ($data === null) {
+            $data = $this->localRepo->paginated($perPage, $page, $status);
+        }
+
+        $elapsed = (microtime(true) - $start) * 1000;
+        Log::channel('single')->info('PROFILER_REPO_PAGINATED', [
+            'source' => $source,
+            'time_ms' => round($elapsed, 2)
+        ]);
+
+        return $data;
+    }
+
     public function restore(string $uuid): void
     {
         $this->localRepo->restore($uuid);

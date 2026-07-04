@@ -3,10 +3,15 @@ import axios from 'axios'
 import { computed, ref, shallowRef } from 'vue'
 
 const patients = ref([])
+const patientsMeta = ref(null)
+const archivedPatients = ref([])
+const archivedPatientsMeta = ref(null)
 const selectedPatientId = ref(null)
 const workspaceData = shallowRef(null)
 const loading = ref(false)
 const loadingPatient = ref(false)
+const loadingPatients = ref(false)
+const loadingArchived = ref(false)
 const searchQuery = ref('')
 const sidebarOpen = ref(typeof window !== 'undefined' ? localStorage.getItem('sidebarOpen') !== 'false' : true)
 const mobilePatientListOpen = ref(false)
@@ -26,7 +31,6 @@ const lazyLoadedCategories = ref({})
 
 if (typeof window !== 'undefined') {
   let resizeTimer
-  const prevWidth = window.innerWidth
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer)
     resizeTimer = setTimeout(() => {
@@ -182,7 +186,7 @@ async function addPatient(formData) {
   loading.value = true
   try {
     const res = await axios.post('/api/v1/workspace/patients', formData)
-    await refreshPatientList()
+    await refreshPatientList(1)
     if (res.data?.patient?.uuid) {
       selectPatient(res.data.patient.uuid)
     }
@@ -198,7 +202,7 @@ async function updatePatient(uuid, formData) {
   loading.value = true
   try {
     await axios.put(`/api/v1/workspace/patients/${uuid}`, formData)
-    await refreshPatientList()
+    await refreshPatientList(patientsMeta.value?.current_page || 1)
     refreshWorkspaceData()
     return { success: true }
   } catch (e) {
@@ -208,28 +212,35 @@ async function updatePatient(uuid, formData) {
   }
 }
 
-const archivedPatients = ref([])
 const showArchived = ref(false)
 
-async function refreshPatientList() {
+async function refreshPatientList(page = 1) {
+  loadingPatients.value = true
   try {
-    const res = await axios.get('/api/v1/workspace/patients-list')
-    if (res.data?.patients) {
-      patients.value = res.data.patients
+    const res = await axios.get('/api/v1/workspace/patients-list', { params: { page } })
+    if (res.data?.data) {
+      patients.value = res.data.data
+      patientsMeta.value = res.data.meta
     }
-  } catch {
-    console.error('Failed to refresh patient list')
+  } catch (e) {
+    console.error('Failed to refresh patient list', e)
+  } finally {
+    loadingPatients.value = false
   }
 }
 
-async function fetchArchivedPatients() {
+async function fetchArchivedPatients(page = 1) {
+  loadingArchived.value = true
   try {
-    const res = await axios.get('/api/v1/workspace/patients-list?status=archived')
-    if (res.data?.patients) {
-      archivedPatients.value = res.data.patients
+    const res = await axios.get('/api/v1/workspace/patients-list', { params: { status: 'archived', page } })
+    if (res.data?.data) {
+      archivedPatients.value = res.data.data
+      archivedPatientsMeta.value = res.data.meta
     }
-  } catch {
-    console.error('Failed to fetch archived patients')
+  } catch (e) {
+    console.error('Failed to fetch archived patients', e)
+  } finally {
+    loadingArchived.value = false
   }
 }
 
@@ -239,8 +250,8 @@ async function archivePatient(uuid) {
     selectedPatientId.value = null
     workspaceData.value = null
     expandedCategories.value = {}
-    await refreshPatientList()
-    await fetchArchivedPatients()
+    await refreshPatientList(patientsMeta.value?.current_page || 1)
+    await fetchArchivedPatients(archivedPatientsMeta.value?.current_page || 1)
     return { success: true }
   } catch (e) {
     return { success: false }
@@ -250,8 +261,8 @@ async function archivePatient(uuid) {
 async function restorePatient(uuid) {
   try {
     await axios.post(`/api/v1/workspace/patients/${uuid}/restore`)
-    await refreshPatientList()
-    await fetchArchivedPatients()
+    await refreshPatientList(patientsMeta.value?.current_page || 1)
+    await fetchArchivedPatients(archivedPatientsMeta.value?.current_page || 1)
     return { success: true }
   } catch (e) {
     return { success: false }
@@ -261,7 +272,7 @@ async function restorePatient(uuid) {
 async function forceDeletePatient(uuid) {
   try {
     await axios.delete(`/api/v1/workspace/patients/${uuid}/force`)
-    await fetchArchivedPatients()
+    await fetchArchivedPatients(archivedPatientsMeta.value?.current_page || 1)
     return { success: true }
   } catch (e) {
     return { success: false }
@@ -279,11 +290,16 @@ function closeSettings() {
 export function useWorkspace() {
   return {
     patients,
+    patientsMeta,
+    archivedPatients,
+    archivedPatientsMeta,
     selectedPatientId,
     selectedPatient,
     workspaceData,
     loading,
     loadingPatient,
+    loadingPatients,
+    loadingArchived,
     searchQuery,
     filteredPatients,
     sidebarOpen,
@@ -327,7 +343,6 @@ export function useWorkspace() {
     updatePatient,
     archivePatient,
     refreshPatientList,
-    archivedPatients,
     showArchived,
     fetchArchivedPatients,
     restorePatient,

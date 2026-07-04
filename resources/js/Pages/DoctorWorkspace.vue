@@ -489,6 +489,10 @@ const ptrContentStyle = computed(() => ({
 
 let refreshPromise = null
 
+onMounted(() => {
+  refreshPatientList()
+})
+
 const summaryRef = ref(null)
 const actionsRef = ref(null)
 const recordsRef = ref(null)
