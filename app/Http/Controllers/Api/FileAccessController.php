@@ -273,20 +273,34 @@ class FileAccessController extends Controller
             $thumbRel  = substr($file->file_path, 0, strrpos($file->file_path, '.')) . '_thumb.jpg';
             $thumbAbs  = Storage::disk('local')->path($thumbRel);
 
-            $process = new \Symfony\Component\Process\Process([
-                'ffmpeg', '-y', '-ss', '1', '-i', $inputAbs,
-                '-vframes', '1', '-vf', 'scale=-1:300', '-q:v', '5',
-                $thumbAbs,
-            ]);
-            $process->setTimeout(30);
-            $process->run();
+            $ffmpegExists = false;
+            if (function_exists('exec')) {
+                try {
+                    $whichCmd = DIRECTORY_SEPARATOR === '\\' ? 'where ffmpeg' : 'which ffmpeg';
+                    @exec($whichCmd, $output, $returnVar);
+                    $ffmpegExists = ($returnVar === 0);
+                } catch (\Throwable $e) {}
+            }
 
-            if ($process->isSuccessful() && file_exists($thumbAbs) && filesize($thumbAbs) > 512) {
-                $file->update(['thumbnail_path' => $thumbRel]);
-                return response()->file($thumbAbs, [
-                    'Content-Type'  => 'image/jpeg',
-                    'Cache-Control' => 'private, max-age=86400',
+            if ($ffmpegExists) {
+                $process = new \Symfony\Component\Process\Process([
+                    'ffmpeg', '-y', '-ss', '1', '-i', $inputAbs,
+                    '-vframes', '1', '-vf', 'scale=-1:300', '-q:v', '5',
+                    $thumbAbs,
                 ]);
+                $process->setTimeout(10);
+                try {
+                    $process->run();
+                    if ($process->isSuccessful() && file_exists($thumbAbs) && filesize($thumbAbs) > 512) {
+                        $file->update(['thumbnail_path' => $thumbRel]);
+                        return response()->file($thumbAbs, [
+                            'Content-Type'  => 'image/jpeg',
+                            'Cache-Control' => 'private, max-age=86400',
+                        ]);
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('[FileAccess] ffmpeg thumbnailing failed: ' . $e->getMessage());
+                }
             }
 
             if ($file->mime_type && str_starts_with($file->mime_type, 'image/')) {
