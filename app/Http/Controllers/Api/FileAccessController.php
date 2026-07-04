@@ -119,7 +119,21 @@ class FileAccessController extends Controller
 
         $path = $file->file_path;
         if (!Storage::disk('local')->exists($path)) {
-            abort(404, 'File not found on disk.');
+            if (\App\Services\NetworkStatusService::isOnline()) {
+                try {
+                    $response = \App\Services\ApiProxy::get('/files/' . $uuid . '/stream');
+                    if ($response->successful()) {
+                        Storage::disk('local')->put($path, $response->body());
+                    } else {
+                        abort(404, 'File not found on remote server.');
+                    }
+                } catch (\Exception $e) {
+                    Log::error('[FileAccess] Failed to proxy missing file binary: ' . $e->getMessage());
+                    abort(502, 'Failed to fetch file from production server.');
+                }
+            } else {
+                abort(404, 'File not found on disk and device is offline.');
+            }
         }
 
         $absolutePath = Storage::disk('local')->path($path);
@@ -227,6 +241,25 @@ class FileAccessController extends Controller
 
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
+        $path = $file->thumbnail_path;
+        if (empty($path) || !Storage::disk('local')->exists($path)) {
+            if (\App\Services\NetworkStatusService::isOnline()) {
+                try {
+                    $response = \App\Services\ApiProxy::get('/files/' . $uuid . '/thumbnail');
+                    if ($response->successful()) {
+                        if (empty($path)) {
+                            $path = "patients/thumbnails/{$uuid}.jpg";
+                            $file->update(['thumbnail_path' => $path]);
+                        }
+                        Storage::disk('local')->put($path, $response->body());
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('[FileAccess] Failed to proxy missing thumbnail: ' . $e->getMessage());
+                }
+            }
+        }
+
+        // Re-read path and verify it exists
         $path = $file->thumbnail_path;
         if ($path && Storage::disk('local')->exists($path)) {
             return response()->file(Storage::disk('local')->path($path), [

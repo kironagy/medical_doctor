@@ -84,9 +84,14 @@ class ApiService
         return $this->send('DELETE', $path);
     }
 
+    private function baseUrl(): string
+    {
+        return config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+    }
+
     public function upload(string $path, array $files, array $data = []): array
     {
-        $url = self::BASE_URL . $path;
+        $url = $this->baseUrl() . $path;
         $request = $this->client();
 
         foreach ($files as $key => $file) {
@@ -115,7 +120,7 @@ class ApiService
 
     public function download(string $path, string $destination): bool
     {
-        $url = self::BASE_URL . $path;
+        $url = $this->baseUrl() . $path;
 
         $response = $this->client()->sink($destination)->get($url);
 
@@ -129,7 +134,7 @@ class ApiService
 
     private function send(string $method, string $path, array $options = []): array
     {
-        $url = self::BASE_URL . $path;
+        $url = $this->baseUrl() . $path;
         $attempts = 0;
 
         while ($attempts <= self::MAX_RETRIES) {
@@ -142,24 +147,16 @@ class ApiService
                 }
 
                 if ($response->failed()) {
-                    throw new RequestException($response);
+                    $body = $response->json();
+                    $message = is_array($body) ? ($body['message'] ?? 'API request failed.') : 'API request failed.';
+                    throw new RuntimeException($message);
                 }
 
                 return $response->json() ?? [];
             } catch (RequestException $e) {
                 $attempts++;
                 if ($attempts > self::MAX_RETRIES) {
-                    $body = $e->response->json();
-                    $message = is_array($body) ? ($body['message'] ?? 'Server error. Please try again.') : 'Server error. Please try again.';
-                    throw new RuntimeException($message, $e->response->status());
-                }
-                usleep(self::RETRY_DELAY_MS * 1000);
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
-                $attempts++;
-                if ($attempts > self::MAX_RETRIES) {
-                    throw new RuntimeException(
-                        'Unable to connect. Please check your internet connection.'
-                    );
+                    throw new RuntimeException('API connection failed: ' . $e->getMessage());
                 }
                 usleep(self::RETRY_DELAY_MS * 1000);
             }
@@ -171,8 +168,9 @@ class ApiService
     public static function loginToRemote(string $email, string $password): array
     {
         try {
+            $loginUrl = str_replace('/mobile', '', config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile')) . '/login';
             $response = Http::timeout(30)->post(
-                'https://prof-hosam-fekry.online/api/v1/login',
+                $loginUrl,
                 ['email' => $email, 'password' => $password]
             );
 

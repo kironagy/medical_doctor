@@ -48,7 +48,8 @@ class AuthController extends Controller
 
     private function apiLogin(Request $request, array $credentials)
     {
-        $apiUrl = 'https://prof-hosam-fekry.online/api/v1/login';
+        $mobileApiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+        $apiUrl = str_replace('/mobile', '', $mobileApiUrl) . '/login';
         $start = microtime(true);
 
         Log::debug('[AuthController] apiLogin() - Sending POST to ' . $apiUrl);
@@ -70,7 +71,7 @@ class AuthController extends Controller
             $body = $response->json();
             $message = is_array($body)
                 ? ($body['message'] ?? $body['errors']['email'][0] ?? 'Invalid credentials.')
-                : 'Invalid credentials.';
+                : ($response->serverError() ? 'Server error. Please try again.' : 'Invalid credentials.');
 
             Log::warning('[AuthController] apiLogin() - FAILED: ' . $message);
 
@@ -136,9 +137,11 @@ class AuthController extends Controller
             try {
                 $token = session('api_token');
                 if ($token) {
+                    $mobileApiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+                    $logoutUrl = str_replace('/mobile', '', $mobileApiUrl) . '/logout';
                     Http::withToken(decrypt($token))
                         ->timeout(10)
-                        ->post('https://prof-hosam-fekry.online/api/v1/logout');
+                        ->post($logoutUrl);
                 }
             } catch (\Exception $e) {
                 // Ignore logout errors

@@ -51,6 +51,6 @@ class FileRepository
 
     public function getThumbnailUrl(string $fileUuid): string
     {
-        return "https://prof-hosam-fekry.online/api/v1/mobile/files/{$fileUuid}";
+        return rtrim(config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile'), '/') . "/files/{$fileUuid}";
     }
 }

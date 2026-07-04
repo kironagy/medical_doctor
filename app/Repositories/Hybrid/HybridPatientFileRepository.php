@@ -18,7 +18,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
         private EloquentPatientFileRepository $localRepo
     ) {}
 
-    private function syncLocalCache(array $data): void
+    private function syncLocalCache(array $data, ?string $patientUuid = null): void
     {
         if (isset($data['uuid']) && !is_array($data['uuid'])) {
             $data = [$data];
@@ -39,9 +39,9 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
 
                 $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'creator', 'uploader']);
                 // Resolve local patient_id via UUID to prevent foreign key or patient mismatches
-                $patientUuid = $item['patient_uuid'] ?? ($item['patient']['uuid'] ?? null);
-                if ($patientUuid) {
-                    $localPatient = \App\Domains\Patients\Models\Patient::where('uuid', $patientUuid)->first();
+                $pUuid = $patientUuid ?? $item['patient_uuid'] ?? ($item['patient']['uuid'] ?? null);
+                if ($pUuid) {
+                    $localPatient = \App\Domains\Patients\Models\Patient::where('uuid', $pUuid)->first();
                     if ($localPatient) {
                         $cleanData['patient_id'] = $localPatient->id;
                     }
@@ -49,9 +49,9 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 
                 // Generate a local file path if missing from remote API metadata response
                 if (empty($cleanData['file_path'])) {
-                    $pUuid = $patientUuid ?? 'unknown';
+                    $resolvedUuid = $pUuid ?? 'unknown';
                     $fileName = $item['file_name'] ?? ($item['title'] ?? 'file');
-                    $cleanData['file_path'] = "patients/{$pUuid}/{$fileName}";
+                    $cleanData['file_path'] = "patients/{$resolvedUuid}/{$fileName}";
                 }
 
                 // Map API response field names to model field names
@@ -100,7 +100,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 $data = $this->apiRepo->forPatient($patientUuid);
-                $this->syncLocalCache($data);
+                $this->syncLocalCache($data, $patientUuid);
                 return array_map([$this, 'rewriteUrls'], $data);
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
