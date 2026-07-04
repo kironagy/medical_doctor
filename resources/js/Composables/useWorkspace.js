@@ -156,6 +156,37 @@ function refreshWorkspaceData() {
   }
 }
 
+function syncWorkspaceStats(delta = 0) {
+  if (!workspaceData.value?.stats) return
+  const nextStats = { ...workspaceData.value.stats }
+  const candidates = ['total_files', 'files_count', 'files']
+  for (const key of candidates) {
+    if (typeof nextStats[key] === 'number') {
+      nextStats[key] = Math.max(0, nextStats[key] + delta)
+      break
+    }
+  }
+  workspaceData.value.stats = nextStats
+  workspaceData.value = { ...workspaceData.value }
+}
+
+function addFileLocally(file) {
+  if (!file?.uuid) return
+  if (!workspaceData.value) {
+    workspaceData.value = { files: [file], notes: [], visits: [], shares: [], categories: [], stats: {} }
+    return
+  }
+  if (!workspaceData.value.files) workspaceData.value.files = []
+  const existingIndex = workspaceData.value.files.findIndex(f => f.uuid === file.uuid)
+  if (existingIndex === -1) {
+    workspaceData.value.files = [file, ...workspaceData.value.files]
+    syncWorkspaceStats(1)
+  } else {
+    workspaceData.value.files[existingIndex] = { ...workspaceData.value.files[existingIndex], ...file }
+  }
+  workspaceData.value = { ...workspaceData.value }
+}
+
 function updateFileLocally(updatedFile) {
   if (!workspaceData.value || !workspaceData.value.files) return
   const idx = workspaceData.value.files.findIndex(f => f.uuid === updatedFile.uuid)
@@ -167,8 +198,25 @@ function updateFileLocally(updatedFile) {
 
 function removeFileLocally(fileUuid) {
   if (!workspaceData.value || !workspaceData.value.files) return
+  const before = workspaceData.value.files.length
   workspaceData.value.files = workspaceData.value.files.filter(f => f.uuid !== fileUuid)
+  if (workspaceData.value.files.length < before) {
+    syncWorkspaceStats(-1)
+  }
   workspaceData.value = { ...workspaceData.value }
+}
+
+function upsertPatient(patient) {
+  if (!patient?.uuid) return
+  const existingIndex = patients.value.findIndex(p => p.uuid === patient.uuid)
+  if (existingIndex === -1) {
+    patients.value = [patient, ...patients.value]
+    if (patientsMeta.value?.total !== undefined) {
+      patientsMeta.value = { ...patientsMeta.value, total: Math.max(0, patientsMeta.value.total + 1) }
+    }
+  } else {
+    patients.value[existingIndex] = { ...patients.value[existingIndex], ...patient }
+  }
 }
 
 function reloadPatientData() {
@@ -186,11 +234,22 @@ async function addPatient(formData) {
   loading.value = true
   try {
     const res = await axios.post('/api/v1/workspace/patients', formData)
-    await refreshPatientList(1)
-    if (res.data?.patient?.uuid) {
-      selectPatient(res.data.patient.uuid)
+    const patient = res.data?.patient || res.data
+    if (patient?.uuid) {
+      upsertPatient(patient)
+      selectedPatientId.value = patient.uuid
+      workspaceData.value = {
+        ...(workspaceData.value || {}),
+        patient,
+        files: workspaceData.value?.files || [],
+        notes: workspaceData.value?.notes || [],
+        visits: workspaceData.value?.visits || [],
+        shares: workspaceData.value?.shares || [],
+        categories: workspaceData.value?.categories || [],
+        stats: workspaceData.value?.stats || {},
+      }
     }
-    return { success: true }
+    return { success: true, patient }
   } catch (e) {
     return { success: false, errors: e.response?.data?.errors || {} }
   } finally {
@@ -335,6 +394,7 @@ export function useWorkspace() {
     openPreview,
     closePreview,
     refreshWorkspaceData,
+    addFileLocally,
     updateFileLocally,
     removeFileLocally,
     reloadPatientData,

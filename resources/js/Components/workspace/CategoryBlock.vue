@@ -208,9 +208,9 @@
                   mode="overlay"
                   :categories="allCategories"
                   @preview="openPreview"
-                  @file-updated="updateFileLocally"
-                  @file-moved="updateFileLocally"
-                  @file-deleted="removeFileLocally($event.uuid)"
+                  @file-updated="handleFileUpdated"
+                  @file-moved="handleFileUpdated"
+                  @file-deleted="handleFileDeleted($event)"
                 />
               </div>
             </div>
@@ -255,9 +255,9 @@
             mode="sheet"
             :categories="allCategories"
             @preview="openPreview"
-            @file-updated="updateFileLocally($event); activeSheetFile = null"
-            @file-moved="updateFileLocally($event); activeSheetFile = null"
-            @file-deleted="removeFileLocally($event.uuid); activeSheetFile = null"
+            @file-updated="handleFileUpdated($event); activeSheetFile = null"
+            @file-moved="handleFileUpdated($event); activeSheetFile = null"
+            @file-deleted="handleFileDeleted($event); activeSheetFile = null"
             @close="activeSheetFile = null"
           />
 
@@ -697,6 +697,28 @@ function getTimeRange() {
   }
 }
 
+function handleFileUpdated(updatedFile) {
+  if (!updatedFile?.uuid) return
+  updateFileLocally(updatedFile)
+  if (initialLoadDone.value && serverFiles.value.length > 0) {
+    const idx = serverFiles.value.findIndex(f => f.uuid === updatedFile.uuid)
+    if (idx !== -1) {
+      serverFiles.value[idx] = { ...serverFiles.value[idx], ...updatedFile }
+      serverFiles.value = [...serverFiles.value]
+    }
+  }
+}
+
+function handleFileDeleted(file) {
+  if (!file?.uuid) return
+  removeFileLocally(file.uuid)
+  if (initialLoadDone.value && serverFiles.value.length > 0) {
+    serverFiles.value = serverFiles.value.filter(f => f.uuid !== file.uuid)
+    serverMeta.value = { ...serverMeta.value, total: Math.max(0, (serverMeta.value.total || 0) - 1) }
+    serverFiles.value = [...serverFiles.value]
+  }
+}
+
 function goToPage(page) {
   if (page < 1 || page > totalPages.value) return
   currentPage.value = page
@@ -783,6 +805,9 @@ watch(uploads, (list) => {
     if (initialLoadDone.value) {
       loadCategoryData(1)
     } else {
+      refreshWorkspaceData()
+    }
+    if (selectedPatient.value?.uuid) {
       refreshWorkspaceData()
     }
     toast.success('Upload complete')

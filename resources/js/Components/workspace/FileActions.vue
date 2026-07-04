@@ -13,8 +13,9 @@
     <a v-if="file.url" :href="file.url" target="_blank" @click.stop class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 shadow-sm transition-colors hover:scale-110 active:scale-95" title="Download">
       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
     </a>
-    <button v-if="canEdit" @click.stop="confirmDelete" class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 dark:text-slate-200 hover:text-rose-600 dark:hover:text-rose-400 shadow-sm transition-colors hover:scale-110 active:scale-95" title="Delete">
-      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+    <button v-if="canEdit" :disabled="deleting" @click.stop="confirmDelete" class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 dark:text-slate-200 hover:text-rose-600 dark:hover:text-rose-400 shadow-sm transition-colors hover:scale-110 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed" title="Delete">
+      <svg v-if="!deleting" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+      <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
     </button>
   </div>
 
@@ -85,11 +86,12 @@
                 <span class="font-medium text-sm">Download</span>
               </a>
 
-              <button v-if="canEdit" @click="confirmDelete" class="w-full flex items-center gap-4 p-3.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 active:bg-rose-100 dark:active:bg-rose-900/40 transition-all text-start active:scale-[0.98]">
+              <button v-if="canEdit" :disabled="deleting" @click="confirmDelete" class="w-full flex items-center gap-4 p-3.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 active:bg-rose-100 dark:active:bg-rose-900/40 transition-all text-start active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed">
                 <div class="w-9 h-9 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
-                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  <svg v-if="!deleting" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  <svg v-else class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                 </div>
-                <span class="font-medium text-sm">Delete</span>
+                <span class="font-medium text-sm">{{ deleting ? 'Deleting...' : 'Delete' }}</span>
               </button>
             </div>
           </div>
@@ -113,33 +115,12 @@
           </div>
           <div class="overflow-y-auto overscroll-contain flex-1 p-5 space-y-4">
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">File Name</label>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Title</label>
               <input v-model="editForm.title" type="text" class="input-field w-full" />
             </div>
             <div>
               <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
-              <textarea v-model="editForm.desc" rows="2" class="input-field w-full" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Notes</label>
-              <textarea v-model="editForm.notes" rows="3" class="input-field w-full" placeholder="Additional notes about this file..." />
-            </div>
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Category</label>
-                <select v-model="editForm.category" class="input-field w-full">
-                  <option value="">Select category</option>
-                  <option v-for="cat in categories" :key="cat.slug" :value="cat.slug">{{ cat.name }}</option>
-                </select>
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Date</label>
-                <input v-model="editForm.date" type="date" class="input-field w-full" />
-              </div>
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tags</label>
-              <input v-model="editForm.tags" type="text" class="input-field w-full" placeholder="Comma-separated tags" />
+              <textarea v-model="editForm.desc" rows="3" class="input-field w-full" />
             </div>
           </div>
           <div class="sticky bottom-0 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 px-5 py-4 flex justify-end gap-3">
@@ -220,7 +201,8 @@ const toast = useToast()
 const showEdit = ref(false)
 const showMove = ref(false)
 const saving = ref(false)
-const editForm = ref({ title: '', desc: '', notes: '', tags: '', category: '', date: '' })
+const deleting = ref(false)
+const editForm = ref({ title: '', desc: '' })
 
 const fileType = computed(() => {
   if (!props.file?.mime_type) return 'File'
@@ -265,10 +247,6 @@ function openEdit() {
   editForm.value = {
     title: props.file?.title || props.file?.file_name || '',
     desc: props.file?.desc || '',
-    notes: props.file?.notes || '',
-    tags: props.file?.tags || '',
-    category: props.file?.category || '',
-    date: props.file?.date || '',
   }
   showEdit.value = true
 }
@@ -278,22 +256,29 @@ function closeEdit() {
 }
 
 async function saveEdit() {
+  if (!props.file?.uuid) return
+  const nextTitle = editForm.value.title?.trim() || ''
+  const nextDesc = editForm.value.desc?.trim() || ''
+  if (!nextTitle) {
+    toast.error('Title is required')
+    return
+  }
   saving.value = true
   try {
     const payload = {}
-    if (editForm.value.title !== (props.file?.title || props.file?.file_name)) payload.title = editForm.value.title
-    if (editForm.value.desc !== (props.file?.desc || '')) payload.desc = editForm.value.desc
-    if (editForm.value.notes !== (props.file?.notes || '')) payload.notes = editForm.value.notes
-    if (editForm.value.tags !== (props.file?.tags || '')) payload.tags = editForm.value.tags
-    if (editForm.value.category !== (props.file?.category || '')) payload.category = editForm.value.category
-    if (editForm.value.date !== (props.file?.date || '')) payload.date = editForm.value.date
+    if (nextTitle !== (props.file?.title || props.file?.file_name || '').trim()) payload.title = nextTitle
+    if (nextDesc !== (props.file?.desc || '').trim()) payload.desc = nextDesc
+    if (Object.keys(payload).length === 0) {
+      showEdit.value = false
+      return
+    }
     const res = await axios.put(`/api/v1/files/${props.file.uuid}`, payload)
     emit('file-updated', res.data)
     showEdit.value = false
     toast.success('File updated')
   } catch (e) {
     console.error('Edit failed:', e)
-    toast.error('Failed to update file')
+    toast.error(e.response?.data?.message || 'Failed to update file')
   } finally {
     saving.value = false
   }
@@ -321,6 +306,7 @@ async function moveToCategory(cat) {
 }
 
 async function confirmDelete() {
+  if (deleting.value) return
   const confirmed = await dialog.confirm({
     title: 'Delete File',
     message: `Delete "${props.file?.title || props.file?.file_name}"? This action cannot be undone.`,
@@ -328,6 +314,7 @@ async function confirmDelete() {
     style: 'danger',
   })
   if (!confirmed) return
+  deleting.value = true
   try {
     await axios.delete(`/api/v1/files/${props.file.uuid}`)
     emit('file-deleted', props.file)
@@ -335,7 +322,9 @@ async function confirmDelete() {
     toast.success('File deleted')
   } catch (e) {
     console.error('Delete failed:', e)
-    toast.error('Failed to delete file')
+    toast.error(e.response?.data?.message || 'Failed to delete file')
+  } finally {
+    deleting.value = false
   }
 }
 </script>

@@ -283,18 +283,17 @@ class FileAccessController extends Controller
         }
 
         $validated = $request->validate([
-            'title' => 'sometimes|string|max:255',
+            'title' => 'sometimes|required|string|max:255',
             'desc' => 'sometimes|string|nullable',
-            'notes' => 'sometimes|string|nullable',
-            'tags' => 'sometimes|string|nullable',
-            'file_name' => 'sometimes|string|max:255',
-            'category' => 'sometimes|string|max:255',
-            'date' => 'sometimes|date|nullable',
         ]);
+
+        if (empty($validated)) {
+            return response()->json(['message' => 'At least one field must be provided.'], 422);
+        }
 
         $file->update($validated);
 
-        return response()->json($file);
+        return response()->json($file->fresh());
     }
 
     public function destroy(Request $request, string $uuid)
@@ -305,7 +304,17 @@ class FileAccessController extends Controller
             return response()->json(['message' => 'Unauthorized. Only primary doctor can delete files.'], 403);
         }
 
+        $pathsToDelete = array_filter([
+            $file->file_path,
+            $file->thumbnail_path,
+        ]);
+
         $file->delete();
+
+        if (!empty($pathsToDelete)) {
+            Storage::disk('local')->delete($pathsToDelete);
+        }
+
         return response()->json(['message' => 'Deleted']);
     }
 }

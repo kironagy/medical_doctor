@@ -98,9 +98,10 @@
 
 <script setup>
 import { ref, reactive } from 'vue'
-import axios from 'axios'
 import WorkspaceModal from './WorkspaceModal.vue'
 import BaseButton from '@/Components/BaseButton.vue'
+import { useWorkspace } from '@/Composables/useWorkspace'
+import { useToast } from '@/Composables/useToast'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -109,6 +110,8 @@ const emit = defineEmits(['update:modelValue', 'saved'])
 
 const saving = ref(false)
 const errors = ref({})
+const toast = useToast()
+const { addPatient: addPatientToWorkspace } = useWorkspace()
 
 const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
 
@@ -130,15 +133,22 @@ async function submit() {
     const payload = { ...form }
     if (!payload.weight) delete payload.weight
     if (!payload.height) delete payload.height
-    const res = await axios.post('/api/v1/workspace/patients', payload)
-    resetForm()
-    emit('saved', res.data?.patient)
-    emit('update:modelValue', false)
+    const result = await addPatientToWorkspace(payload)
+    if (result.success) {
+      resetForm()
+      emit('saved', result.patient)
+      emit('update:modelValue', false)
+      toast.success('Patient created')
+    } else {
+      errors.value = result.errors || {}
+      toast.error('Failed to create patient')
+    }
   } catch (e) {
     if (e.response?.status === 422) {
       const errs = e.response.data?.errors || {}
       errors.value = Object.fromEntries(Object.entries(errs).map(([k, v]) => [k, v[0]]))
     }
+    toast.error('Failed to create patient')
   } finally {
     saving.value = false
   }

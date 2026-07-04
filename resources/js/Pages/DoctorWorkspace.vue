@@ -699,7 +699,6 @@ async function handleDelete() {
 
 function onPatientSaved(patient) {
   showAddPatient.value = false
-  refreshPatientList()
   if (patient?.uuid) {
     selectPatient(patient.uuid)
   }

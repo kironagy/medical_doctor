@@ -1,6 +1,7 @@
 import { ref, reactive } from 'vue'
 import axios from 'axios'
 import { useUploadDiagnostics } from './useUploadDiagnostics'
+import { useWorkspace } from './useWorkspace'
 
 const uploads = ref([])
 let idCounter = 0
@@ -60,6 +61,7 @@ export function useUploads() {
 
   async function startUpload(job, debug = null) {
     const d = debug || job?._debug || null
+    const { addFileLocally } = useWorkspace()
     try {
       const patientId = job.patientId
       const metadata = job.metadata || {}
@@ -141,8 +143,26 @@ export function useUploads() {
       d?._record('complete_start')
       if (job.uploadId) {
         d?.onMergeStart()
-        await axios.post('/api/v1/chunk/complete', { upload_id: job.uploadId })
+        const completeRes = await axios.post('/api/v1/chunk/complete', { upload_id: job.uploadId })
         d?.onMergeComplete()
+        if (completeRes?.data?.uuid) {
+          addFileLocally({
+            uuid: completeRes.data.uuid,
+            patient_id: patientId,
+            title: metadata.title || job.file?.name || '',
+            desc: metadata.desc || '',
+            category: metadata.category || '',
+            file_name: job.file?.name || '',
+            mime_type: job.file?.type || 'application/octet-stream',
+            size: job.file?.size || 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            upload_status: 'ready',
+            url: completeRes.data.url,
+            thumbnail_url: completeRes.data.thumbnail_url,
+            type: completeRes.data.type,
+          })
+        }
       }
       job.status = 'completed'
       job.progress = 100
@@ -342,6 +362,7 @@ export function useUploads() {
 
   async function executeRetry(job) {
     const d = job?._debug || null
+    const { addFileLocally } = useWorkspace()
     try {
       if (!job.uploadId || !job.totalChunks) {
         d?._record('retry_start_from_scratch')
@@ -352,8 +373,26 @@ export function useUploads() {
       await runPool(job, d)
       if (job._cancelled) return
       d?.onMergeStart()
-      await axios.post('/api/v1/chunk/complete', { upload_id: job.uploadId })
+      const completeRes = await axios.post('/api/v1/chunk/complete', { upload_id: job.uploadId })
       d?.onMergeComplete()
+      if (completeRes?.data?.uuid) {
+        addFileLocally({
+          uuid: completeRes.data.uuid,
+          patient_id: job.patientId,
+          title: job.metadata?.title || job.file?.name || '',
+          desc: job.metadata?.desc || '',
+          category: job.metadata?.category || '',
+          file_name: job.file?.name || '',
+          mime_type: job.file?.type || 'application/octet-stream',
+          size: job.file?.size || 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          upload_status: 'ready',
+          url: completeRes.data.url,
+          thumbnail_url: completeRes.data.thumbnail_url,
+          type: completeRes.data.type,
+        })
+      }
       job.status = 'completed'; job.progress = 100
       d?._record('retry_completed')
       d?.printReport()

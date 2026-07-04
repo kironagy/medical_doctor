@@ -27,8 +27,9 @@
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
             </button>
             <!-- Delete Button -->
-            <button v-if="canEdit" @click="confirmDelete" class="p-2 text-rose-400 hover:text-rose-300 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" title="Delete">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            <button v-if="canEdit" :disabled="deleting" @click="confirmDelete" class="p-2 text-rose-400 hover:text-rose-300 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed" title="Delete">
+              <svg v-if="!deleting" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
             </button>
             <button @click="close" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" title="Close (Esc)">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -111,33 +112,12 @@
           </div>
           <div class="overflow-y-auto overscroll-contain flex-1 p-5 space-y-4">
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">File Name</label>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Title</label>
               <input v-model="editForm.title" type="text" class="input-field w-full" />
             </div>
             <div>
               <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
-              <textarea v-model="editForm.desc" rows="2" class="input-field w-full" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Notes</label>
-              <textarea v-model="editForm.notes" rows="3" class="input-field w-full" placeholder="Additional notes about this file..." />
-            </div>
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Category</label>
-                <select v-model="editForm.category" class="input-field w-full">
-                  <option value="">Select category</option>
-                  <option v-for="cat in categories" :key="cat.slug" :value="cat.slug">{{ cat.name }}</option>
-                </select>
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Date</label>
-                <input v-model="editForm.date" type="date" class="input-field w-full" />
-              </div>
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tags</label>
-              <input v-model="editForm.tags" type="text" class="input-field w-full" placeholder="Comma-separated tags" />
+              <textarea v-model="editForm.desc" rows="3" class="input-field w-full" />
             </div>
           </div>
           <div class="sticky bottom-0 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 px-5 py-4 flex justify-end gap-3">
@@ -207,7 +187,8 @@ watch(file, async (newFile) => {
 
 const showEdit = ref(false)
 const saving = ref(false)
-const editForm = ref({ title: '', desc: '', notes: '', tags: '', category: '', date: '' })
+const deleting = ref(false)
+const editForm = ref({ title: '', desc: '' })
 
 const dialog = useDialog()
 const toast = useToast()
@@ -216,10 +197,6 @@ function openEdit() {
   editForm.value = {
     title: file.value?.title || file.value?.file_name || '',
     desc: file.value?.desc || '',
-    notes: file.value?.notes || '',
-    tags: file.value?.tags || '',
-    category: file.value?.category || '',
-    date: file.value?.date || '',
   }
   showEdit.value = true
 }
@@ -229,33 +206,38 @@ function closeEdit() {
 }
 
 async function saveEdit() {
+  if (!file.value?.uuid) return
+  const nextTitle = editForm.value.title?.trim() || ''
+  const nextDesc = editForm.value.desc?.trim() || ''
+  if (!nextTitle) {
+    toast.error('Title is required')
+    return
+  }
   saving.value = true
   try {
     const payload = {}
-    if (editForm.value.title !== (file.value?.title || file.value?.file_name)) payload.title = editForm.value.title
-    if (editForm.value.desc !== (file.value?.desc || '')) payload.desc = editForm.value.desc
-    if (editForm.value.notes !== (file.value?.notes || '')) payload.notes = editForm.value.notes
-    if (editForm.value.tags !== (file.value?.tags || '')) payload.tags = editForm.value.tags
-    if (editForm.value.category !== (file.value?.category || '')) payload.category = editForm.value.category
-    if (editForm.value.date !== (file.value?.date || '')) payload.date = editForm.value.date
+    if (nextTitle !== (file.value?.title || file.value?.file_name || '').trim()) payload.title = nextTitle
+    if (nextDesc !== (file.value?.desc || '').trim()) payload.desc = nextDesc
+    if (Object.keys(payload).length === 0) {
+      showEdit.value = false
+      return
+    }
 
     const res = await axios.put(`/api/v1/files/${file.value.uuid}`, payload)
     updateFileLocally(res.data)
-    
-    // Dynamically update the current preview file structure
     file.value = { ...file.value, ...res.data }
-    
     showEdit.value = false
     toast.success('File updated')
   } catch (e) {
     console.error('Edit failed:', e)
-    toast.error('Failed to update file')
+    toast.error(e.response?.data?.message || 'Failed to update file')
   } finally {
     saving.value = false
   }
 }
 
 async function confirmDelete() {
+  if (deleting.value) return
   const confirmed = await dialog.confirm({
     title: 'Delete File',
     message: `Delete "${file.value?.title || file.value?.file_name}"? This action cannot be undone.`,
@@ -263,6 +245,7 @@ async function confirmDelete() {
     style: 'danger',
   })
   if (!confirmed) return
+  deleting.value = true
   try {
     await axios.delete(`/api/v1/files/${file.value.uuid}`)
     removeFileLocally(file.value.uuid)
@@ -270,7 +253,9 @@ async function confirmDelete() {
     toast.success('File deleted')
   } catch (e) {
     console.error('Delete failed:', e)
-    toast.error('Failed to delete file')
+    toast.error(e.response?.data?.message || 'Failed to delete file')
+  } finally {
+    deleting.value = false
   }
 }
 
