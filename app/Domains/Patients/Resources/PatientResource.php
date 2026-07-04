@@ -31,6 +31,7 @@ class PatientResource extends JsonResource
             }),
             'visits' => $this->whenLoaded('visits'),
             'shares' => $this->whenLoaded('shares'),
+            'files' => $this->whenLoaded('files'),
         ];
     }
 }

@@ -721,18 +721,31 @@ async function handleNativeFileResult(fileData) {
     }
   }
 
-  uploadFile(file, patientId, { category: props.slug })
+  console.log('UPLOAD_STARTED', { name: file.name, size: file.size })
+  const uploadJob = uploadFile(file, patientId, { category: props.slug })
+  const unwatch = watch(() => uploadJob.status, (status) => {
+    if (status === 'completed') {
+      unwatch()
+      console.log('UPLOAD_FINISHED', { name: file.name })
+    } else if (status === 'failed' || status === 'cancelled') {
+      unwatch()
+      console.warn('UPLOAD_FAILED', { name: file.name, error: uploadJob.error })
+    }
+  })
 }
 
 async function captureCamera() {
-  // Try native bridge first, but always fall back to HTML file input
+  console.log('USER_CLICK', { source: 'camera' })
   if (isCameraAvailable()) {
+    console.log('OPEN_PICKER', { source: 'camera', method: 'native' })
     const photo = await takePhoto()
+    console.log('PICKER_RETURNED', { source: 'camera', hasPhoto: !!photo })
     if (photo) {
       handleNativeFileResult(photo)
-      return
     }
+    return
   }
+  console.log('OPEN_PICKER', { source: 'camera', method: 'html-input' })
   if (fileInput.value) {
     fileInput.value.accept = 'image/*'
     fileInput.value.setAttribute('capture', 'environment')
@@ -741,15 +754,19 @@ async function captureCamera() {
 }
 
 async function captureGallery() {
+  console.log('USER_CLICK', { source: 'gallery' })
   if (isFilePickerAvailable()) {
+    console.log('OPEN_PICKER', { source: 'gallery', method: 'native' })
     const files = await pickFiles({ multiple: true, accept: 'image/*' })
+    console.log('PICKER_RETURNED', { source: 'gallery', count: files?.length ?? 0 })
     if (files && files.length > 0) {
       for (const f of files) {
         handleNativeFileResult(f)
       }
-      return
     }
+    return
   }
+  console.log('OPEN_PICKER', { source: 'gallery', method: 'html-input' })
   if (fileInput.value) {
     fileInput.value.accept = 'image/*'
     fileInput.value.removeAttribute('capture')
@@ -758,15 +775,19 @@ async function captureGallery() {
 }
 
 async function triggerFileInput() {
+  console.log('USER_CLICK', { source: 'files' })
   if (isFilePickerAvailable()) {
+    console.log('OPEN_PICKER', { source: 'files', method: 'native' })
     const files = await pickFiles({ multiple: true, accept: defaultAccept })
+    console.log('PICKER_RETURNED', { source: 'files', count: files?.length ?? 0 })
     if (files && files.length > 0) {
       for (const f of files) {
         handleNativeFileResult(f)
       }
-      return
     }
+    return
   }
+  console.log('OPEN_PICKER', { source: 'files', method: 'html-input' })
   if (fileInput.value) {
     fileInput.value.accept = defaultAccept
     fileInput.value.removeAttribute('capture')

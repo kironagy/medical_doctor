@@ -14,7 +14,10 @@ class CategoryFileController extends Controller
     public function files(Request $request, string $patientUuid, string $slug)
     {
         if (ApiProxy::isEnabled()) {
-            return ApiProxy::proxyResponse(ApiProxy::get('/patients/' . $patientUuid . '/categories/' . $slug . '/files', $request->all()));
+            $response = ApiProxy::get('/patients/' . $patientUuid . '/categories/' . $slug . '/files', $request->all());
+            if ($response->successful()) {
+                return ApiProxy::proxyResponse($response);
+            }
         }
 
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();

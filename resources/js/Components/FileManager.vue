@@ -130,6 +130,8 @@ const isCameraInputReady = ref(false)
 const openFileDialog = async (source = 'files') => {
   if (!props.canEdit) return
 
+  console.log('USER_CLICK', { source })
+
   // On native Android, request permission first via bridge before opening system picker
   if (isPermissionsApiAvailable()) {
     const permAlias = source === 'camera' ? 'camera' : 'files'
@@ -137,28 +139,29 @@ const openFileDialog = async (source = 'files') => {
     if (result !== 'granted') return
   }
 
-
-
   if (source === 'camera' && isCameraAvailable()) {
+    console.log('OPEN_PICKER', { source: 'camera' })
     const photo = await takePhoto()
+    console.log('PICKER_RETURNED', { source: 'camera', hasPhoto: !!photo })
     if (photo) {
       handleNativeFile(photo)
     }
     return
   }
 
-  if (source !== 'camera' && isFilePickerAvailable()) {
+  if (isFilePickerAvailable()) {
+    console.log('OPEN_PICKER', { source: 'files', method: 'native' })
     const files = await pickFiles({ multiple: true, accept: '*/*' })
+    console.log('PICKER_RETURNED', { source: 'files', count: files?.length ?? 0 })
     if (files && files.length > 0) {
       for (const file of files) {
         handleNativeFile(file)
       }
     }
-    // If we have the native bridge, do not fallback to HTML input, 
-    // as it crashes some Android WebViews!
-    if (detectNative()) return;
+    return
   }
 
+  console.log('OPEN_PICKER', { source: 'files', method: 'html-input' })
   fileInput.value?.click()
 }
 
@@ -180,17 +183,20 @@ const handleNativeFile = async (nativeFile) => {
     return
   }
 
+  console.log('UPLOAD_STARTED', { name: file.name, size: file.size })
+
   const metadata = { category: props.category }
   const uploadJob = uploadFile(file, props.patientId, metadata)
   const unwatch = watch(() => uploadJob.status, (status) => {
     if (status === 'completed') {
       unwatch()
+      console.log('UPLOAD_FINISHED', { name: file.name })
       emit('uploaded')
-    } else if (status !== 'uploading') {
+    } else if (status === 'failed' || status === 'cancelled') {
       unwatch()
-      console.warn('Upload failed:', uploadJob.error)
+      console.warn('UPLOAD_FAILED', { name: file.name, error: uploadJob.error })
     }
-  }, { immediate: true })
+  })
 }
 
 const handleDrop = (e) => {
@@ -207,17 +213,19 @@ const handleFileSelect = (e) => {
 
 const handleFiles = (selectedFiles) => {
   for (const file of selectedFiles) {
+    console.log('UPLOAD_STARTED', { name: file.name, size: file.size })
     const metadata = { category: props.category }
     const uploadJob = uploadFile(file, props.patientId, metadata)
     const unwatch = watch(() => uploadJob.status, (status) => {
       if (status === 'completed') {
         unwatch()
+        console.log('UPLOAD_FINISHED', { name: file.name })
         emit('uploaded')
-      } else if (status !== 'uploading') {
+      } else if (status === 'failed' || status === 'cancelled') {
         unwatch()
-        console.warn('Upload failed:', uploadJob.error)
+        console.warn('UPLOAD_FAILED', { name: file.name, error: uploadJob.error })
       }
-    }, { immediate: true })
+    })
   }
 }
 
