@@ -68,14 +68,29 @@ class UploadValidationService
         if ($session->status !== 'uploading') {
             throw new HttpException(400, 'Session is not in uploading state');
         }
-        $missing = $this->missingChunks($session);
-        if (!empty($missing)) {
-            throw new HttpException(400, 'Missing chunks: ' . implode(', ', $missing));
+
+        // Use DB count for race-safe verification
+        $receivedCount = DB::table('upload_chunk_receipts')
+            ->where('session_id', $session->id)
+            ->count();
+
+        if ($receivedCount < $session->total_chunks) {
+            $missing = $session->total_chunks - $receivedCount;
+            throw new HttpException(400, "Missing {$missing} chunk(s)");
         }
     }
 
     public function missingChunks(UploadSession $session): array
     {
+        // Return empty if all chunks received per DB count
+        $receivedCount = DB::table('upload_chunk_receipts')
+            ->where('session_id', $session->id)
+            ->count();
+        if ($receivedCount >= $session->total_chunks) {
+            return [];
+        }
+
+        // Fallback: detailed diff if count indicates missing
         $received = $this->receivedChunks($session);
         $all = range(0, $session->total_chunks - 1);
         return array_values(array_diff($all, $received));
@@ -90,7 +105,6 @@ class UploadValidationService
                 ->orderBy('chunk_index')
                 ->pluck('chunk_index')
                 ->all();
-            // Ensure integers
             return array_map('intval', $chunks);
         }
 
