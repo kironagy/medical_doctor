@@ -24,6 +24,8 @@ class ChunkUploadController extends Controller
 
     public function init(Request $request)
     {
+        $start = microtime(true);
+
         $validated = $request->validate([
             'file_name' => 'required|string|max:255',
             'file_size' => 'required|integer|min:1|max:5368709120',
@@ -47,11 +49,14 @@ class ChunkUploadController extends Controller
 
         $data = array_merge($request->only(['file_name', 'file_size', 'mime_type']), [
             'patient_id' => $patient->id,
+            'patient_uuid' => $patient->uuid,
             'chunk_size' => $request->input('chunk_size', 5 * 1024 * 1024),
             'metadata' => $request->input('metadata'),
         ]);
 
         $session = $this->sessionService->create($data, $request->user()->id);
+
+        $duration = (microtime(true) - $start) * 1000;
 
         return response()->json([
             'upload_id' => $session->uuid,
@@ -59,11 +64,13 @@ class ChunkUploadController extends Controller
             'total_chunks' => $session->total_chunks,
             'total_size' => $session->total_size,
             'expires_at' => $session->expires_at->toIso8601String(),
-        ]);
+        ])->header('X-Server-Time', round($duration, 2));
     }
 
     public function chunk(Request $request)
     {
+        $start = microtime(true);
+
         $request->validate([
             'upload_id' => 'required|string|size:36',
             'chunk_index' => 'required|integer|min:0',
@@ -81,11 +88,15 @@ class ChunkUploadController extends Controller
             (int) $request->chunk_index
         );
 
-        return response()->json($result);
+        $duration = (microtime(true) - $start) * 1000;
+
+        return response()->json($result)->header('X-Server-Time', round($duration, 2));
     }
 
     public function complete(Request $request)
     {
+        $start = microtime(true);
+
         $request->validate([
             'upload_id' => 'required|string|size:36',
         ]);
@@ -97,13 +108,15 @@ class ChunkUploadController extends Controller
 
         $patientFile = $this->mergeService->merge($session);
 
+        $duration = (microtime(true) - $start) * 1000;
+
         return response()->json([
             'uuid' => $patientFile->uuid,
             'upload_status' => $patientFile->upload_status,
             'url' => $patientFile->url,
             'thumbnail_url' => $patientFile->thumbnail_url,
             'type' => $patientFile->type,
-        ]);
+        ])->header('X-Server-Time', round($duration, 2));
     }
 
     public function cancel(Request $request, string $uuid)

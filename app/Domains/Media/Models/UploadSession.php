@@ -27,6 +27,8 @@ class UploadSession extends Model
         'disk',
         'metadata',
         'expires_at',
+        'final_path',
+        'received_chunk_indexes',
     ];
 
     protected $casts = [
@@ -35,6 +37,7 @@ class UploadSession extends Model
         'chunk_size' => 'integer',
         'metadata' => 'json',
         'expires_at' => 'datetime',
+        'received_chunk_indexes' => 'array',
     ];
 
     protected static function booted()

@@ -5,7 +5,8 @@ import { useWorkspace } from "./useWorkspace";
 
 const uploads = ref([]);
 let idCounter = 0;
-const POOL_SIZE = 3;
+// Increased from 3 to 6 to improve parallel throughput on modern networks
+const POOL_SIZE = 6;
 const MAX_RETRIES = 3;
 const CHUNK_SIZE = 5 * 1024 * 1024;
 const STORAGE_KEY = "upload_sessions";
@@ -63,6 +64,10 @@ export function useUploads() {
             _cancelled: false,
             _lastLoaded: 0,
             _lastTime: Date.now(),
+            // For smooth progress
+            _chunkSizes: new Map(),           // chunkIndex -> actual size
+            _inFlightLoaded: new Map(),       // chunkIndex -> bytes loaded so far
+            _completedBytesSum: 0,            // sum of sizes of completed chunks
         });
         uploads.value.push(job);
         return job;
@@ -152,6 +157,22 @@ export function useUploads() {
             job.chunkSize ??= CHUNK_SIZE;
             job.totalChunks = Math.ceil(job.file.size / job.chunkSize);
             job.completedChunks = completedSet;
+
+            // Initialize progress tracking for resumed uploads
+            // Approximate completed bytes sum using chunk size, adjusting for last chunk if present
+            let sum = job.completedChunks.size * job.chunkSize;
+            if (job.totalChunks > 0) {
+                const lastIdx = job.totalChunks - 1;
+                if (job.completedChunks.has(lastIdx)) {
+                    const lastChunkSize = job.totalBytes % job.chunkSize || job.chunkSize;
+                    sum = sum - job.chunkSize + lastChunkSize;
+                }
+            }
+            job._completedBytesSum = sum;
+            // Initially no in-flight chunks
+            job._inFlightLoaded.clear();
+            updateProgressFromParts(job);
+
             job.status = "uploading";
 
             persisted[key] = {
@@ -239,6 +260,13 @@ export function useUploads() {
         d?.stopNetworkMonitor();
     }
 
+    // Helper to recalc progress from completed bytes sum and in-flight loaded bytes
+    function updateProgressFromParts(job) {
+        const inFlightTotal = Array.from(job._inFlightLoaded.values()).reduce((sum, val) => sum + val, 0);
+        job.uploadedBytes = job._completedBytesSum + inFlightTotal;
+        job.progress = Math.min(100, Math.round((job.uploadedBytes / job.totalBytes) * 100));
+    }
+
     // Lazy parallel pool — yields chunk indexes on demand via generator.
     // Only POOL_SIZE chunks exist in memory at any time.
     // The first chunk starts uploading immediately; subsequent chunks
@@ -300,6 +328,11 @@ export function useUploads() {
         d?.onChunkBlobEnd(chunkIndex, blob?.size || 0);
         if (!blob) return;
 
+        // Record actual chunk size for accurate progress
+        job._chunkSizes.set(chunkIndex, blob.size);
+        // Initialize in-flight loaded bytes
+        job._inFlightLoaded.set(chunkIndex, 0);
+
         const controller = new AbortController();
         job._controllers.set(chunkIndex, controller);
         job.inFlightChunks.add(chunkIndex);
@@ -319,28 +352,47 @@ export function useUploads() {
                 fd.append("chunk_index", chunkIndex);
                 fd.append("chunk", blob, `chunk_${chunkIndex}`);
 
-                await axios.post("/api/v1/chunk/chunk", fd, {
+                const response = await axios.post("/api/v1/chunk/chunk", fd, {
                     signal: controller.signal,
                     timeout: 120000,
                     onUploadProgress: (e) => {
                         d?.onChunkUploadProgress(chunkIndex, e.loaded, e.total);
+                        // Update in-flight progress and recalc overall progress
+                        if (e.lengthComputable) {
+                            job._inFlightLoaded.set(chunkIndex, e.loaded);
+                            updateProgressFromParts(job);
+                        }
                     },
                 });
+
+                // Capture server-side processing time if available
+                const serverTime = response.headers['x-server-time'];
+                if (serverTime && d) {
+                    d.recordServerTiming(chunkIndex, { serverTimeMs: parseFloat(serverTime) });
+                }
 
                 d?.onChunkResponseReceived(chunkIndex);
                 const parallelCount = job.inFlightChunks.size + 1;
                 d?.onChunkComplete(chunkIndex, 200, parallelCount);
                 d?.sampleMemory();
 
+                // Chunk succeeded: move from in-flight to completed
                 job.completedChunks.add(chunkIndex);
                 job.inFlightChunks.delete(chunkIndex);
                 job._controllers.delete(chunkIndex);
                 job.failedChunks.delete(chunkIndex);
-                job.progress = Math.round(
-                    (job.completedChunks.size / job.totalChunks) * 100,
-                );
-                job.uploadedBytes = job.completedChunks.size * job.chunkSize;
 
+                // Update completed bytes sum
+                const chunkSize = job._chunkSizes.get(chunkIndex) || job.chunkSize;
+                job._completedBytesSum += chunkSize;
+
+                // Remove from in-flight tracking
+                job._inFlightLoaded.delete(chunkIndex);
+
+                // Recalc progress based on precise numbers
+                updateProgressFromParts(job);
+
+                // Update speed based on completed bytes as before
                 const now = Date.now();
                 if (now - job._lastTime > 200) {
                     const db = job.uploadedBytes - job._lastLoaded;
@@ -355,14 +407,18 @@ export function useUploads() {
             } catch (err) {
                 lastError = err;
                 if (err.name === "CanceledError" || axios.isCancel(err)) {
+                    // Cleanup in-flight tracking
                     job.inFlightChunks.delete(chunkIndex);
+                    job._inFlightLoaded.delete(chunkIndex);
                     d?.recordError(`chunk_${chunkIndex}_cancelled`, err);
                     throw err;
                 }
                 job.failedChunks.set(chunkIndex, attempt + 1);
             }
         }
+        // All retries failed: cleanup
         job.inFlightChunks.delete(chunkIndex);
+        job._inFlightLoaded.delete(chunkIndex);
         job._controllers.delete(chunkIndex);
         const finalErr = lastError || new Error(`Chunk ${chunkIndex} failed`);
         d?.recordError(`chunk_${chunkIndex}_failed_after_retries`, finalErr);

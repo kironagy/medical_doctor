@@ -4,6 +4,7 @@ namespace App\Services\Upload;
 
 use App\Domains\Media\Models\UploadSession;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class UploadValidationService
@@ -75,23 +76,25 @@ class UploadValidationService
 
     public function missingChunks(UploadSession $session): array
     {
-        $disk = \Illuminate\Support\Facades\Storage::disk($session->disk);
-        $chunkDir = $session->chunkDir();
-        if (!$disk->exists($chunkDir)) {
-            return range(0, $session->total_chunks - 1);
-        }
-        $missing = [];
-        for ($i = 0; $i < $session->total_chunks; $i++) {
-            $path = "{$chunkDir}/{$i}";
-            if (!$disk->exists($path)) {
-                $missing[] = $i;
-            }
-        }
-        return $missing;
+        $received = $this->receivedChunks($session);
+        $all = range(0, $session->total_chunks - 1);
+        return array_values(array_diff($all, $received));
     }
 
     public function receivedChunks(UploadSession $session): array
     {
+        // Use DB-backed receipts for optimized direct-write sessions
+        if ($session->final_path) {
+            $chunks = DB::table('upload_chunk_receipts')
+                ->where('session_id', $session->id)
+                ->orderBy('chunk_index')
+                ->pluck('chunk_index')
+                ->all();
+            // Ensure integers
+            return array_map('intval', $chunks);
+        }
+
+        // Legacy: filesystem-based chunk detection
         $disk = \Illuminate\Support\Facades\Storage::disk($session->disk);
         $chunkDir = $session->chunkDir();
         if (!$disk->exists($chunkDir)) {

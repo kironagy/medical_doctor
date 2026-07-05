@@ -196,6 +196,17 @@ let hideControlsTimer = null
 let isMounted = false
 let wasPausedBeforeSeek = false
 
+// Video performance timing (debug only)
+const debugVideo = (() => {
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('video_debug') === '1') return true
+  if (typeof location !== 'undefined' && /[?&]video_debug=1/.test(location.search)) return true
+  return false
+})()
+let srcSetAt = 0
+let canPlayCount = 0
+let firstCanPlayAt = 0
+let firstPlayAt = 0
+
 function formatTime(seconds) {
   if (!seconds || !isFinite(seconds)) return '0:00'
   const h = Math.floor(seconds / 3600)
@@ -225,6 +236,14 @@ function onPlay() {
   controlsVisible.value = true
   initialError.value = false
   emit('play')
+  if (debugVideo) {
+    if (firstPlayAt === 0) {
+      firstPlayAt = performance.now()
+      const fromSrc = Math.round(firstPlayAt - srcSetAt)
+      const fromCanPlay = firstCanPlayAt ? Math.round(firstPlayAt - firstCanPlayAt) : 0
+      console.log(`[Video] First play at ${fromSrc}ms from src, ${fromCanPlay}ms after first canplay`)
+    }
+  }
 }
 
 function onPause() {
@@ -244,14 +263,27 @@ function onTimeUpdate() {
 
 function onWaiting() {
   isBuffering.value = true
+  if (debugVideo) {
+    console.log(`[Video] Buffering (waiting) at ${Math.round(performance.now() - srcSetAt)}ms`)
+  }
 }
 
 function onCanPlay() {
   isBuffering.value = false
+  if (debugVideo) {
+    if (canPlayCount === 0) {
+      firstCanPlayAt = performance.now()
+      console.log(`[Video] First canplay at ${Math.round(firstCanPlayAt - srcSetAt)}ms from src set`)
+    }
+    canPlayCount++
+  }
 }
 
 function onPlaying() {
   isBuffering.value = false
+  if (debugVideo) {
+    console.log(`[Video] Buffering ended (playing) at ${Math.round(performance.now() - srcSetAt)}ms`)
+  }
 }
 
 function onProgress() {
@@ -457,6 +489,11 @@ watch(() => props.src, () => {
   duration.value = 0
   progressPercent.value = 0
   bufferPercent.value = 0
+  // Reset video perf timers
+  srcSetAt = performance.now()
+  canPlayCount = 0
+  firstCanPlayAt = 0
+  firstPlayAt = 0
   nextTick(() => {
     const el = videoEl.value
     if (el) el.load()

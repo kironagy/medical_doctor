@@ -36,11 +36,26 @@ class UploadSessionService
             'metadata' => $data['metadata'] ?? null,
             'disk' => 'local',
             'expires_at' => now()->addHours(6),
+            'received_chunk_indexes' => [], // initialize empty array
         ]);
 
         DB::table('upload_sessions')
             ->where('id', $session->id)
             ->update(['uuid' => $session->uuid]);
+
+        // Compute final file path for direct-write optimization
+        $patientUuid = $data['patient_uuid'] ?? null;
+        if (!$patientUuid) {
+            $patient = Patient::find($data['patient_id']);
+            $patientUuid = $patient?->uuid;
+        }
+        if ($patientUuid) {
+            $finalPath = "patients/{$patientUuid}/{$session->uuid}.{$extension}";
+            // Use direct DB update to avoid triggering mass-assignment issues
+            DB::table('upload_sessions')
+                ->where('id', $session->id)
+                ->update(['final_path' => $finalPath]);
+        }
 
         return $session;
     }
