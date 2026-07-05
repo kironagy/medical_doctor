@@ -181,6 +181,25 @@ return [
         'storage/framework/cache',
         'storage/framework/testing',
         'storage/logs/laravel.log',
+        'tests',
+        'node_modules',
+        '.git',
+        '.github',
+        '.gitlab-ci.yml',
+        'readme.md',
+        'README.md',
+        'CHANGELOG.md',
+        'LICENSE',
+        
+        'phpunit.xml',
+        'server.php',
+        'vite.config.js',
+        'tailwind.config.js',
+        'postcss.config.js',
+        'resources/js',
+        'resources/css',
+        'storage/debugbar',
+        // Keep public/build as it contains compiled assets
     ],
 
     /*
@@ -196,7 +215,7 @@ return [
     */
 
     'runtime' => [
-        'mode' => 'persistent', // 'classic' or 'persistent'
+        'mode' => 'classic', // 'classic' or 'persistent'
         'reset_instances' => true,
         'gc_between_dispatches' => false,
     ],
@@ -206,6 +225,11 @@ return [
         'android_sdk_path' => env('NATIVEPHP_ANDROID_SDK_LOCATION'),
         'emulator_path' => env('ANDROID_EMULATOR'),
         '7zip-location' => env('NATIVEPHP_7ZIP_LOCATION', 'C:\\Program Files\\7-Zip\\7z.exe'),
+
+        // Android SDK versions
+        'compile_sdk' => 36,
+        'min_sdk' => 33,
+        'target_sdk' => 36,
 
         /*
         |--------------------------------------------------------------------------
@@ -271,24 +295,24 @@ return [
         |
         */
         'build' => [
-            // R8/ProGuard Configuration - currently disabled
-            'minify_enabled' => env('NATIVEPHP_ANDROID_MINIFY_ENABLED', false),
-            'shrink_resources' => env('NATIVEPHP_ANDROID_SHRINK_RESOURCES', false),
-            'obfuscate' => env('NATIVEPHP_ANDROID_OBFUSCATE', false),
+            // R8/ProGuard Configuration - optimized for release
+            'minify_enabled' => true,
+            'shrink_resources' => true,
+            'obfuscate' => false,
 
-            // Debug Symbol Configuration - currently enabled
-            'debug_symbols' => env('NATIVEPHP_ANDROID_DEBUG_SYMBOLS', 'FULL'),
-            'generate_mapping_files' => env('NATIVEPHP_ANDROID_MAPPING_FILES', false),
-            'mapping_file_path' => env('NATIVEPHP_ANDROID_MAPPING_PATH', 'build/outputs/mapping/release/'),
+            // Debug Symbol Configuration - minimize size for release
+            'debug_symbols' => 'NONE',
+            'generate_mapping_files' => true, // keep for deobfuscation if needed
+            'mapping_file_path' => 'build/outputs/mapping/release/',
 
-            // ProGuard Rules - currently disabled
-            'keep_line_numbers' => env('NATIVEPHP_ANDROID_KEEP_LINE_NUMBERS', false),
-            'keep_source_file' => env('NATIVEPHP_ANDROID_KEEP_SOURCE_FILE', false),
-            'custom_proguard_rules' => env('NATIVEPHP_ANDROID_CUSTOM_PROGUARD_RULES', []),
+            // ProGuard Rules
+            'keep_line_numbers' => false,
+            'keep_source_file' => false,
+            'custom_proguard_rules' => [],
 
-            // Build Performance - using Gradle defaults
-            'parallel_builds' => env('NATIVEPHP_ANDROID_PARALLEL_BUILDS', true),
-            'incremental_builds' => env('NATIVEPHP_ANDROID_INCREMENTAL_BUILDS', true),
+            // Build Performance
+            'parallel_builds' => true,
+            'incremental_builds' => true,
         ],
     ],
 
@@ -427,8 +451,8 @@ return [
         'android' => [
             'portrait' => true,
             'upside_down' => false,
-            'landscape_left' => false,
-            'landscape_right' => false,
+            'landscape_left' => true,
+            'landscape_right' => true,
         ],
     ],
 ];

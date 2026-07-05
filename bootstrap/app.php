@@ -6,7 +6,18 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+// Define service providers to register
+$providers = [
+    App\Providers\AppServiceProvider::class,
+];
+
+// Only load NativeServiceProvider in NativePHP (mobile) builds
+if (env('NATIVEPHP_APP_ID')) {
+    $providers[] = App\Providers\NativeServiceProvider::class;
+}
+
 return Application::configure(basePath: dirname(__DIR__))
+    ->withProviders($providers)
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
@@ -14,7 +25,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->append(\App\Http\Middleware\NativePHPProfilerMiddleware::class);
+        if (env('APP_DEBUG', false)) {
+            $middleware->append(\App\Http\Middleware\NativePHPProfilerMiddleware::class);
+        }
         $middleware->trustProxies(at: '*');
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,

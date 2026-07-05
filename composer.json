@@ -12,6 +12,11 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "nativephp/mobile": "^3.3",
+        "nativephp/mobile-camera": "^1.0",
+        "nativephp/mobile-dialog": "^1.0",
+        "nativephp/mobile-file": "^1.0",
+        "nativephp/mobile-network": "^1.0",
+        "nativephp/mobile-share": "^1.0",
         "spatie/laravel-permission": "^8.1"
     },
     "require-dev": {
