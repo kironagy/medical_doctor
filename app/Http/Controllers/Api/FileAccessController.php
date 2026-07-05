@@ -302,6 +302,7 @@ class FileAccessController extends Controller
         $validated = $request->validate([
             'title' => 'sometimes|required|string|max:255',
             'desc' => 'sometimes|string|nullable',
+            'category' => 'sometimes|string|nullable',
         ]);
 
         if (empty($validated)) {
