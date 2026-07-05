@@ -5,7 +5,7 @@
     <aside class="hidden md:flex flex-col w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 h-screen sticky top-0">
       <div class="p-6 flex items-center space-x-3 border-b border-slate-100 dark:border-slate-800">
         <div class="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold">M</div>
-        <span class="font-heading font-bold text-xl text-slate-800 dark:text-white">Medical Plus</span>
+        <span class="font-heading font-bold text-xl text-slate-800 dark:text-white">prof hosam fekry ortho team</span>
       </div>
       
       <!-- Main Menu -->
@@ -49,7 +49,7 @@
       <div class="p-6 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
         <div class="flex items-center space-x-3 rtl:space-x-reverse">
           <div class="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold">M</div>
-          <span class="font-heading font-bold text-xl text-slate-800 dark:text-white">Medical Plus</span>
+        <span class="font-heading font-bold text-xl text-slate-800 dark:text-white">prof hosam fekry ortho team</span>
         </div>
         <button @click="mobileMenuOpen = false" class="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 p-1">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -275,7 +275,7 @@ onUnmounted(() => {
 defineProps({
   title: {
     type: String,
-    default: 'Medical Plus'
+    default: 'prof hosam fekry ortho team'
   },
 });
 </script>

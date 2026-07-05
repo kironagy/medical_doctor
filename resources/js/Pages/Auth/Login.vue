@@ -8,7 +8,7 @@
         {{ $t('auth.sign_in') || 'Sign in to your account' }}
       </h2>
       <p class="mt-2 text-center text-sm text-slate-600 dark:text-slate-400">
-        {{ $t('auth.subtitle') || 'Medical Plus Professional' }}
+         {{ $t('auth.subtitle') || 'prof hosam fekry ortho team' }}
       </p>
     </div>
 

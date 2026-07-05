@@ -53,7 +53,7 @@ window.addEventListener('error', (event) => {
   event.preventDefault()
 })
 
-const appName = import.meta.env.VITE_APP_NAME || 'Medical Plus';
+const appName = import.meta.env.VITE_APP_NAME || 'prof hosam fekry ortho team';
 
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,

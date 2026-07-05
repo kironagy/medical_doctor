@@ -4,7 +4,7 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover">
 
-        <title inertia>{{ config('app.name', 'Medical Plus') }}</title>
+        <title inertia>{{ config('app.name', 'prof hosam fekry ortho team') }}</title>
 
         <!-- Theme Color (Android Task Switcher + Status Bar) -->
         <meta name="theme-color" content="#0d9488" media="(prefers-color-scheme: light)">
