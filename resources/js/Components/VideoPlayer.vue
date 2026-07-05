@@ -10,7 +10,7 @@
       ref="videoEl"
       class="video-element w-full h-full object-contain"
       :poster="poster"
-      preload="auto"
+      preload="metadata"
       playsinline
       webkit-playsinline
       @loadedmetadata="onLoadedMetadata"
