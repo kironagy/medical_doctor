@@ -6,6 +6,8 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Throwable;
+use App\Domains\Media\Models\PatientFile;
+use App\Observers\PatientFileObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -22,6 +24,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Register model observers
+        PatientFile::observe(PatientFileObserver::class);
+
         // Only run on NativePHP (mobile) environment
         if (env('NATIVEPHP_APP_ID')) {
             $this->runMigrationsIfNeeded();
