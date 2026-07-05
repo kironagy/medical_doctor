@@ -32,32 +32,9 @@
       </div>
 
       <div v-else-if="release" class="space-y-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-            <p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Android Version</p>
-            <p class="text-lg font-semibold text-slate-900 dark:text-white">{{ release.versionName }}</p>
-          </div>
-          <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-            <p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Version Name</p>
-            <p class="text-lg font-semibold text-slate-900 dark:text-white">{{ release.tagName }}</p>
-          </div>
-          <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-            <p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Build Number</p>
-            <p class="text-lg font-semibold text-slate-900 dark:text-white">{{ release.buildNumber }}</p>
-          </div>
-          <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-            <p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Release Date</p>
-            <p class="text-lg font-semibold text-slate-900 dark:text-white">{{ release.releaseDate }}</p>
-          </div>
-          <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl" v-if="release.apkSize">
-            <p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">APK Size</p>
-            <p class="text-lg font-semibold text-slate-900 dark:text-white">{{ release.apkSize }}</p>
-          </div>
-        </div>
-
-        <div v-if="release.body" class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
-          <p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Release Notes</p>
-          <div class="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{{ release.body }}</div>
+        <div class="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+          <p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Current Version</p>
+          <p class="text-lg font-semibold text-slate-900 dark:text-white">{{ release.versionName }}</p>
         </div>
 
         <button
@@ -72,14 +49,7 @@
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-          {{ downloading ? 'Downloading...' : 'Download Latest APK' }}
-        </button>
-
-        <button
-          @click="$emit('close')"
-          class="w-full flex items-center justify-center px-6 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium rounded-xl transition-colors"
-        >
-          Close
+          {{ downloading ? 'Downloading...' : 'Download APK' }}
         </button>
       </div>
     </div>
@@ -104,12 +74,6 @@ const noReleases = ref(false);
 const downloading = ref(false);
 const release = ref(null);
 
-function formatSize(bytes) {
-  if (!bytes) return null;
-  const mb = bytes / (1024 * 1024);
-  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(bytes / 1024).toFixed(1)} KB`;
-}
-
 async function fetchRelease() {
   loading.value = true;
   error.value = false;
@@ -130,16 +94,9 @@ async function fetchRelease() {
     const tagName = (data.tag_name || '').replace(/^v/, '');
     const assets = data.assets || [];
     const apkAsset = assets.find(a => a.name && a.name.endsWith('.apk'));
-    const publishedAt = data.published_at || '';
-    const dateFormatted = publishedAt.length >= 10 ? publishedAt.substring(0, 10) : publishedAt;
     release.value = {
       versionName: tagName,
-      tagName: data.tag_name || '',
-      buildNumber: String(data.id || ''),
-      releaseDate: dateFormatted,
-      downloadUrl: apkAsset ? apkAsset.browser_download_url : '',
-      body: data.body || '',
-      apkSize: formatSize(apkAsset?.size)
+      downloadUrl: apkAsset ? apkAsset.browser_download_url : ''
     };
   } catch (e) {
     error.value = true;
@@ -150,14 +107,16 @@ async function fetchRelease() {
 
 function startDownload() {
   if (!release.value?.downloadUrl) return;
-  downloading.value = true;
-  const link = document.createElement('a');
-  link.href = release.value.downloadUrl;
-  link.download = 'MedicalPlus.apk';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setTimeout(() => { downloading.value = false; }, 2000);
+  if (window.AndroidBridge) {
+    window.AndroidBridge.downloadApk(release.value.downloadUrl);
+  } else {
+    const link = document.createElement('a');
+    link.href = release.value.downloadUrl;
+    link.download = 'MedicalPlus.apk';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
 }
 
 onMounted(fetchRelease);

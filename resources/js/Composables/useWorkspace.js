@@ -131,6 +131,7 @@ function setPatients(patientList) {
 
 async function selectPatient(uuid) {
     if (!uuid) return;
+    showSettings.value = false;
     selectedPatientId.value = uuid;
     loadingPatient.value = true;
     expandedCategories.value = {};

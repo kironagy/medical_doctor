@@ -581,7 +581,9 @@ const filteredFilesRaw = computed(() => {
 
 const totalItems = computed(() => {
   if (initialLoadDone.value && serverMeta.value.total !== undefined) {
-    return serverMeta.value.total
+    const serverUuids = new Set(serverFiles.value.map(f => f.uuid))
+    const newCount = allFiles.value.filter(f => f.category === props.slug && !serverUuids.has(f.uuid)).length
+    return serverMeta.value.total + newCount
   }
   return filteredFilesRaw.value.length
 })
@@ -601,13 +603,13 @@ const notesCount = computed(() => {
   ).length
 })
 
-// Paginated file slice
+// Paginated file slice — merge any newly uploaded files immediately
 const files = computed(() => {
-  // If we have server files, they're already paginated
   if (initialLoadDone.value && serverFiles.value.length > 0) {
-    return serverFiles.value
+    const serverUuids = new Set(serverFiles.value.map(f => f.uuid))
+    const newFiles = allFiles.value.filter(f => f.category === props.slug && !serverUuids.has(f.uuid))
+    return newFiles.length > 0 ? [...newFiles, ...serverFiles.value] : serverFiles.value
   }
-
   const start = (currentPage.value - 1) * perPage
   return filteredFilesRaw.value.slice(start, start + perPage)
 })
@@ -794,7 +796,7 @@ watch(expanded, (val) => {
   }
 }, { immediate: true })
 
-// After upload completes, refresh category data
+// After upload completes, sync from server in background (file shows instantly via reactive merge)
 const localCompleteCount = ref(0)
 watch(uploads, (list) => {
   let c = 0
@@ -805,12 +807,7 @@ watch(uploads, (list) => {
   if (c > localCompleteCount.value) {
     localCompleteCount.value = c
     if (initialLoadDone.value) {
-      loadCategoryData(1)
-    } else {
-      refreshWorkspaceData()
-    }
-    if (selectedPatient.value?.uuid) {
-      refreshWorkspaceData()
+      loadCategoryData(currentPage.value)
     }
     toast.success('Upload complete')
   }

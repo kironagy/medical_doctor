@@ -6,15 +6,30 @@
     @keydown="handleKeydown"
     tabindex="0"
   >
-    <!-- Video element (video.js) -->
     <video
       ref="videoEl"
-      class="video-js vjs-big-play-centered w-full object-contain"
+      class="video-element w-full h-full object-contain"
       :poster="poster"
-      preload="metadata"
-    ></video>
+      preload="auto"
+      playsinline
+      webkit-playsinline
+      @loadedmetadata="onLoadedMetadata"
+      @play="onPlay"
+      @pause="onPause"
+      @timeupdate="onTimeUpdate"
+      @waiting="onWaiting"
+      @canplay="onCanPlay"
+      @playing="onPlaying"
+      @progress="onProgress"
+      @volumechange="onVolumeChange"
+      @error="onError"
+      @ended="onEnded"
+      @seeking="onSeeking"
+      @seeked="onSeeked"
+    >
+      <source :src="src" :type="type" />
+    </video>
 
-    <!-- Loading spinner overlay (when buffering) -->
     <div
       v-if="isBuffering && hasStarted"
       class="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
@@ -22,9 +37,8 @@
       <div class="w-12 h-12 border-[3px] border-white/20 border-t-white rounded-full animate-spin" />
     </div>
 
-    <!-- Big play button (custom, shown before play) -->
     <div
-      v-if="!hasStarted"
+      v-if="!hasStarted && !initialError"
       class="absolute inset-0 flex items-center justify-center cursor-pointer z-20"
       @click="play"
     >
@@ -33,7 +47,16 @@
       </div>
     </div>
 
-    <!-- Controls overlay (bottom bar) -->
+    <div
+      v-if="initialError"
+      class="absolute inset-0 flex items-center justify-center z-20 bg-black/60"
+    >
+      <div class="text-center">
+        <p class="text-white/70 text-sm mb-2">Unable to load video</p>
+        <button @click="retry" class="text-primary-400 hover:text-primary-300 text-sm font-medium">Retry</button>
+      </div>
+    </div>
+
     <Transition name="controls-fade">
       <div
         v-if="hasStarted && (controlsVisible || !isPlaying || isFullscreen)"
@@ -41,7 +64,6 @@
         @mouseenter="controlsVisible = true"
         @mouseleave="controlsVisible = isPlaying ? false : true"
       >
-        <!-- Progress bar -->
         <div
           ref="progressRef"
           class="relative h-1.5 bg-white/20 rounded-full mb-4 cursor-pointer group/progress hover:h-2.5 transition-all duration-150"
@@ -50,16 +72,12 @@
           @mouseenter="showSeekTooltip = true"
           @mouseleave="showSeekTooltip = false"
         >
-          <!-- Buffer bar -->
           <div class="absolute inset-y-0 left-0 bg-white/30 rounded-full" :style="{ width: bufferPercent + '%' }" />
-          <!-- Progress bar -->
           <div class="absolute inset-y-0 left-0 bg-primary-500 rounded-full" :style="{ width: progressPercent + '%' }" />
-          <!-- Seek thumb -->
           <div
             class="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-primary-400 rounded-full shadow-md opacity-0 group-hover/progress:opacity-100 transition-opacity"
             :style="{ left: `calc(${progressPercent}% - 7px)` }"
           />
-          <!-- Seek tooltip -->
           <div
             v-if="showSeekTooltip"
             class="absolute -top-8 -translate-x-1/2 bg-slate-900 text-white text-[11px] font-medium px-2 py-1 rounded shadow-lg whitespace-nowrap pointer-events-none"
@@ -69,16 +87,13 @@
           </div>
         </div>
 
-        <!-- Control buttons row -->
         <div class="flex items-center justify-between gap-2 text-white">
           <div class="flex items-center gap-1.5 md:gap-3">
-            <!-- Play/Pause -->
             <button @click="togglePlay" class="p-1.5 hover:bg-white/10 rounded-lg transition-colors" :title="isPlaying ? 'Pause (k)' : 'Play (k)'">
               <svg v-if="isPlaying" class="w-5 h-5 md:w-6 md:h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" /></svg>
               <svg v-else class="w-5 h-5 md:w-6 md:h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
             </button>
 
-            <!-- Volume -->
             <div class="flex items-center gap-1 group/vol">
               <button @click="toggleMute" class="p-1.5 hover:bg-white/10 rounded-lg transition-colors" title="Mute (m)">
                 <svg v-if="volume === 0 || isMuted" class="w-4 h-4 md:w-5 md:h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0021 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 003.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" /></svg>
@@ -98,14 +113,12 @@
               </div>
             </div>
 
-            <!-- Time display -->
             <span class="text-[11px] md:text-xs font-medium text-white/80 whitespace-nowrap tabular-nums ms-1">
               {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
             </span>
           </div>
 
           <div class="flex items-center gap-1.5 md:gap-2">
-            <!-- Playback speed -->
             <div class="relative group/speed">
               <button @click="cycleSpeed" class="px-2 py-1 text-[11px] md:text-xs font-medium bg-white/10 hover:bg-white/20 rounded-md transition-colors tabular-nums" title="Speed">
                 {{ playbackSpeed }}x
@@ -123,7 +136,6 @@
               </div>
             </div>
 
-            <!-- Picture-in-Picture -->
             <button
               v-if="supportsPiP"
               @click="togglePiP"
@@ -133,7 +145,6 @@
               <svg class="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" /><path stroke-linecap="round" stroke-linejoin="round" d="M14 14h4v4h-4z" /></svg>
             </button>
 
-            <!-- Fullscreen -->
             <button @click="toggleFullscreen" class="p-1.5 hover:bg-white/10 rounded-lg transition-colors" title="Fullscreen (f)">
               <svg v-if="isFullscreen" class="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" /></svg>
               <svg v-else class="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
@@ -147,8 +158,6 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import 'video.js/dist/video-js.css'
-let videojs = null
 
 const props = defineProps({
   src: { type: String, required: true },
@@ -162,7 +171,6 @@ const emit = defineEmits(['play', 'pause', 'seeked', 'timeupdate', 'error', 'end
 const videoEl = ref(null)
 const playerContainer = ref(null)
 const progressRef = ref(null)
-let vjsPlayer = null
 
 const isPlaying = ref(false)
 const hasStarted = ref(false)
@@ -179,12 +187,14 @@ const seekTooltipTime = ref('0:00')
 const seekTooltipLeft = ref(0)
 const bufferPercent = ref(0)
 const progressPercent = ref(0)
+const initialError = ref(false)
 
 const supportsPiP = typeof document !== 'undefined' && 'pictureInPictureEnabled' in document
 const speedOptions = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]
 
 let hideControlsTimer = null
 let isMounted = false
+let wasPausedBeforeSeek = false
 
 function formatTime(seconds) {
   if (!seconds || !isFinite(seconds)) return '0:00'
@@ -195,117 +205,121 @@ function formatTime(seconds) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-async function initPlayer() {
-  if (!videoEl.value) return
-  if (vjsPlayer) {
-    vjsPlayer.dispose()
-    vjsPlayer = null
+function onLoadedMetadata() {
+  const el = videoEl.value
+  if (!el) return
+  duration.value = el.duration || 0
+  volume.value = el.volume
+  isMuted.value = el.muted
+  if (el.videoWidth && el.videoHeight) {
+    playerContainer.value?.style.setProperty('--video-ar', `${el.videoWidth} / ${el.videoHeight}`)
   }
-
-  if (!videojs) {
-    videojs = (await import('video.js')).default
+  if (props.autoplay) {
+    el.play().catch(() => {})
   }
-  if (!isMounted || !videoEl.value) return
+}
 
-  vjsPlayer = videojs(videoEl.value, {
-    controls: false,
-    autoplay: props.autoplay,
-    preload: 'metadata',
-    fluid: false,
-    html5: {
-      nativeAudioTracks: false,
-      nativeVideoTracks: false,
-      hls: { overrideNative: true },
-    },
-    sources: [{ src: props.src, type: props.type }],
-    poster: props.poster || undefined,
-  })
+function onPlay() {
+  isPlaying.value = true
+  hasStarted.value = true
+  controlsVisible.value = true
+  initialError.value = false
+  emit('play')
+}
 
-  vjsPlayer.ready(() => {
-    duration.value = vjsPlayer.duration() || 0
-  })
+function onPause() {
+  isPlaying.value = false
+  controlsVisible.value = true
+  emit('pause')
+}
 
-  vjsPlayer.on('play', () => {
-    isPlaying.value = true
-    hasStarted.value = true
-    controlsVisible.value = true
-    emit('play')
-  })
+function onTimeUpdate() {
+  const el = videoEl.value
+  if (!el) return
+  currentTime.value = el.currentTime
+  duration.value = el.duration || 0
+  progressPercent.value = duration.value > 0 ? (currentTime.value / duration.value) * 100 : 0
+  emit('timeupdate', currentTime.value)
+}
 
-  vjsPlayer.on('pause', () => {
-    isPlaying.value = false
-    controlsVisible.value = true
-    emit('pause')
-  })
+function onWaiting() {
+  isBuffering.value = true
+}
 
-  vjsPlayer.on('timeupdate', () => {
-    currentTime.value = vjsPlayer.currentTime()
-    duration.value = vjsPlayer.duration() || 0
-    progressPercent.value = duration.value > 0 ? (currentTime.value / duration.value) * 100 : 0
-    emit('timeupdate', currentTime.value)
-  })
+function onCanPlay() {
+  isBuffering.value = false
+}
 
-  vjsPlayer.on('seeked', () => {
-    emit('seeked', currentTime.value)
-  })
+function onPlaying() {
+  isBuffering.value = false
+}
 
-  vjsPlayer.on('waiting', () => {
-    isBuffering.value = true
-  })
+function onProgress() {
+  const el = videoEl.value
+  if (!el) return
+  const ranges = el.buffered
+  if (ranges.length > 0) {
+    const bufferedEnd = ranges.end(ranges.length - 1)
+    bufferPercent.value = duration.value > 0 ? (bufferedEnd / duration.value) * 100 : 0
+  }
+}
 
-  vjsPlayer.on('canplay', () => {
-    isBuffering.value = false
-  })
+function onVolumeChange() {
+  const el = videoEl.value
+  if (!el) return
+  volume.value = el.volume
+  isMuted.value = el.muted
+}
 
-  vjsPlayer.on('playing', () => {
-    isBuffering.value = false
-  })
+function onError() {
+  const el = videoEl.value
+  if (el && el.error) {
+    initialError.value = true
+    emit('error', el.error)
+  }
+}
 
-  vjsPlayer.on('progress', () => {
-    const ranges = vjsPlayer.buffered()
-    if (ranges.length > 0) {
-      const bufferedEnd = ranges.end(ranges.length - 1)
-      bufferPercent.value = duration.value > 0 ? (bufferedEnd / duration.value) * 100 : 0
-    }
-  })
+function onSeeking() {
+  wasPausedBeforeSeek = videoEl.value?.paused ?? true
+}
 
-  vjsPlayer.on('volumechange', () => {
-    volume.value = vjsPlayer.volume()
-    isMuted.value = vjsPlayer.muted()
-  })
+function onSeeked() {
+  emit('seeked', currentTime.value)
+}
 
-  vjsPlayer.on('error', (e) => {
-    emit('error', e)
-  })
-
-  vjsPlayer.on('ended', () => {
-    isPlaying.value = false
-    emit('ended')
-  })
+function onEnded() {
+  isPlaying.value = false
+  emit('ended')
 }
 
 function togglePlay() {
-  if (!vjsPlayer) return
-  if (vjsPlayer.paused()) {
-    vjsPlayer.play()
+  const el = videoEl.value
+  if (!el) return
+  if (el.paused) {
+    hasStarted.value = true
+    el.play().catch(() => {})
   } else {
-    vjsPlayer.pause()
+    el.pause()
   }
 }
 
 function play() {
-  vjsPlayer?.play()
+  const el = videoEl.value
+  if (!el) return
+  hasStarted.value = true
+  initialError.value = false
+  el.play().catch(() => {})
 }
 
 function seekTo(e) {
-  if (!progressRef.value || !vjsPlayer) return
+  if (!progressRef.value || !videoEl.value) return
   const rect = progressRef.value.getBoundingClientRect()
   const x = (e.clientX - rect.left) / rect.width
-  vjsPlayer.currentTime(x * duration.value)
+  videoEl.value.currentTime = x * (duration.value || 0)
 }
 
 function onProgressHover(e) {
-  if (!progressRef.value || !vjsPlayer) return
+  if (!progressRef.value || !videoEl.value) return
   const rect = progressRef.value.getBoundingClientRect()
   const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
   seekTooltipLeft.value = x * 100
@@ -313,15 +327,19 @@ function onProgressHover(e) {
 }
 
 function setVolume(e) {
+  const el = videoEl.value
+  if (!el) return
   const val = parseFloat(e.target.value)
-  vjsPlayer.volume(val)
-  if (val > 0 && isMuted.value) {
-    vjsPlayer.muted(false)
+  el.volume = val
+  if (val > 0 && el.muted) {
+    el.muted = false
   }
 }
 
 function toggleMute() {
-  vjsPlayer.muted(!vjsPlayer.muted())
+  const el = videoEl.value
+  if (!el) return
+  el.muted = !el.muted
 }
 
 function cycleSpeed() {
@@ -331,10 +349,10 @@ function cycleSpeed() {
 }
 
 function setSpeed(speed) {
+  const el = videoEl.value
+  if (!el) return
   playbackSpeed.value = speed
-  if (vjsPlayer) {
-    vjsPlayer.playbackRate(speed)
-  }
+  el.playbackRate = speed
 }
 
 function toggleFullscreen() {
@@ -349,17 +367,25 @@ function toggleFullscreen() {
 }
 
 function togglePiP() {
-  if (!vjsPlayer) return
-  const videoTag = vjsPlayer.el().querySelector('video')
-  if (!videoTag) return
+  const el = videoEl.value
+  if (!el) return
   if (document.pictureInPictureElement) {
     document.exitPictureInPicture()
   } else {
-    videoTag.requestPictureInPicture()
+    el.requestPictureInPicture()
   }
 }
 
+function retry() {
+  const el = videoEl.value
+  if (!el) return
+  initialError.value = false
+  el.load()
+}
+
 function handleKeydown(e) {
+  const el = videoEl.value
+  if (!el) return
   switch (e.key) {
     case ' ':
     case 'k':
@@ -368,19 +394,19 @@ function handleKeydown(e) {
       break
     case 'ArrowLeft':
       e.preventDefault()
-      if (vjsPlayer) vjsPlayer.currentTime(Math.max(0, vjsPlayer.currentTime() - 10))
+      el.currentTime = Math.max(0, el.currentTime - 10)
       break
     case 'ArrowRight':
       e.preventDefault()
-      if (vjsPlayer) vjsPlayer.currentTime(Math.min(duration.value, vjsPlayer.currentTime() + 10))
+      el.currentTime = Math.min(duration.value, el.currentTime + 10)
       break
     case 'ArrowUp':
       e.preventDefault()
-      if (vjsPlayer) vjsPlayer.volume(Math.min(1, vjsPlayer.volume() + 0.1))
+      el.volume = Math.min(1, el.volume + 0.1)
       break
     case 'ArrowDown':
       e.preventDefault()
-      if (vjsPlayer) vjsPlayer.volume(Math.max(0, vjsPlayer.volume() - 0.1))
+      el.volume = Math.max(0, el.volume - 0.1)
       break
     case 'f':
       e.preventDefault()
@@ -395,6 +421,8 @@ function handleKeydown(e) {
 
 let lastTap = 0
 function handleDoubleTap(e) {
+  const el = videoEl.value
+  if (!el) return
   const now = Date.now()
   const diff = now - lastTap
   lastTap = now
@@ -402,12 +430,10 @@ function handleDoubleTap(e) {
     const rect = e.target.closest('.video-player-wrapper').getBoundingClientRect()
     const x = e.clientX - rect.left
     const third = rect.width / 3
-    if (vjsPlayer) {
-      if (x < third) {
-        vjsPlayer.currentTime(Math.max(0, vjsPlayer.currentTime() - 10))
-      } else if (x > rect.width - third) {
-        vjsPlayer.currentTime(Math.min(duration.value, vjsPlayer.currentTime() + 10))
-      }
+    if (x < third) {
+      el.currentTime = Math.max(0, el.currentTime - 10)
+    } else if (x > rect.width - third) {
+      el.currentTime = Math.min(duration.value, el.currentTime + 10)
     }
   }
 }
@@ -423,12 +449,22 @@ function showControls() {
 }
 
 watch(() => props.src, () => {
-  nextTick(() => initPlayer())
+  initialError.value = false
+  hasStarted.value = false
+  isPlaying.value = false
+  isBuffering.value = false
+  currentTime.value = 0
+  duration.value = 0
+  progressPercent.value = 0
+  bufferPercent.value = 0
+  nextTick(() => {
+    const el = videoEl.value
+    if (el) el.load()
+  })
 })
 
 onMounted(() => {
   isMounted = true
-  initPlayer()
   document.addEventListener('dblclick', handleDoubleTap)
   if (playerContainer.value) {
     playerContainer.value.addEventListener('mousemove', showControls)
@@ -437,9 +473,11 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   isMounted = false
-  if (vjsPlayer) {
-    vjsPlayer.dispose()
-    vjsPlayer = null
+  const el = videoEl.value
+  if (el) {
+    el.pause()
+    el.removeAttribute('src')
+    el.load()
   }
   document.removeEventListener('dblclick', handleDoubleTap)
   if (playerContainer.value) {
@@ -453,6 +491,19 @@ onBeforeUnmount(() => {
 .video-player-wrapper {
   outline: none;
   max-height: 85vh;
+  aspect-ratio: var(--video-ar, 16 / 9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-element {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
 }
 
 .video-player-wrapper:fullscreen {
@@ -460,27 +511,11 @@ onBeforeUnmount(() => {
   max-height: 100vh;
 }
 
-.video-player-wrapper:fullscreen .video-js {
-  height: 100vh;
-  width: 100vw;
+.video-player-wrapper:fullscreen .video-element {
+  width: 100%;
+  height: 100%;
 }
 
-/* Remove default video.js big play button (we use our own) */
-.video-player-wrapper :deep(.vjs-big-play-button) {
-  display: none !important;
-}
-
-/* Hide video.js default control bar (we use our own) */
-.video-player-wrapper :deep(.vjs-control-bar) {
-  display: none !important;
-}
-
-/* Allow video.js poster to fill */
-.video-player-wrapper :deep(.vjs-poster) {
-  background-size: cover;
-}
-
-/* Controls fade transition */
 .controls-fade-enter-active,
 .controls-fade-leave-active {
   transition: opacity 0.3s ease;
@@ -490,7 +525,6 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 
-/* Custom volume slider */
 input[type='range'] {
   -webkit-appearance: none;
   appearance: none;
