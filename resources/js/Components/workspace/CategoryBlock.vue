@@ -205,6 +205,7 @@
                   v-if="!isMobile"
                   :file="file"
                   :canEdit="canEdit"
+                  :canDelete="canDelete"
                   mode="overlay"
                   :categories="allCategories"
                   @preview="openPreview"
@@ -252,6 +253,7 @@
             v-if="activeSheetFile"
             :file="activeSheetFile"
             :canEdit="canEdit"
+            :canDelete="canDelete"
             mode="sheet"
             :categories="allCategories"
             @preview="openPreview"
@@ -427,7 +429,7 @@ const props = defineProps({
   allCategories: { type: Array, default: () => [] },
 })
 
-const { toggleCategory, isCategoryExpanded, canEdit, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile, allFiles, allNotes, updateFileLocally, removeFileLocally } = useWorkspace()
+const { toggleCategory, isCategoryExpanded, canEdit, canDelete, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile, allFiles, allNotes, updateFileLocally, removeFileLocally } = useWorkspace()
 const { uploadFile, cancelUpload, pauseUpload, resumeUpload, retryUpload, uploads } = useUploads()
 const dialog = useDialog()
 const toast = useToast()

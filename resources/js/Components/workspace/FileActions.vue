@@ -13,7 +13,7 @@
     <a v-if="file.url" :href="file.url" target="_blank" @click.stop class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 shadow-sm transition-colors hover:scale-110 active:scale-95" title="Download">
       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
     </a>
-    <button v-if="canEdit" :disabled="deleting" @click.stop="confirmDelete" class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 dark:text-slate-200 hover:text-rose-600 dark:hover:text-rose-400 shadow-sm transition-colors hover:scale-110 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed" title="Delete">
+    <button v-if="canDelete" :disabled="deleting" @click.stop="confirmDelete" class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 dark:text-slate-200 hover:text-rose-600 dark:hover:text-rose-400 shadow-sm transition-colors hover:scale-110 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed" title="Delete">
       <svg v-if="!deleting" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
       <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
     </button>
@@ -86,7 +86,7 @@
                 <span class="font-medium text-sm">Download</span>
               </a>
 
-              <button v-if="canEdit" :disabled="deleting" @click="confirmDelete" class="w-full flex items-center gap-4 p-3.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 active:bg-rose-100 dark:active:bg-rose-900/40 transition-all text-start active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed">
+              <button v-if="canDelete" :disabled="deleting" @click="confirmDelete" class="w-full flex items-center gap-4 p-3.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 active:bg-rose-100 dark:active:bg-rose-900/40 transition-all text-start active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed">
                 <div class="w-9 h-9 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
                   <svg v-if="!deleting" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   <svg v-else class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
@@ -116,7 +116,7 @@
           <div class="overflow-y-auto overscroll-contain flex-1 p-5 space-y-4">
             <div>
               <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Title</label>
-              <input v-model="editForm.title" type="text" class="input-field w-full" />
+              <input v-model="editForm.title" type="text" class="input-field w-full" maxlength="255" />
             </div>
             <div>
               <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
@@ -188,6 +188,7 @@ import axios from 'axios'
 const props = defineProps({
   file: { type: Object, default: null },
   canEdit: { type: Boolean, default: true },
+  canDelete: { type: Boolean, default: false },
   mode: { type: String, default: 'overlay' },
   categories: { type: Array, default: () => [] },
   patientUuid: { type: String, default: null },
@@ -246,7 +247,7 @@ function downloadFile() {
 function openEdit() {
   editForm.value = {
     title: props.file?.title || props.file?.file_name || '',
-    desc: props.file?.desc || '',
+    desc: props.file?.description || props.file?.desc || '',
   }
   showEdit.value = true
 }
@@ -266,8 +267,10 @@ async function saveEdit() {
   saving.value = true
   try {
     const payload = {}
-    if (nextTitle !== (props.file?.title || props.file?.file_name || '').trim()) payload.title = nextTitle
-    if (nextDesc !== (props.file?.desc || '').trim()) payload.desc = nextDesc
+    const currentTitle = props.file?.title || props.file?.file_name || ''
+    const currentDesc = props.file?.description ?? props.file?.desc ?? ''
+    if (nextTitle !== currentTitle?.trim()) payload.title = nextTitle
+    if (nextDesc !== (currentDesc ?? '').trim()) payload.desc = nextDesc
     if (Object.keys(payload).length === 0) {
       showEdit.value = false
       return
@@ -278,7 +281,24 @@ async function saveEdit() {
     toast.success('File updated')
   } catch (e) {
     console.error('Edit failed:', e)
-    toast.error(e.response?.data?.message || 'Failed to update file')
+    let errorMsg = 'Failed to update file'
+    if (e.response?.data?.message) {
+      if (typeof e.response.data.message === 'object') {
+        const errors = []
+        for (const key in e.response.data.message) {
+          const val = e.response.data.message[key]
+          if (Array.isArray(val)) {
+            errors.push(...val)
+          } else {
+            errors.push(val)
+          }
+        }
+        errorMsg = errors.join(', ')
+      } else {
+        errorMsg = e.response.data.message
+      }
+    }
+    toast.error(errorMsg)
   } finally {
     saving.value = false
   }

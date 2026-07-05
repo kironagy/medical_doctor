@@ -76,6 +76,11 @@ const canEdit = computed(() => {
     return workspaceData.value.permissions?.can_edit;
 });
 
+const canDelete = computed(() => {
+    if (!workspaceData.value) return false;
+    return workspaceData.value.permissions?.can_delete;
+});
+
 const canShare = computed(() => {
     if (!workspaceData.value) return false;
     return workspaceData.value.permissions?.can_share;
@@ -423,6 +428,7 @@ export function useWorkspace() {
         isMobile,
         isPrimaryDoctor,
         canEdit,
+        canDelete,
         canShare,
         categories,
         allFiles,

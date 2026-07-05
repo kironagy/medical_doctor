@@ -321,15 +321,66 @@ class FileAccessController extends Controller
             return response()->json(['message' => 'Unauthorized. Only primary doctor can delete files.'], 403);
         }
 
+        // Collect paths to delete
         $pathsToDelete = array_filter([
             $file->file_path,
             $file->thumbnail_path,
+            $file->hls_path,
         ]);
 
-        $file->delete();
+        $disk = Storage::disk('local');
+        $errors = [];
 
-        if (!empty($pathsToDelete)) {
-            Storage::disk('local')->delete($pathsToDelete);
+        foreach ($pathsToDelete as $path) {
+            if (empty($path)) continue;
+            try {
+                // First try delete as file (works for files and may also delete empty dirs depending on driver)
+                $deleted = $disk->delete($path);
+                if ($deleted) {
+                    continue;
+                }
+                // If not deleted, check if it's a directory and attempt recursive delete
+                try {
+                    if ($disk->isDirectory($path)) {
+                        $disk->deleteDirectory($path);
+                    }
+                } catch (\Throwable $e2) {
+                    // If isDirectory fails because file doesn't exist, ignore
+                    $msg2 = strtolower($e2->getMessage());
+                    if (!str_contains($msg2, 'file not found') && !str_contains($msg2, 'no such file') && !str_contains($msg2, 'does not exist')) {
+                        $errors[] = "Failed to delete directory '{$path}': " . $e2->getMessage();
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Main delete threw; check if it's a "not found" error
+                $msg = strtolower($e->getMessage());
+                if (str_contains($msg, 'file not found') || str_contains($msg, 'no such file') || str_contains($msg, 'does not exist')) {
+                    continue;
+                }
+                $errors[] = "Failed to delete '{$path}': " . $e->getMessage();
+                Log::error('File deletion error', [
+                    'uuid' => $uuid,
+                    'path' => $path,
+                    'exception' => $e,
+                ]);
+            }
+        }
+
+        if (!empty($errors)) {
+            return response()->json([
+                'message' => 'Failed to delete some files',
+                'errors' => $errors,
+            ], 500);
+        }
+
+        try {
+            $file->delete();
+        } catch (\Throwable $e) {
+            Log::error('Failed to soft delete PatientFile', ['uuid' => $uuid, 'exception' => $e]);
+            return response()->json([
+                'message' => 'Failed to delete file record',
+                'errors' => [(string) $e->getMessage()],
+            ], 500);
         }
 
         return response()->json(['message' => 'Deleted']);

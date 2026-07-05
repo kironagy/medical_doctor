@@ -27,7 +27,7 @@
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
             </button>
             <!-- Delete Button -->
-            <button v-if="canEdit" :disabled="deleting" @click="confirmDelete" class="p-2 text-rose-400 hover:text-rose-300 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed" title="Delete">
+            <button v-if="canDelete" :disabled="deleting" @click="confirmDelete" class="p-2 text-rose-400 hover:text-rose-300 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed" title="Delete">
               <svg v-if="!deleting" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
               <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
             </button>
@@ -113,7 +113,7 @@
           <div class="overflow-y-auto overscroll-contain flex-1 p-5 space-y-4">
             <div>
               <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Title</label>
-              <input v-model="editForm.title" type="text" class="input-field w-full" />
+              <input v-model="editForm.title" type="text" class="input-field w-full" maxlength="255" />
             </div>
             <div>
               <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
@@ -147,6 +147,7 @@ const {
   previewFile: file,
   closePreview: close,
   canEdit,
+  canDelete,
   updateFileLocally,
   removeFileLocally,
   categories
@@ -196,7 +197,7 @@ const toast = useToast()
 function openEdit() {
   editForm.value = {
     title: file.value?.title || file.value?.file_name || '',
-    desc: file.value?.desc || '',
+    desc: file.value?.description || file.value?.desc || '',
   }
   showEdit.value = true
 }
@@ -216,8 +217,10 @@ async function saveEdit() {
   saving.value = true
   try {
     const payload = {}
-    if (nextTitle !== (file.value?.title || file.value?.file_name || '').trim()) payload.title = nextTitle
-    if (nextDesc !== (file.value?.desc || '').trim()) payload.desc = nextDesc
+    const currentTitle = file.value?.title || file.value?.file_name || ''
+    const currentDesc = file.value?.description ?? file.value?.desc ?? ''
+    if (nextTitle !== currentTitle?.trim()) payload.title = nextTitle
+    if (nextDesc !== (currentDesc ?? '').trim()) payload.desc = nextDesc
     if (Object.keys(payload).length === 0) {
       showEdit.value = false
       return
@@ -230,7 +233,24 @@ async function saveEdit() {
     toast.success('File updated')
   } catch (e) {
     console.error('Edit failed:', e)
-    toast.error(e.response?.data?.message || 'Failed to update file')
+    let errorMsg = 'Failed to update file'
+    if (e.response?.data?.message) {
+      if (typeof e.response.data.message === 'object') {
+        const errors = []
+        for (const key in e.response.data.message) {
+          const val = e.response.data.message[key]
+          if (Array.isArray(val)) {
+            errors.push(...val)
+          } else {
+            errors.push(val)
+          }
+        }
+        errorMsg = errors.join(', ')
+      } else {
+        errorMsg = e.response.data.message
+      }
+    }
+    toast.error(errorMsg)
   } finally {
     saving.value = false
   }

@@ -199,6 +199,9 @@ class WorkspaceController extends Controller
         $user = auth()->user();
         $t5 = microtime(true);
 
+        // Get the Patient model instance for permission checks
+        $patientModel = Patient::where('uuid', $uuid)->firstOrFail();
+
         $payload = [
             'patient' => $patientData,
             'files' => $files,
@@ -208,8 +211,9 @@ class WorkspaceController extends Controller
             'categories' => $categories,
             'stats' => $stats,
             'permissions' => [
-                'can_edit' => $user?->can('update', new Patient()) ?? false,
-                'can_share' => $user?->can('share', new Patient()) ?? false,
+                'can_edit' => $user?->can('update', $patientModel) ?? false,
+                'can_delete' => $user?->can('delete', $patientModel) ?? false,
+                'can_share' => $user?->can('share', $patientModel) ?? false,
                 'is_primary' => ($patient['primary_doctor_id'] ?? null) === $user?->id,
             ],
         ];
