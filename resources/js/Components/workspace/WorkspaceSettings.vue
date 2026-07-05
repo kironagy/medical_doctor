@@ -29,6 +29,7 @@
         <PasswordForm v-if="activeTab === 'password'" />
         <PreferencesForm v-if="activeTab === 'preferences'" />
         <CategoryForm v-if="activeTab === 'categories'" />
+        <DownloadAppForm v-if="activeTab === 'download'" />
       </div>
     </div>
   </div>
@@ -40,7 +41,8 @@ import ProfileForm from '@/Pages/Settings/Partials/ProfileForm.vue'
 import PasswordForm from '@/Pages/Settings/Partials/PasswordForm.vue'
 import PreferencesForm from '@/Pages/Settings/Partials/PreferencesForm.vue'
 import CategoryForm from '@/Pages/Settings/Partials/CategoryForm.vue'
-import { UserIcon, KeyIcon, CogIcon, TagIcon } from '@heroicons/vue/24/outline'
+import DownloadAppForm from '@/Pages/Settings/Partials/DownloadAppForm.vue'
+import { UserIcon, KeyIcon, CogIcon, TagIcon, ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
 
 const activeTab = ref('profile')
 
@@ -49,5 +51,6 @@ const tabs = [
   { id: 'password', name: 'settings.password', icon: KeyIcon },
   { id: 'preferences', name: 'settings.preferences', icon: CogIcon },
   { id: 'categories', name: 'settings.categories', icon: TagIcon },
+  { id: 'download', name: 'settings.download', icon: ArrowDownTrayIcon },
 ]
 </script>

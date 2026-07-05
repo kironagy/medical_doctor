@@ -704,9 +704,12 @@ function onPatientSaved(patient) {
   }
 }
 
-function onPatientUpdated() {
+function onPatientUpdated(patient) {
   showEditPatient.value = false
-  refreshWorkspaceData()
+  refreshPatientList()
+  if (patient?.uuid) {
+    selectPatient(patient.uuid)
+  }
 }
 
 function onCategoriesUpdated() {
