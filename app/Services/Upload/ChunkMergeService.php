@@ -6,6 +6,7 @@ use App\Domains\Media\Models\UploadSession;
 use App\Domains\Media\Models\PatientFile;
 use App\Domains\Media\Jobs\GenerateThumbnailJob;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
