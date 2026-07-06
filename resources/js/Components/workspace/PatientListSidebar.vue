@@ -3,7 +3,7 @@
     class="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800"
     :class="[
       isMobile
-        ? 'fixed inset-y-0 left-0 z-40 w-[300px] shadow-2xl transition-transform duration-300 ease-in-out'
+        ? 'fixed inset-y-0 left-0 z-40 w-[300px] shadow-2xl transition-transform duration-300 ease-in-out pt-safe pb-safe'
         : 'relative w-full',
       isMobile && !mobileOpen ? '-translate-x-full' : '',
     ]"

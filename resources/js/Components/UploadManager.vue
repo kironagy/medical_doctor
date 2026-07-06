@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed z-50 bottom-4 end-4 md:bottom-4 md:end-4 max-md:bottom-20">
+    <div class="fixed z-50 bottom-4 end-4 md:bottom-4 md:end-4 max-md:bottom-[calc(5rem+var(--sab))]">
     <!-- Minimized badge -->
     <button
       v-if="minimized && activeUploads > 0"

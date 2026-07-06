@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div class="fixed z-[300] pointer-events-none" :class="positionClass">
+    <div class="fixed z-[300] pointer-events-none toast-position" :class="positionClass">
       <TransitionGroup name="toast" tag="div" class="flex flex-col gap-2 pointer-events-auto">
         <div
           v-for="t in toasts"
@@ -69,4 +69,9 @@ function resumeAutoDismiss(t) {
 .toast-leave-active { transition: all 0.2s ease; }
 .toast-enter-from { opacity: 0; transform: translateX(30px) scale(0.95); }
 .toast-leave-to { opacity: 0; transform: translateX(30px) scale(0.95); }
+@media (max-width: 767px) {
+  .toast-position {
+    bottom: calc(1rem + var(--sab, 0px));
+  }
+}
 </style>

@@ -60,7 +60,7 @@
     <Transition name="controls-fade">
       <div
         v-if="hasStarted && (controlsVisible || !isPlaying || isFullscreen)"
-        class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-12 pb-3 px-4 z-30"
+        class="video-controls absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-12 pb-3 px-4 z-30"
         @mouseenter="controlsVisible = true"
         @mouseleave="controlsVisible = isPlaying ? false : true"
       >
@@ -551,6 +551,13 @@ onBeforeUnmount(() => {
 .video-player-wrapper:fullscreen .video-element {
   width: 100%;
   height: 100%;
+}
+
+.video-player-wrapper:fullscreen .video-controls {
+  padding-top: calc(var(--sat, 0px) + 3rem);
+  padding-bottom: calc(var(--sab, 0px) + 0.75rem);
+  padding-left: calc(var(--sal, 0px) + 1rem);
+  padding-right: calc(var(--sar, 0px) + 1rem);
 }
 
 .controls-fade-enter-active,

@@ -112,7 +112,7 @@ const dialogClasses = computed(() => {
 })
 
 const footerClasses = computed(() => {
-  if (isMobile.value) return 'px-4 py-3 pb-[env(safe-area-inset-bottom,1rem)]'
+      if (isMobile.value) return 'px-4 py-3 pb-[var(--sab,1rem)]'
   return 'px-5 py-4'
 })
 

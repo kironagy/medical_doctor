@@ -25,7 +25,7 @@
       <div v-if="mode === 'sheet' && file" class="fixed inset-0 z-[70] flex flex-col justify-end md:hidden" @click.self="close">
         <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" @click="close" />
         <div class="relative bg-white dark:bg-slate-900 rounded-t-2xl shadow-2xl transform transition-transform animate-slide-up max-h-[85vh] overflow-y-auto overscroll-contain"
-             style="padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);">
+             style="padding-bottom: calc(var(--sab) + 1rem);">
           <div class="sticky top-0 bg-white dark:bg-slate-900 z-10 flex items-center justify-between px-5 pt-4 pb-2">
             <div class="w-10 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full" />
             <button @click="close" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shrink-0">
@@ -106,7 +106,7 @@
       <div v-if="showEdit" class="fixed inset-0 z-[200] flex items-end md:items-center justify-center" @click.self="closeEdit">
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="closeEdit" />
         <div class="relative bg-white dark:bg-slate-900 border dark:border-slate-800 w-full md:max-w-lg max-h-[90vh] md:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden"
-             style="padding-bottom: env(safe-area-inset-bottom, 0px)">
+             style="padding-bottom: var(--sab, 0px)">
           <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10">
             <h3 class="text-base font-bold text-slate-900 dark:text-white">Edit File</h3>
             <button @click="closeEdit" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
@@ -141,7 +141,7 @@
       <div v-if="showMove" class="fixed inset-0 z-[200] flex items-end md:items-center justify-center" @click.self="closeMove">
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="closeMove" />
         <div class="relative bg-white dark:bg-slate-900 border dark:border-slate-800 w-full md:max-w-sm max-h-[90vh] md:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden"
-             style="padding-bottom: env(safe-area-inset-bottom, 0px)">
+             style="padding-bottom: var(--sab, 0px)">
           <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10">
             <h3 class="text-base font-bold text-slate-900 dark:text-white">Move File</h3>
             <button @click="closeMove" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
