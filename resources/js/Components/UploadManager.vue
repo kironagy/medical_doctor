@@ -83,12 +83,13 @@
                 {{ upload.metadata?.title || 'File' }}
               </p>
               <p class="text-[11px] text-slate-400">{{ formatSize(upload.totalBytes) }} <span v-if="upload.totalChunks > 0">· {{ upload.completedChunks?.size || 0 }}/{{ upload.totalChunks }}</span></p>
+              <p v-if="patientName(upload.patientId)" class="text-[10px] text-slate-400 truncate">{{ patientName(upload.patientId) }}</p>
             </div>
             <button
               v-if="upload.status === 'uploading'"
               @click="pauseUpload(upload.id)"
               class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-amber-500 transition-colors"
-              :title="'Pause'"
+              :title="$t('files.pause')"
             >
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -108,7 +109,7 @@
               v-if="upload.status === 'paused'"
               @click="resumeUpload(upload.id)"
               class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-amber-500 hover:text-amber-600 transition-colors"
-              :title="'Resume'"
+              :title="$t('files.resume')"
             >
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
@@ -166,15 +167,12 @@
           <!-- Status line -->
           <div class="flex items-center justify-between text-[11px]">
             <span v-if="upload.status === 'uploading'" class="text-slate-500">
-              <template v-if="upload.totalChunks > 0">
-                Chunk {{ Math.min(upload.completedChunks?.size || 0, upload.totalChunks) }}/{{ upload.totalChunks }}
-                <template v-if="upload.speed > 0">
-                  · {{ formatSpeed(upload.speed) }}
-                </template>
+              <template v-if="upload.speed > 0">
+                {{ formatSize(upload.uploadedBytes) }} {{ $t('files.remaining_size') }}
+                · {{ formatSpeed(upload.speed) }}
               </template>
               <template v-else>
                 {{ formatSize(upload.uploadedBytes) }} / {{ formatSize(upload.totalBytes) }}
-                <template v-if="upload.speed > 0">· {{ formatSpeed(upload.speed) }}</template>
               </template>
             </span>
             <span v-else-if="upload.status === 'completed'" class="text-green-600 dark:text-green-400 font-medium">
@@ -203,8 +201,16 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useUploads } from '@/Composables/useUploads'
+import { useWorkspace } from '@/Composables/useWorkspace'
 
 const { uploads, cancelUpload, pauseUpload, resumeUpload, retryUpload, clearCompleted, formatSize, formatSpeed } = useUploads()
+const { patients } = useWorkspace()
+
+function patientName(pid) {
+  if (!pid) return ''
+  const p = patients.value.find(p => p.id === pid)
+  return p ? p.name : ''
+}
 
 const minimized = ref(false)
 

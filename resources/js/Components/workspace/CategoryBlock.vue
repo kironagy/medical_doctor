@@ -7,13 +7,13 @@
         </div>
         <div>
           <h3 class="text-sm font-bold text-slate-900 dark:text-white">{{ name }}</h3>
-          <p class="text-[11px] text-slate-500 dark:text-slate-400">
-            {{ totalItems }} files · {{ notesCount }} notes
-          </p>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">
+              {{ totalItems }} {{ $t('category.files') }} · {{ notesCount }} {{ $t('workspace.notes') }}
+            </p>
         </div>
       </button>
       <div class="flex items-center gap-1">
-        <button @click.stop="showUploadArea = !showUploadArea" class="p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors" title="Upload Files">
+        <button @click.stop="showUploadArea = !showUploadArea" class="p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors" :title="$t('category.upload_files')">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
         </button>
         <div class="relative">
@@ -25,25 +25,25 @@
             <div v-if="showCategoryMenu" ref="menuRef" class="fixed z-[200] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl py-1.5 min-w-[180px]" :style="menuStyle">
               <button @click="addNote" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left">
                 <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                Add Note
+                {{ $t('workspace.add_note') }}
               </button>
               <button @click="showCategoryMenu = false; showUploadArea = true" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left">
                 <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                Upload Files
+                {{ $t('category.upload_files') }}
               </button>
               <hr class="my-1 border-slate-100 dark:border-slate-700" />
               <button @click="openAddVisit" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left">
                 <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                Add Visit
+                {{ $t('workspace.add_visit') }}
               </button>
               <button @click="addTimelineEntry" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left">
                 <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                Add Timeline Entry
+                {{ $t('workspace.add_timeline_entry') }}
               </button>
               <hr class="my-1 border-slate-100 dark:border-slate-700" />
               <button @click="openRename" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left">
                 <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                Rename
+                {{ $t('workspace.rename_category') }}
               </button>
               <button @click="openChangeColor" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left">
                 <div class="flex gap-1">
@@ -54,7 +54,7 @@
               <hr class="my-1 border-slate-100 dark:border-slate-700" />
               <button @click="deleteCategory" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors text-left">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                Delete
+                {{ $t('workspace.delete_category') }}
               </button>
             </div>
           </Teleport>
@@ -80,7 +80,7 @@
               </div>
               <div class="flex items-center justify-between mt-1">
                 <span class="text-[10px]" :class="job.status === 'failed' ? 'text-rose-500' : 'text-slate-400'">
-                  {{ job.status === 'uploading' ? formatSpeed(job.speed) : job.status === 'failed' ? (job.error || 'Failed') : job.status }}
+                  {{ job.status === 'uploading' ? formatSpeed(job.speed) : job.status === 'failed' ? (job.error || $t('files.status_failed')) : job.status }}
                 </span>
                 <div class="flex gap-1">
                   <button v-if="job.status === 'uploading'" @click.stop="pauseJob(job)" class="text-[10px] text-amber-600 hover:text-amber-700 font-medium">{{ $t('files.pause') }}</button>
@@ -646,7 +646,14 @@ const displayedPages = computed(() => {
 })
 
 const activeUploads = computed(() => {
-  return uploads.value.filter(j => j.metadata?.category === props.slug && j.status !== 'completed' && j.status !== 'cancelled')
+  const pid = selectedPatient.value?.id
+  if (!pid) return []
+  return uploads.value.filter(j =>
+    j.patientId === pid &&
+    j.metadata?.category === props.slug &&
+    j.status !== 'completed' &&
+    j.status !== 'cancelled'
+  )
 })
 
 function getDateRange() {
