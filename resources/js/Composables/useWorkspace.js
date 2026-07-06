@@ -325,15 +325,19 @@ const showArchived = ref(false);
 async function refreshPatientList(page = 1) {
     loadingPatients.value = true;
     try {
-        const res = await axios.get("/api/v1/workspace/patients-list", {
+        const url = "/api/v1/workspace/patients-list";
+        const res = await axios.get(url, {
             params: { page },
         });
+        const count = res.data?.data?.length || 0;
+        const total = res.data?.meta?.total || 0;
+        console.log(`[PatientSidebar] GET ${url}?page=${page} | Status: ${res.status} | Patients: ${count} | Total: ${total}`);
         if (res.data?.data) {
             patients.value = res.data.data;
             patientsMeta.value = res.data.meta;
         }
     } catch (e) {
-        console.error("Failed to refresh patient list", e);
+        console.error("[PatientSidebar] Failed to refresh patient list", e);
     } finally {
         loadingPatients.value = false;
     }
@@ -342,15 +346,19 @@ async function refreshPatientList(page = 1) {
 async function fetchArchivedPatients(page = 1) {
     loadingArchived.value = true;
     try {
-        const res = await axios.get("/api/v1/workspace/patients-list", {
+        const url = "/api/v1/workspace/patients-list";
+        const res = await axios.get(url, {
             params: { status: "archived", page },
         });
+        const count = res.data?.data?.length || 0;
+        const total = res.data?.meta?.total || 0;
+        console.log(`[PatientSidebar] GET ${url}?status=archived&page=${page} | Status: ${res.status} | Archived: ${count} | Total: ${total}`);
         if (res.data?.data) {
             archivedPatients.value = res.data.data;
             archivedPatientsMeta.value = res.data.meta;
         }
     } catch (e) {
-        console.error("Failed to fetch archived patients", e);
+        console.error("[PatientSidebar] Failed to fetch archived patients", e);
     } finally {
         loadingArchived.value = false;
     }

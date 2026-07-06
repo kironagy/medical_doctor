@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Mobile\ApiService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 
 class AuthController extends Controller
@@ -26,6 +28,18 @@ class AuthController extends Controller
 
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
+
+            // Obtain production API token for sidebar data sync
+            try {
+                $tokenResponse = ApiService::loginToRemote($credentials['email'], $credentials['password']);
+                if (isset($tokenResponse['token'])) {
+                    app(ApiService::class)->setToken($tokenResponse['token']);
+                    Log::info('Remote API token acquired successfully');
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Remote API login failed, sidebar will use local data: ' . $e->getMessage());
+            }
+
             return redirect()->intended('dashboard');
         }
 

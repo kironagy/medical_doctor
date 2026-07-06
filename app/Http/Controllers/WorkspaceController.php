@@ -9,8 +9,10 @@ use App\Contracts\Repositories\PatientVisitRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientShare;
+use App\Repositories\Hybrid\HybridPatientRepository;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class WorkspaceController extends Controller
@@ -84,7 +86,33 @@ class WorkspaceController extends Controller
     {
         $page = $request->input('page', 1);
         $status = $request->input('status');
-        $result = $this->patientRepo->paginated(10, $page, $status);
+
+        $hybridRepo = app(HybridPatientRepository::class);
+        $result = $hybridRepo->paginated(10, $page, $status);
+
+        // Normalize API response format (Laravel paginator format -> { data, meta } format)
+        if (isset($result['current_page']) && !isset($result['meta'])) {
+            $result = [
+                'data' => $result['data'] ?? [],
+                'meta' => [
+                    'current_page' => $result['current_page'] ?? 1,
+                    'last_page'    => $result['last_page'] ?? 1,
+                    'per_page'     => $result['per_page'] ?? 10,
+                    'total'        => $result['total'] ?? 0,
+                    'from'         => $result['from'] ?? null,
+                    'to'           => $result['to'] ?? null,
+                ],
+            ];
+        }
+
+        Log::info('Sidebar patient list loaded', [
+            'url'    => $request->fullUrl(),
+            'status' => $status ?: 'active',
+            'page'   => $page,
+            'count'  => count($result['data'] ?? []),
+            'total'  => $result['meta']['total'] ?? 0,
+        ]);
+
         return response()->json($result);
     }
 
