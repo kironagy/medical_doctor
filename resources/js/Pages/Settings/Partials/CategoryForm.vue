@@ -11,66 +11,84 @@
         <div
           v-for="(cat, idx) in categories"
           :key="cat.slug"
-          class="flex items-center gap-3 p-4 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50"
+          class="p-4 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800/50 flex flex-col gap-4"
         >
-          <button
-            type="button"
-            class="flex flex-col gap-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-            @click="moveUp(idx)"
-            :disabled="idx === 0"
-          >
-            <ChevronUpIcon class="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            class="flex flex-col gap-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-            @click="moveDown(idx)"
-            :disabled="idx === categories.length - 1"
-          >
-            <ChevronDownIcon class="w-3 h-3" />
-          </button>
+          <!-- Top Section: Move Arrows + Slug + Name -->
+          <div class="flex items-center gap-3 flex-1 min-w-0">
+            <!-- Arrows -->
+            <div class="flex flex-col items-center gap-1 shrink-0">
+              <button
+                type="button"
+                class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 disabled:opacity-30 p-0.5"
+                @click="moveUp(idx)"
+                :disabled="idx === 0"
+              >
+                <ChevronUpIcon class="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 disabled:opacity-30 p-0.5"
+                @click="moveDown(idx)"
+                :disabled="idx === categories.length - 1"
+              >
+                <ChevronDownIcon class="w-3.5 h-3.5" />
+              </button>
+            </div>
 
-          <input
-            :value="cat.slug"
-            disabled
-            class="w-32 text-xs font-mono text-slate-400 dark:text-slate-500 bg-transparent border-0 p-0"
-          />
+            <!-- Slug -->
+            <input
+              :value="cat.slug"
+              disabled
+              class="w-20 sm:w-28 shrink-0 text-xs font-mono text-slate-400 dark:text-slate-500 bg-transparent border-0 p-0 focus:ring-0 truncate"
+              title="Category Slug"
+            />
 
-          <input
-            v-model="cat.name"
-            class="flex-1 input-field text-sm py-1.5 px-2.5"
-            :placeholder="$t('settings.category_name')"
-          />
-
-          <div class="flex gap-1.5">
-            <button
-              v-for="c in colorOptions"
-              :key="c"
-              type="button"
-              class="w-7 h-7 sm:w-6 sm:h-6 rounded-full border-2 transition-all shrink-0 active:scale-90"
-              :class="cat.color === c ? 'border-slate-900 dark:border-white scale-110' : 'border-transparent'"
-              :style="{ backgroundColor: c }"
-              @click="cat.color = c"
+            <!-- Name Input -->
+            <input
+              v-model="cat.name"
+              class="flex-1 w-full min-w-0 input-field text-sm py-1.5 px-2.5"
+              :placeholder="$t('settings.category_name')"
             />
           </div>
 
-          <button
-            type="button"
-            class="p-2 rounded-lg transition-colors active:bg-slate-100 dark:active:bg-slate-700"
-            :class="cat.is_visible ? 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300' : 'text-slate-300 dark:text-slate-600'"
-            @click="cat.is_visible = !cat.is_visible"
-          >
-            <EyeIcon v-if="cat.is_visible" class="w-4 h-4" />
-            <EyeSlashIcon v-else class="w-4 h-4" />
-          </button>
+          <!-- Bottom Section: Colors + Actions -->
+          <div class="flex flex-wrap items-center justify-between gap-3 shrink-0">
+            <!-- Colors -->
+            <div class="flex flex-wrap items-center gap-1.5 shrink-0">
+              <button
+                v-for="c in colorOptions"
+                :key="c"
+                type="button"
+                class="w-6 h-6 rounded-full border-2 transition-transform active:scale-90"
+                :class="cat.color === c ? 'border-slate-900 dark:border-white scale-110' : 'border-transparent hover:scale-110'"
+                :style="{ backgroundColor: c }"
+                @click="cat.color = c"
+              />
+            </div>
 
-          <button
-            type="button"
-            class="p-2 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors active:bg-rose-100 dark:active:bg-rose-900/40"
-            @click="removeCategory(idx)"
-          >
-            <TrashIcon class="w-4 h-4" />
-          </button>
+            <div class="hidden sm:block w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1"></div>
+
+            <!-- Actions -->
+            <div class="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                class="p-2 rounded-lg transition-colors text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                :class="{ 'opacity-50': !cat.is_visible }"
+                @click="cat.is_visible = !cat.is_visible"
+              >
+                <EyeIcon v-if="cat.is_visible" class="w-5 h-5" />
+                <EyeSlashIcon v-else class="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
+                class="p-2 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
+                @click="removeCategory(idx)"
+              >
+                <TrashIcon class="w-5 h-5" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

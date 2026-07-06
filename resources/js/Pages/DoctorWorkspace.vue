@@ -503,6 +503,19 @@ const timelineRef = ref(null)
 const timelineScrollRef = ref(null)
 const archiveRef = ref(null)
 
+// Lock body scroll when mobile sidebar is open
+watch(mobilePatientListOpen, (isOpen) => {
+  if (isOpen && isMobile.value) {
+    document.body.style.overflow = 'hidden'
+  } else {
+    document.body.style.overflow = ''
+  }
+})
+
+onUnmounted(() => {
+  document.body.style.overflow = ''
+})
+
 const showShareModal = ref(false)
 const editingShare = ref(null)
 

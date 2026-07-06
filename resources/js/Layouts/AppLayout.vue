@@ -167,6 +167,14 @@ const toast = useToast();
 
 const mobileMenuOpen = ref(false);
 
+watch(mobileMenuOpen, (isOpen) => {
+  if (isOpen) {
+    document.body.style.overflow = 'hidden';
+  } else {
+    document.body.style.overflow = '';
+  }
+});
+
 // Offline Mode & Sync State
 const isOffline = ref(!navigator.onLine);
 const isSyncing = ref(false);
@@ -270,6 +278,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('online', checkOnlineStatus);
   window.removeEventListener('offline', checkOnlineStatus);
+  document.body.style.overflow = '';
 });
 
 defineProps({
