@@ -163,7 +163,7 @@
               </div>
             </div>
             <div class="divide-y divide-slate-100 dark:divide-slate-800">
-              <div v-for="visit in upcomingVisits" :key="visit.id" class="px-4 py-3 flex items-center gap-3">
+              <div v-for="visit in upcomingVisits" :key="visit.id" class="px-4 py-3 flex items-center gap-3 group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                 <div class="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 flex items-center justify-center flex-shrink-0">
                   <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                 </div>
@@ -172,8 +172,12 @@
                   <p class="text-xs text-slate-500 dark:text-slate-400 truncate">{{ visit.reason || '—' }}</p>
                 </div>
                 <div class="text-right flex-shrink-0">
-                  <p class="text-xs font-medium text-primary-600 dark:text-primary-400">{{ new Date(visit.visit_date || visit.created_at).toLocaleDateString() }}</p>
+                  <p class="text-xs font-medium text-primary-600 dark:text-primary-400">{{ new Date(visit.next_visit_date).toLocaleDateString() }}</p>
+                  <p class="text-[10px] text-slate-400">{{ $t('patient_summary.last_visit') }}: {{ new Date(visit.visit_date || visit.created_at).toLocaleDateString() }}</p>
                 </div>
+                <button v-if="canEdit" @click="editVisit(visit)" class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all flex-shrink-0" :title="$t('common.edit')">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                </button>
               </div>
               <div v-if="upcomingVisits.length === 0" class="px-4 py-6 text-center text-sm text-slate-400">{{ $t('workspace.no_appointments') }}</div>
             </div>
@@ -189,9 +193,13 @@
                 <h3 class="text-sm font-bold font-heading text-slate-900 dark:text-white">{{ $t('workspace.recent_visits') }}</h3>
                 <span class="text-[11px] text-slate-400">({{ pastVisits.length }})</span>
               </div>
+              <button v-if="canEdit" @click="showAddVisit = true" class="text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 flex items-center gap-1">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                {{ $t('workspace.add_visit') }}
+              </button>
             </div>
             <div class="divide-y divide-slate-100 dark:divide-slate-800">
-              <div v-for="visit in pastVisits" :key="visit.id" class="px-4 py-3 flex items-center gap-3">
+              <div v-for="visit in pastVisits" :key="visit.id" class="px-4 py-3 flex items-center gap-3 group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                 <div class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 flex items-center justify-center flex-shrink-0">
                   <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                 </div>
@@ -203,6 +211,9 @@
                   <p class="text-xs font-medium text-slate-700 dark:text-slate-300">{{ new Date(visit.visit_date || visit.created_at).toLocaleDateString() }}</p>
                   <p v-if="visit.next_visit_date" class="text-[10px] text-primary-600 dark:text-primary-400">{{ $t('workspace.next') }}: {{ new Date(visit.next_visit_date).toLocaleDateString() }}</p>
                 </div>
+                <button v-if="canEdit" @click="editVisit(visit)" class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all flex-shrink-0" :title="$t('common.edit')">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                </button>
               </div>
               <div v-if="pastVisits.length === 0" class="px-4 py-6 text-center text-sm text-slate-400">{{ $t('workspace.no_visits') }}</div>
             </div>
@@ -238,7 +249,7 @@
                 <h3 class="text-sm font-bold font-heading text-slate-900 dark:text-white">{{ $t('workspace.notes') }}</h3>
                 <span class="text-[11px] text-slate-400">({{ allNotes.length }})</span>
               </div>
-              <button v-if="canEdit" @click="showAddNote = true" class="text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 flex items-center gap-1">
+              <button v-if="canEdit" @click="openAddNote()" class="text-xs font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 flex items-center gap-1">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                 {{ $t('workspace.add_note') }}
               </button>
@@ -251,10 +262,10 @@
                     <span v-if="note.category" class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-slate-100 dark:bg-slate-800 text-slate-500">{{ note.category.replace(/_/g, ' ') }}</span>
                     <span class="text-[10px] text-slate-400">{{ new Date(note.created_at).toLocaleDateString() }}</span>
                     <div v-if="canEdit" class="opacity-0 group-hover:opacity-100 flex items-center gap-1">
-                      <button @click="editNote(note)" class="p-1 text-slate-400 hover:text-primary-600 transition-colors" title="Edit">
+                      <button @click="editNote(note)" class="p-1 text-slate-400 hover:text-primary-600 transition-colors" :title="$t('common.edit')">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                       </button>
-                      <button @click="deleteNote(note)" class="p-1 text-slate-400 hover:text-rose-600 transition-colors" title="Delete">
+                      <button @click="deleteNote(note)" class="p-1 text-slate-400 hover:text-rose-600 transition-colors" :title="$t('common.delete')">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                       </button>
                     </div>
@@ -367,6 +378,32 @@
         <div class="flex justify-end gap-3">
           <button type="button" @click="showNoteModal = false" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">{{ $t('common.cancel') }}</button>
           <BaseButton type="submit">{{ editingNote ? $t('workspace.save') : $t('workspace.add_note') }}</BaseButton>
+        </div>
+      </form>
+    </WorkspaceModal>
+
+    <!-- Visit Modal -->
+    <WorkspaceModal :modelValue="showAddVisit" @update:modelValue="closeVisitModal()" :title="editingVisit ? $t('workspace.edit_visit_title') : $t('workspace.add_visit_title')" size="sm">
+      <form @submit.prevent="submitVisitForm" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('workspace.visit_type_label') }}</label>
+          <input v-model="visitForm.visit_type" class="input-field" :placeholder="$t('workspace.visit_type_label')" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('workspace.visit_date_label') }} *</label>
+          <input v-model="visitForm.visit_date" type="date" class="input-field" required />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('workspace.next_visit_date_label') }}</label>
+          <input v-model="visitForm.next_visit_date" type="date" class="input-field" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('workspace.visit_reason') }}</label>
+          <textarea v-model="visitForm.reason" class="input-field w-full" rows="3" :placeholder="$t('workspace.visit_reason')"></textarea>
+        </div>
+        <div class="flex justify-end gap-3">
+          <button type="button" @click="closeVisitModal()" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">{{ $t('common.cancel') }}</button>
+          <BaseButton type="submit" :loading="savingVisit">{{ $t('workspace.save') }}</BaseButton>
         </div>
       </form>
     </WorkspaceModal>
@@ -523,6 +560,11 @@ const showNoteModal = ref(false)
 const editingNote = ref(null)
 const noteFormContent = ref('')
 
+const showAddVisit = ref(false)
+const savingVisit = ref(false)
+const editingVisit = ref(null)
+const visitForm = ref({ visit_type: '', visit_date: '', next_visit_date: '', reason: '' })
+
 const actionMenuStyle = ref({})
 const timelinePage = ref(1)
 const timelineItems = ref([])
@@ -579,11 +621,16 @@ function toggleActionMenu() {
 }
 
 const upcomingVisits = computed(() => {
-  return visits.value.filter(v => v.visit_date && new Date(v.visit_date) >= new Date())
+  const today = new Date().toISOString().substring(0, 10)
+  // Collect entries with next_visit_date in the future
+  return visits.value
+    .filter(v => v.next_visit_date && v.next_visit_date >= today)
+    .sort((a, b) => new Date(a.next_visit_date) - new Date(b.next_visit_date))
 })
 
 const pastVisits = computed(() => {
-  return visits.value.filter(v => !v.visit_date || new Date(v.visit_date) < new Date())
+  const today = new Date().toISOString().substring(0, 10)
+  return visits.value.filter(v => !v.visit_date || v.visit_date.substring(0, 10) <= today)
 })
 
 function scrollToSection(section) {
@@ -740,11 +787,11 @@ const allTimelineEvents = computed(() => {
   }
   for (let i = 0; i < notes.length; i++) {
     const n = notes[i]
-    events.push({ id: `note-${n.id}`, type: 'note', title: t('note_by_doctor', { doctor: n.author?.name || t('doctors.doctor') }), description: (typeof n.content === 'string' ? n.content.replace(/<[^>]*>/g, '') : '').substring(0, 80) || '', date: n.created_at })
+    events.push({ id: `note-${n.id}`, type: 'note', title: t('workspace.note_by_doctor', { doctor: n.author?.name || t('doctors.doctor') }), description: (typeof n.content === 'string' ? n.content.replace(/<[^>]*>/g, '') : '').substring(0, 80) || '', date: n.created_at })
   }
   for (let i = 0; i < vs.length; i++) {
     const v = vs[i]
-    events.push({ id: `visit-${v.id}`, type: 'visit', title: `Visit: ${v.visit_type || 'Checkup'}`, description: v.reason || '', date: v.visit_date || v.created_at })
+    events.push({ id: `visit-${v.id}`, type: 'visit', title: `${t('workspace.visit')}: ${v.visit_type || t('workspace.visit')}`, description: v.reason || '', date: v.visit_date || v.created_at })
   }
   events.sort((a, b) => new Date(b.date) - new Date(a.date))
   return events
@@ -865,6 +912,56 @@ async function submitNoteForm() {
   } catch (e) {
     console.error('Note save failed', e)
     toast.error(t('common.error'))
+  }
+}
+
+function openAddNote() {
+  editingNote.value = null
+  noteFormContent.value = ''
+  showNoteModal.value = true
+}
+
+function editVisit(visit) {
+  editingVisit.value = visit
+  visitForm.value = {
+    visit_type: visit.visit_type || '',
+    visit_date: visit.visit_date ? visit.visit_date.substring(0, 10) : '',
+    next_visit_date: visit.next_visit_date ? visit.next_visit_date.substring(0, 10) : '',
+    reason: visit.reason || '',
+  }
+  showAddVisit.value = true
+}
+
+function closeVisitModal() {
+  showAddVisit.value = false
+  editingVisit.value = null
+  visitForm.value = { visit_type: '', visit_date: '', next_visit_date: '', reason: '' }
+}
+
+async function submitVisitForm() {
+  if (!visitForm.value.visit_date || !selectedPatient.value?.uuid) return
+  savingVisit.value = true
+  try {
+    const payload = {
+      visit_type: visitForm.value.visit_type || t('workspace.visit'),
+      visit_date: visitForm.value.visit_date,
+      next_visit_date: visitForm.value.next_visit_date || null,
+      reason: visitForm.value.reason || '',
+    }
+    if (editingVisit.value) {
+      await axios.put(`/api/v1/patients/${selectedPatient.value.uuid}/visits/${editingVisit.value.uuid}`, payload)
+      toast.success(t('workspace.visit_added'))
+    } else {
+      await axios.post(`/api/v1/patients/${selectedPatient.value.uuid}/visits`, payload)
+      toast.success(t('workspace.visit_added'))
+    }
+    closeVisitModal()
+    await refreshWorkspaceData()
+  } catch (e) {
+    console.error('Visit save failed', e)
+    toast.error(t('common.error'))
+  } finally {
+    savingVisit.value = false
   }
 }
 

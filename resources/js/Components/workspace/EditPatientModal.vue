@@ -41,14 +41,14 @@
           </select>
         </div>
         <div>
-          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Medical Status</label>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('patients.medical_status') }}</label>
           <select v-model="form.medical_status" class="input-field">
             <option value="">—</option>
-            <option value="Active">Active</option>
-            <option value="In Treatment">In Treatment</option>
-            <option value="Recovered">Recovered</option>
-            <option value="Critical">Critical</option>
-            <option value="Discharged">Discharged</option>
+            <option value="Active">{{ $t('patients.status_active') }}</option>
+            <option value="In Treatment">{{ $t('patients.status_in_treatment') }}</option>
+            <option value="Recovered">{{ $t('patients.status_recovered') }}</option>
+            <option value="Critical">{{ $t('patients.status_critical') }}</option>
+            <option value="Discharged">{{ $t('patients.status_discharged') }}</option>
           </select>
         </div>
 
@@ -87,6 +87,15 @@
           <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('patients.medical_record_number') }}</label>
           <input v-model="form.medical_record_number" class="input-field" />
         </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('patient_summary.last_visit') }}</label>
+          <input v-model="form.last_visit_date" type="date" class="input-field" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('patient_summary.next_appointment') }}</label>
+          <input v-model="form.next_appointment_date" type="date" class="input-field" />
+        </div>
       </div>
 
         <div class="sticky bottom-0 bg-white dark:bg-slate-900 pt-4 pb-1 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 -mx-1 px-1">
@@ -118,6 +127,7 @@ const form = reactive({
   name: '', phone: '', email: '', address: '', diagnosis: '',
   date_of_birth: '', gender: '', blood_group: '', weight: '', height: '',
   allergies: '', chronic_diseases: '', medical_status: '', medical_record_number: '',
+  last_visit_date: '', next_appointment_date: '',
 })
 
 watch(() => props.patient, (p) => {
@@ -137,6 +147,8 @@ watch(() => props.patient, (p) => {
       chronic_diseases: p.chronic_diseases || '',
       medical_status: p.medical_status || '',
       medical_record_number: p.medical_record_number || '',
+      last_visit_date: p.last_visit_date || p.last_visit || '',
+      next_appointment_date: p.next_appointment_date || p.next_appointment || '',
     })
     errors.value = {}
   }

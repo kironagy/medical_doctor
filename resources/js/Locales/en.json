@@ -223,7 +223,8 @@
     "smallest": "Smallest Size",
     "recently_updated": "Recently Updated",
     "clear": "Clear",
-    "to": "to"
+    "to": "to",
+    "upload_files": "Upload Files"
   },
   "workspace": {
     "select_patient": "Select a Patient",
@@ -236,6 +237,7 @@
     "not_shared": "Not shared with anyone",
     "medical_records": "Medical Records",
     "manage_categories": "Manage",
+    "upload_files": "Upload Files",
     "appointments": "Upcoming Appointments",
     "no_appointments": "No upcoming appointments",
     "recent_visits": "Recent Visits",
@@ -249,6 +251,13 @@
     "note_added": "Note added",
     "note_updated": "Note updated",
     "note_placeholder": "Enter note content...",
+    "save": "Save",
+    "add_visit_title": "Add Visit",
+    "visit_type_label": "Visit Type",
+    "visit_reason": "Reason / Notes",
+    "visit_date_label": "Visit Date",
+    "next_visit_date_label": "Next Appointment Date",
+    "visit_added": "Visit added successfully",
     "timeline": "Timeline",
     "timeline_end": "End of timeline",
     "no_timeline": "No timeline events",
@@ -275,7 +284,6 @@
     "archive": "Archive",
     "delete": "Delete",
     "settings": "Settings",
-    "upload_files": "Upload Files",
     "add_note": "Add Note",
     "add_visit": "Add Visit",
     "add_timeline_entry": "Add Timeline Entry",
@@ -297,7 +305,18 @@
     "active_patients": "Active Patients",
     "show_archived": "Show Archived",
     "restore_confirm": "Restore this patient?",
-    "force_delete_confirm": "Permanently delete this patient and all associated data? This cannot be undone."
+    "force_delete_confirm": "Permanently delete this patient and all associated data? This cannot be undone.",
+    "category_manager": {
+      "title": "Manage Categories",
+      "name_placeholder": "Category name",
+      "new_name_placeholder": "New category name...",
+      "add": "Add",
+      "cancel": "Cancel",
+      "add_category": "Add Category",
+      "save_changes": "Save Changes"
+    },
+    "edit_visit_title": "Edit Visit",
+    "visit_updated": "Visit updated successfully"
   },
   "common": {
     "save": "Save",

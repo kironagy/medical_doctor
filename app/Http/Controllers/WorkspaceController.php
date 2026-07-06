@@ -206,23 +206,46 @@ class WorkspaceController extends Controller
         $visits = $this->visitRepo->forPatient($uuid);
         $t4 = microtime(true);
 
-        $nextVisit = collect($visits)->first(fn($v) => ($v['visit_date'] ?? '') >= now()->toDateString());
-        $latestVisit = $visits[0] ?? null;
+        $today = now()->toDateString();
+        $visitsCollection = collect($visits);
+
+        // Latest past visit (most recent visit_date or created_at <= today)
+        $latestPastVisit = $visitsCollection
+            ->filter(function ($v) use ($today) {
+                $vDate = !empty($v['visit_date']) ? substr($v['visit_date'], 0, 10) : substr($v['created_at'] ?? $today, 0, 10);
+                return $vDate <= $today;
+            })
+            ->sortByDesc(function ($v) {
+                return !empty($v['visit_date']) ? substr($v['visit_date'], 0, 10) : substr($v['created_at'] ?? '', 0, 10);
+            })
+            ->first();
+
+        // Next appointment: earliest next_visit_date >= today from any visit
+        $nextAppointment = $visitsCollection
+            ->filter(function ($v) use ($today) {
+                return !empty($v['next_visit_date']) && substr($v['next_visit_date'], 0, 10) >= $today;
+            })
+            ->sortBy('next_visit_date')
+            ->first();
+
+        $patientData['last_visit_date'] = !empty($latestPastVisit['visit_date']) 
+            ? substr($latestPastVisit['visit_date'], 0, 10) 
+            : (isset($latestPastVisit['created_at']) ? substr($latestPastVisit['created_at'], 0, 10) : null);
+            
+        $patientData['next_appointment_date'] = !empty($nextAppointment['next_visit_date']) 
+            ? substr($nextAppointment['next_visit_date'], 0, 10) 
+            : null;
 
         $stats = [
             'total_files' => count($allFiles),
             'total_notes' => count($notes),
             'total_visits' => count($visits),
             'recent_uploads' => array_slice($allFiles, 0, 5),
-            'upcoming_visit' => $nextVisit,
+            'upcoming_visit' => $nextAppointment,
             'last_prescription' => collect($allFiles)->first(fn($f) => ($f['category'] ?? '') === 'medications'),
         ];
 
         $categories = $this->getCategories(auth()->user());
-
-        $patientData = $patient;
-        $patientData['last_visit_date'] = $latestVisit['visit_date'] ?? null;
-        $patientData['next_appointment_date'] = $nextVisit['visit_date'] ?? null;
 
         $user = auth()->user();
         $t5 = microtime(true);

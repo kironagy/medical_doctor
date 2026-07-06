@@ -12,7 +12,7 @@
               :class="isPrimaryDoctor
                 ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
                 : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'"
-            >{{ isPrimaryDoctor ? 'Primary' : 'Shared' }}</span>
+            >{{ isPrimaryDoctor ? $t('workspace.primary') : $t('workspace.shared') }}</span>
           </div>
           <p class="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             {{ patient.code }} <span class="mx-1">•</span> {{ patient.phone || '—' }} <span v-if="patient.email" class="mx-1">•</span> {{ patient.email }}
