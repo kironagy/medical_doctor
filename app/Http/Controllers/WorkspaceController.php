@@ -228,6 +228,7 @@ class WorkspaceController extends Controller
             ->sortBy('next_visit_date')
             ->first();
 
+        $patientData = $patient;
         $patientData['last_visit_date'] = !empty($latestPastVisit['visit_date']) 
             ? substr($latestPastVisit['visit_date'], 0, 10) 
             : (isset($latestPastVisit['created_at']) ? substr($latestPastVisit['created_at'], 0, 10) : null);
