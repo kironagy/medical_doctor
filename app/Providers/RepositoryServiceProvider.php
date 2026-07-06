@@ -12,13 +12,15 @@ use App\Repositories\Eloquent\EloquentPatientNoteRepository;
 use App\Repositories\Eloquent\EloquentPatientRepository;
 use App\Repositories\Eloquent\EloquentPatientVisitRepository;
 use App\Repositories\Eloquent\EloquentUserRepository;
+use App\Repositories\Hybrid\HybridPatientRepository;
 use Illuminate\Support\ServiceProvider;
 
 class RepositoryServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->bind(PatientRepositoryInterface::class, EloquentPatientRepository::class);
+        // Hybrid: always sync CRUD operations to production API, fall back to local when offline
+        $this->app->bind(PatientRepositoryInterface::class, HybridPatientRepository::class);
         $this->app->bind(UserRepositoryInterface::class, EloquentUserRepository::class);
         $this->app->bind(PatientFileRepositoryInterface::class, EloquentPatientFileRepository::class);
         $this->app->bind(PatientNoteRepositoryInterface::class, EloquentPatientNoteRepository::class);

@@ -416,7 +416,6 @@ const props = defineProps({
 })
 
 const {
-  setPatients,
   selectedPatient,
   selectedPatientId,
   workspaceData,
@@ -869,7 +868,6 @@ onMounted(() => {
     console.log('⏱️ Props Size: unable to stringify')
   }
 
-  setPatients(props.patients)
   requestAnimationFrame(() => {
     performance.mark('vue-mount-end')
     performance.measure('Vue Hydration/Mount', 'vue-mount-start', 'vue-mount-end')

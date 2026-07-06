@@ -4,7 +4,7 @@ namespace Tests\Unit;
 
 use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Providers\RepositoryServiceProvider;
-use App\Repositories\Eloquent\EloquentPatientRepository;
+use App\Repositories\Hybrid\HybridPatientRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -12,7 +12,7 @@ class RepositoryBindingTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_patient_repository_uses_eloquent_binding_for_all_clients(): void
+    public function test_patient_repository_uses_hybrid_binding(): void
     {
         putenv('NATIVEPHP_APP_ID=native-test');
 
@@ -21,7 +21,7 @@ class RepositoryBindingTest extends TestCase
 
         $repository = $this->app->make(PatientRepositoryInterface::class);
 
-        $this->assertInstanceOf(EloquentPatientRepository::class, $repository);
+        $this->assertInstanceOf(HybridPatientRepository::class, $repository);
 
         putenv('NATIVEPHP_APP_ID');
     }

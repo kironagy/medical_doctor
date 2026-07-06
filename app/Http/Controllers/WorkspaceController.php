@@ -9,7 +9,7 @@ use App\Contracts\Repositories\PatientVisitRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientShare;
-use App\Repositories\Hybrid\HybridPatientRepository;
+use App\Repositories\Api\ApiPatientRepository;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Log;
@@ -87,8 +87,26 @@ class WorkspaceController extends Controller
         $page = $request->input('page', 1);
         $status = $request->input('status');
 
-        $hybridRepo = app(HybridPatientRepository::class);
-        $result = $hybridRepo->paginated(10, $page, $status);
+        // Always fetch fresh data from production API — no local cache, no SQLite fallback
+        try {
+            $apiRepo = app(ApiPatientRepository::class);
+            $result = $apiRepo->paginated(10, $page, $status);
+        } catch (\Throwable $e) {
+            Log::warning('Patient list API fetch failed, returning empty: ' . $e->getMessage(), [
+                'url' => $request->fullUrl(),
+            ]);
+            $result = [
+                'data' => [],
+                'meta' => [
+                    'current_page' => 1,
+                    'last_page'    => 1,
+                    'per_page'     => 10,
+                    'total'        => 0,
+                    'from'         => null,
+                    'to'           => null,
+                ],
+            ];
+        }
 
         // Normalize API response format (Laravel paginator format -> { data, meta } format)
         if (isset($result['current_page']) && !isset($result['meta'])) {
@@ -111,6 +129,7 @@ class WorkspaceController extends Controller
             'page'   => $page,
             'count'  => count($result['data'] ?? []),
             'total'  => $result['meta']['total'] ?? 0,
+            'fresh'  => true,
         ]);
 
         return response()->json($result);
