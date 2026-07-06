@@ -258,7 +258,10 @@
     "delete_patient": "Delete Patient",
     "delete_confirm": "Permanently delete this patient and all associated data?",
     "file": "File",
-    "note_by_doctor": "Note by Doctor",
+    "note_by_doctor": "Note by {doctor}",
+    "doctors": {
+      "doctor": "Doctor"
+    },
     "file_uploaded": "File uploaded",
     "visit": "Visit",
     "patient_list": "Patient List",
@@ -399,6 +402,155 @@
     "quick_upload": "Upload",
     "quick_history": "History",
     "quick_categories": "Categories",
-    "summary": "Summary"
-  }
+    "summary": "Summary",
+    "patient_summary": {
+      "id": "Patient ID",
+      "mrn": "MRN",
+      "age": "Age",
+      "gender": "Gender",
+      "blood_group": "Blood Group",
+      "weight": "Weight",
+      "height": "Height",
+      "status": "Status",
+      "diagnosis": "Diagnosis",
+      "allergies": "Allergies",
+      "chronic": "Chronic Diseases",
+      "phone": "Phone",
+      "last_visit": "Last Visit",
+      "next_appt": "Next Appointment",
+      "address": "Address",
+      "primary": "Primary",
+      "shared": "Shared",
+      "empty": "—"
+    },
+    "file_actions": {
+      "view": "View",
+      "edit": "Edit",
+      "move": "Move",
+      "download": "Download",
+      "delete": "Delete",
+      "deleting": "Deleting..."
+    },
+    "pull_to_refresh": {
+      "release": "Release to refresh",
+      "refreshing": "Refreshing"
+    },
+    "video_player": {
+      "load_error": "Unable to load video",
+      "retry": "Retry",
+      "pause": "Pause (k)",
+      "play": "Play (k)",
+      "mute": "Mute (m)",
+      "speed": "Speed",
+      "pip": "Picture-in-Picture",
+      "fullscreen": "Fullscreen (f)"
+    },
+    "file_preview": {
+      "file": "File",
+      "zoom_out": "Zoom Out",
+      "fullscreen": "Fullscreen",
+      "download": "Download",
+      "edit": "Edit",
+      "delete": "Delete",
+      "close": "Close (Esc)",
+      "edit_file": "Edit File",
+      "title": "Title",
+      "description": "Description",
+      "saving": "Saving...",
+      "save": "Save",
+      "delete_confirm_title": "Delete File",
+      "delete_confirm_message": "Delete \"{filename}\"? This action cannot be undone.",
+      "delete_confirm_button": "Delete",
+      "title_required": "Title is required",
+      "update_success": "File updated",
+      "delete_success": "File deleted"
+    },
+    "category_manager": {
+      "title": "Manage Categories",
+      "name_placeholder": "Category name",
+      "new_name_placeholder": "New category name...",
+      "add": "Add",
+      "cancel": "Cancel",
+      "add_category": "Add Category",
+      "save_changes": "Save Changes"
+    },
+    "dashboard": {
+      "title": "Dashboard",
+      "total_patients": "Total Patients",
+      "recent_files": "Recent Files",
+      "active_shares": "Active Shares",
+      "active_doctors": "Active Doctors",
+      "download_app": "Download App"
+    },
+    "login": {
+      "title": "Sign in to your account",
+      "subtitle": "prof hosam fekry ortho team",
+      "email_label": "Email address",
+      "password_label": "Password",
+      "remember_me": "Remember me",
+      "forgot_password": "Forgot your password?",
+      "sign_in": "Sign in"
+    },
+    "settings_download": {
+      "title": "Download App",
+      "checking_updates": "Checking for updates...",
+      "no_releases": "No releases available yet.",
+      "check_failed": "Unable to check for updates at this time.",
+      "try_again": "Try again",
+      "current_version": "Current Version",
+      "download_apk": "Download APK"
+    },
+    "patient_print": {
+      "blood_group": "Blood Group",
+      "weight": "Weight",
+      "height": "Height",
+      "allergies": "Allergies",
+      "chronic_diseases": "Chronic Diseases",
+      "medical_files": "Medical Files",
+      "name_column": "Name",
+      "category_column": "Category",
+      "uploaded_column": "Uploaded",
+      "clinical_notes": "Clinical Notes",
+      "visits": "Visits",
+      "date_column": "Date",
+      "type_column": "Type",
+      "reason_column": "Reason",
+      "exported_by": "Exported by:",
+      "date_label": "Date:"
+    },
+    "unified_media_viewer": {
+      "load_text_error": "Failed to load text content."
+    },
+    "app_layout": {
+      "offline_mode": "Offline Mode - Changes will be saved locally",
+      "syncing": "Syncing changes...",
+      "sync_success": "Sync completed successfully",
+      "sync_fail": "Sync failed. Will retry later."
+    }
+  },
+  "patient_summary": {
+    "patient_id": "Patient ID",
+    "mrn": "MRN",
+    "age": "Age",
+    "gender": "Gender",
+    "blood_group": "Blood Group",
+    "weight": "Weight",
+    "height": "Height",
+    "status": "Status",
+    "active": "Active",
+    "archived": "Archived",
+    "diagnosis": "Diagnosis",
+    "allergies": "Allergies",
+    "chronic_diseases": "Chronic Diseases",
+    "phone": "Phone",
+    "last_visit": "Last Visit",
+    "next_appointment": "Next Appointment",
+    "address": "Address"
+  },
+  "quick_share": "Share",
+  "quick_appointment": "Appointment",
+  "quick_notes": "Notes",
+  "quick_upload": "Upload",
+  "quick_history": "History",
+  "quick_categories": "Categories"
 }

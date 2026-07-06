@@ -1,13 +1,15 @@
 <template>
-  <aside
-    class="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800"
-    :class="[
-      isMobile
-        ? 'fixed inset-y-0 left-0 z-40 w-[300px] shadow-2xl transition-transform duration-300 ease-in-out pt-safe pb-safe'
-        : 'relative w-full',
-      isMobile && !mobileOpen ? '-translate-x-full' : '',
-    ]"
-  >
+<aside
+  class="flex flex-col h-full bg-white dark:bg-slate-900"
+  :class="[
+    isMobile
+      ? 'fixed inset-y-0 z-40 w-[300px] shadow-2xl transition-transform duration-300 ease-in-out pt-safe pb-safe'
+      : 'relative w-full',
+    isMobile && !mobileOpen ? (isRtl ? 'translate-x-full' : '-translate-x-full') : '',
+    isMobile ? (isRtl ? 'right-0' : 'left-0') : '',
+    isRtl ? 'border-l border-slate-200 dark:border-slate-800' : 'border-r border-slate-200 dark:border-slate-800'
+  ]"
+>
     <div class="flex items-center justify-between px-4 h-14 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
       <div class="flex items-center gap-2.5">
         <div class="w-7 h-7 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">M</div>
@@ -226,6 +228,7 @@
 <script setup>
 import { router } from '@inertiajs/vue3'
 import { useWorkspace } from '@/Composables/useWorkspace'
+import { computed } from 'vue'
 
 const props = defineProps({
   user: Object,
@@ -240,7 +243,8 @@ import { useI18n } from 'vue-i18n'
 
 const dialog = useDialog()
 const toast = useToast()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const isRtl = computed(() => locale.value === 'ar')
 
 const {
   searchQuery,

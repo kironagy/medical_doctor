@@ -9,17 +9,17 @@
               <svg v-else-if="file.mime_type?.startsWith('video/')" class="w-5 h-5 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
               <svg v-else-if="file.mime_type === 'application/pdf'" class="w-5 h-5 text-rose-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
               <svg v-else class="w-5 h-5 text-slate-400 dark:text-slate-300 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-              <span class="text-sm font-medium truncate text-white">{{ file.title || file.file_name || 'File' }}</span>
+              <span class="text-sm font-medium truncate text-white">{{ file.title || file.file_name || $t('file_preview.file') }}</span>
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <button v-if="isZoomed && file?.mime_type?.startsWith('image/')" @click="toggleZoom" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" title="Zoom Out">
+            <button v-if="isZoomed && file?.mime_type?.startsWith('image/')" @click="toggleZoom" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" :title="$t('file_preview.zoom_out')">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 8H7" /></svg>
             </button>
-            <button @click="toggleFullscreen" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" title="Fullscreen">
+            <button @click="toggleFullscreen" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" :title="$t('file_preview.fullscreen')">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
             </button>
-            <a v-if="file?.url" :href="file.url" target="_blank" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" title="Download">
+            <a v-if="file?.url" :href="file.url" target="_blank" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" :title="$t('file_preview.download')">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
             </a>
             <!-- Edit Button -->
@@ -31,7 +31,7 @@
               <svg v-if="!deleting" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
               <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
             </button>
-            <button @click="close" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" title="Close (Esc)">
+            <button @click="close" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" :title="$t('file_preview.close')">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>
@@ -105,26 +105,26 @@
         <div class="relative bg-white dark:bg-slate-900 border dark:border-slate-800 w-full md:max-w-lg max-h-[90vh] md:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden"
              style="padding-bottom: var(--sab, 0px)">
           <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10">
-            <h3 class="text-base font-bold text-slate-900 dark:text-white">Edit File</h3>
+            <h3 class="text-base font-bold text-slate-900 dark:text-white">{{ $t('file_preview.edit_file') }}</h3>
             <button @click="closeEdit" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>
           <div class="overflow-y-auto overscroll-contain flex-1 p-5 space-y-4">
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Title</label>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('file_preview.title') }}</label>
               <input v-model="editForm.title" type="text" class="input-field w-full" maxlength="255" />
             </div>
             <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Description</label>
+              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('file_preview.description') }}</label>
               <textarea v-model="editForm.desc" rows="3" class="input-field w-full" />
             </div>
           </div>
           <div class="sticky bottom-0 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 px-5 py-4 flex justify-end gap-3">
-            <button @click="closeEdit" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">Cancel</button>
+            <button @click="closeEdit" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">{{ $t('file_preview.cancel') }}</button>
             <BaseButton @click="saveEdit" :disabled="saving" size="sm">
               <svg v-if="saving" class="w-4 h-4 animate-spin me-1.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-              {{ saving ? 'Saving...' : 'Save' }}
+              {{ saving ? $t('file_preview.saving') : $t('file_preview.save') }}
             </BaseButton>
           </div>
         </div>
@@ -141,6 +141,9 @@ import { useDialog } from '@/Composables/useDialog'
 import { useToast } from '@/Composables/useToast'
 import BaseButton from '@/Components/BaseButton.vue'
 import axios from 'axios'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const {
   showPreview: show,
@@ -211,7 +214,7 @@ async function saveEdit() {
   const nextTitle = editForm.value.title?.trim() || ''
   const nextDesc = editForm.value.desc?.trim() || ''
   if (!nextTitle) {
-    toast.error('Title is required')
+    toast.error($t('file_preview.title_required'))
     return
   }
   saving.value = true
@@ -230,7 +233,7 @@ async function saveEdit() {
     updateFileLocally(res.data)
     file.value = { ...file.value, ...res.data }
     showEdit.value = false
-    toast.success('File updated')
+    toast.success($t('file_preview.update_success'))
   } catch (e) {
     console.error('Edit failed:', e)
     let errorMsg = 'Failed to update file'
@@ -257,20 +260,20 @@ async function saveEdit() {
 }
 
 async function confirmDelete() {
-  if (deleting.value) return
-  const confirmed = await dialog.confirm({
-    title: 'Delete File',
-    message: `Delete "${file.value?.title || file.value?.file_name}"? This action cannot be undone.`,
-    confirmText: 'Delete',
-    style: 'danger',
-  })
+   if (deleting.value) return
+   const confirmed = await dialog.confirm({
+     title: $t('file_preview.delete_confirm_title'),
+     message: $t('file_preview.delete_confirm_message', { filename: file.value?.title || file.value?.file_name }),
+     confirmText: $t('file_preview.delete_confirm_button'),
+     style: 'danger',
+   })
   if (!confirmed) return
   deleting.value = true
   try {
     await axios.delete(`/api/v1/files/${file.value.uuid}`)
     removeFileLocally(file.value.uuid)
     close()
-    toast.success('File deleted')
+    toast.success($t('file_preview.delete_success'))
   } catch (e) {
     console.error('Delete failed:', e)
     toast.error(e.response?.data?.message || 'Failed to delete file')

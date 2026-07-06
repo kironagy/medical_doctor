@@ -257,7 +257,10 @@
     "delete_patient": "حذف المريض",
     "delete_confirm": "هل تريد حذف هذا المريض وجميع بياناته نهائياً؟",
     "file": "ملف",
-    "note_by_doctor": "ملاحظة بواسطة الطبيب",
+    "note_by_doctor": "ملاحظة بواسطة {doctor}",
+    "doctors": {
+      "doctor": "طبيب"
+    },
     "file_uploaded": "تم رفع الملف",
     "visit": "زيارة",
     "patient_list": "قائمة المرضى",
@@ -398,6 +401,155 @@
     "quick_upload": "رفع",
     "quick_history": "السجل",
     "quick_categories": "التصنيفات",
-    "summary": "ملخص"
-  }
+    "summary": "ملخص",
+    "patient_summary": {
+      "id": "رقم المريض",
+      "mrn": "السجل الطبي",
+      "age": "العمر",
+      "gender": "الجنس",
+      "blood_group": "فصيلة الدم",
+      "weight": "الوزن",
+      "height": "الطول",
+      "status": "الحالة",
+      "diagnosis": "التشخيص",
+      "allergies": "الحساسية",
+      "chronic": "الأمراض المزمنة",
+      "phone": "الهاتف",
+      "last_visit": "آخر زيارة",
+      "next_appt": "الموعد القادم",
+      "address": "العنوان",
+      "primary": "أساسي",
+      "shared": "مشترك",
+      "empty": "—"
+    },
+    "file_actions": {
+      "view": "عرض",
+      "edit": "تعديل",
+      "move": "نقل",
+      "download": "تنزيل",
+      "delete": "حذف",
+      "deleting": "جاري الحذف..."
+    },
+    "pull_to_refresh": {
+      "release": "حرر للتحديث",
+      "refreshing": "جاري التحديث..."
+    },
+    "video_player": {
+      "load_error": "تعذر تحميل الفيديو",
+      "retry": "إعادة المحاولة",
+      "pause": "إيقاف مؤقت (ك)",
+      "play": "تشغيل (ك)",
+      "mute": "كتم الصوت (م)",
+      "speed": "السرعة",
+      "pip": "الصورة في الصورة",
+      "fullscreen": "ملء الشاشة (ف)"
+    },
+    "file_preview": {
+      "file": "ملف",
+      "zoom_out": "تصغير",
+      "fullscreen": "ملء الشاشة",
+      "download": "تنزيل",
+      "edit": "تعديل",
+      "delete": "حذف",
+      "close": "إغلاق (Esc)",
+      "edit_file": "تعديل الملف",
+      "title": "العنوان",
+      "description": "الوصف",
+      "saving": "جاري الحفظ...",
+      "save": "حفظ",
+      "delete_confirm_title": "حذف الملف",
+      "delete_confirm_message": "حذف \"{filename}\"? لا يمكن التراجع عن هذا الإجراء.",
+      "delete_confirm_button": "حذف",
+      "title_required": "العنوان مطلوب",
+      "update_success": "تم تحديث الملف",
+      "delete_success": "تم حذف الملف"
+    },
+    "category_manager": {
+      "title": "إدارة التصنيفات",
+      "name_placeholder": "اسم التصنيف",
+      "new_name_placeholder": "اسم التصنيف الجديد...",
+      "add": "إضافة",
+      "cancel": "إلغاء",
+      "add_category": "إضافة تصنيف",
+      "save_changes": "حفظ التغييرات"
+    },
+    "dashboard": {
+      "title": "لوحة التحكم",
+      "total_patients": "إجمالي المرضى",
+      "recent_files": "الملفات الأخيرة",
+      "active_shares": "المشاركات النشطة",
+      "active_doctors": "الأطباء النشطين",
+      "download_app": "تنزيل التطبيق"
+    },
+    "login": {
+      "title": "تسجيل الدخول إلى حسابك",
+      "subtitle": "فريق جراحة العظام - بروف حسام فكري",
+      "email_label": "البريد الإلكتروني",
+      "password_label": "كلمة المرور",
+      "remember_me": "تذكرني",
+      "forgot_password": "هل نسيت كلمة المرور؟",
+      "sign_in": "تسجيل الدخول"
+    },
+    "settings_download": {
+      "title": "تنزيل التطبيق",
+      "checking_updates": "جاري التحقق من التحديثات...",
+      "no_releases": "لا توجد إصدارات متاحة بعد.",
+      "check_failed": "تعذر التحقق من التحديثات حالياً.",
+      "try_again": "حاول مجدداً",
+      "current_version": "الإصدار الحالي",
+      "download_apk": "تنزيل APK"
+    },
+    "patient_print": {
+      "blood_group": "فصيلة الدم",
+      "weight": "الوزن",
+      "height": "الطول",
+      "allergies": "الحساسية",
+      "chronic_diseases": "الأمراض المزمنة",
+      "medical_files": "الملفات الطبية",
+      "name_column": "الاسم",
+      "category_column": "التصنيف",
+      "uploaded_column": "تاريخ الرفع",
+      "clinical_notes": "الملاحظات السريرية",
+      "visits": "الزيارات",
+      "date_column": "التاريخ",
+      "type_column": "النوع",
+      "reason_column": "السبب",
+      "exported_by": "تم التصدير بواسطة:",
+      "date_label": "التاريخ:"
+    },
+    "unified_media_viewer": {
+      "load_text_error": "تعذر تحميل محتوى النص."
+    },
+    "app_layout": {
+      "offline_mode": "الوضع دون اتصال - سيتم حفظ التغييرات محلياً",
+      "syncing": "جاري المزامنة...",
+      "sync_success": "تمت المزامنة بنجاح",
+      "sync_fail": "فشلت المزامنة. سيتم إعادة المحاولة لاحقاً."
+    }
+  },
+  "patient_summary": {
+    "patient_id": "رقم المريض",
+    "mrn": "السجل الطبي",
+    "age": "العمر",
+    "gender": "الجنس",
+    "blood_group": "فصيلة الدم",
+    "weight": "الوزن",
+    "height": "الطول",
+    "status": "الحالة",
+    "active": "نشط",
+    "archived": "مؤرشف",
+    "diagnosis": "التشخيص",
+    "allergies": "الحساسية",
+    "chronic_diseases": "الأمراض المزمنة",
+    "phone": "الهاتف",
+    "last_visit": "آخر زيارة",
+    "next_appointment": "الموعد القادم",
+    "address": "العنوان"
+  },
+  "quick_share": "مشاركة",
+  "quick_appointment": "موعد",
+  "quick_notes": "ملاحظات",
+  "quick_upload": "رفع",
+  "quick_history": "السجل",
+  "quick_categories": "التصنيفات"
 }

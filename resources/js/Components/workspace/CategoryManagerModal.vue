@@ -1,5 +1,5 @@
 <template>
-  <WorkspaceModal :modelValue="modelValue" @update:modelValue="$emit('update:modelValue', $event)" @close="$emit('update:modelValue', false)" title="Manage Categories" size="lg">
+  <WorkspaceModal :modelValue="modelValue" @update:modelValue="$emit('update:modelValue', $event)" @close="$emit('update:modelValue', false)" :title="$t('category_manager.title')" size="lg">
     <div class="space-y-4">
       <div class="space-y-2">
         <div v-for="(cat, idx) in categories" :key="cat.slug"
@@ -18,7 +18,7 @@
             />
           </div>
 
-          <input v-model="cat.name" class="flex-1 input-field text-sm py-1 px-2" placeholder="Category name" />
+          <input v-model="cat.name" class="flex-1 input-field text-sm py-1 px-2" :placeholder="$t('category_manager.name_placeholder')" />
 
           <button type="button" class="p-1.5 rounded-lg transition-colors"
             :class="cat.is_visible !== false ? 'text-slate-400' : 'text-slate-300 dark:text-slate-600'"
@@ -35,18 +35,18 @@
       </div>
 
       <div v-if="showAddForm" class="flex items-center gap-2 p-3 border border-dashed border-slate-300 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-800/30">
-        <input ref="newNameInput" v-model="newCatName" class="flex-1 input-field text-sm py-1 px-2" placeholder="New category name..."
+        <input ref="newNameInput" v-model="newCatName" class="flex-1 input-field text-sm py-1 px-2" :placeholder="$t('category_manager.new_name_placeholder')"
           @keydown.enter.prevent="addCategory" />
-        <BaseButton size="sm" variant="secondary" @click="addCategory">Add</BaseButton>
-        <BaseButton size="sm" variant="ghost" @click="cancelAdd">Cancel</BaseButton>
+        <BaseButton size="sm" variant="secondary" @click="addCategory">{{ $t('category_manager.add') }}</BaseButton>
+        <BaseButton size="sm" variant="ghost" @click="cancelAdd">{{ $t('category_manager.cancel') }}</BaseButton>
       </div>
 
       <div class="flex items-center gap-3 pt-2">
         <BaseButton v-if="!showAddForm" variant="secondary" size="sm" @click="openAddForm">
-          <PlusIcon class="w-4 h-4 me-1" /> Add Category
+          <PlusIcon class="w-4 h-4 me-1" /> {{ $t('category_manager.add_category') }}
         </BaseButton>
         <div class="flex-1" />
-        <BaseButton :loading="saving" @click="save">Save Changes</BaseButton>
+        <BaseButton :loading="saving" @click="save">{{ $t('category_manager.save_changes') }}</BaseButton>
       </div>
     </div>
   </WorkspaceModal>

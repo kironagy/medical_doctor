@@ -246,7 +246,7 @@
             <div class="divide-y divide-slate-100 dark:divide-slate-800 max-h-72 overflow-y-auto">
               <div v-for="note in allNotes" :key="note.id" class="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
                 <div class="flex items-center justify-between mb-1">
-                  <span class="text-[11px] font-medium text-slate-600 dark:text-slate-300">{{ note.author?.name || 'Doctor' }}</span>
+                  <span class="text-[11px] font-medium text-slate-600 dark:text-slate-300">{{ note.author?.name || $t('doctors.doctor') }}</span>
                   <div class="flex items-center gap-2">
                     <span v-if="note.category" class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-slate-100 dark:bg-slate-800 text-slate-500">{{ note.category.replace(/_/g, ' ') }}</span>
                     <span class="text-[10px] text-slate-400">{{ new Date(note.created_at).toLocaleDateString() }}</span>
@@ -285,7 +285,7 @@
                 <div class="flex items-center gap-3 min-w-0">
                   <div class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 flex items-center justify-center text-xs font-bold flex-shrink-0">{{ share.doctor?.name?.charAt(0) || 'D' }}</div>
                   <div class="min-w-0">
-                    <p class="text-sm font-medium text-slate-900 dark:text-white truncate">{{ share.doctor?.name || 'Doctor' }}</p>
+                    <p class="text-sm font-medium text-slate-900 dark:text-white truncate">{{ share.doctor?.name || $t('doctors.doctor') }}</p>
                     <p class="text-xs text-slate-500">{{ share.access_level === 'read_write' ? $t('patients.read_write') : $t('patients.read_only') }}</p>
                     <p class="text-[10px] text-slate-400">{{ $t('patients.shared_date') }} {{ new Date(share.created_at).toLocaleDateString() }}</p>
                   </div>
@@ -727,7 +727,7 @@ const allTimelineEvents = computed(() => {
   }
   for (let i = 0; i < notes.length; i++) {
     const n = notes[i]
-    events.push({ id: `note-${n.id}`, type: 'note', title: `Note by ${n.author?.name || 'Doctor'}`, description: (typeof n.content === 'string' ? n.content.replace(/<[^>]*>/g, '') : '').substring(0, 80) || '', date: n.created_at })
+    events.push({ id: `note-${n.id}`, type: 'note', title: t('note_by_doctor', { doctor: n.author?.name || t('doctors.doctor') }), description: (typeof n.content === 'string' ? n.content.replace(/<[^>]*>/g, '') : '').substring(0, 80) || '', date: n.created_at })
   }
   for (let i = 0; i < vs.length; i++) {
     const v = vs[i]

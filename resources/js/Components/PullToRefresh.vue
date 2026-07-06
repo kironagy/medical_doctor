@@ -79,11 +79,11 @@
         <span
           v-if="thresholdReached && !isRefreshing"
           class="ptr-label"
-        >{{ releaseLabel }}</span>
-        <span
-          v-else-if="isRefreshing"
-          class="ptr-label"
-        >{{ refreshingLabel }}</span>
+         >{{ $t('pull_to_refresh.release') }}</span>
+         <span
+           v-else-if="isRefreshing"
+           class="ptr-label"
+         >{{ $t('pull_to_refresh.refreshing') }}</span>
       </div>
     </div>
     <div class="ptr-content" :style="contentStyle">

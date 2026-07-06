@@ -37,6 +37,9 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   patient: Object,
@@ -49,21 +52,21 @@ const summaryFields = computed(() => {
   const p = props.patient || {}
   const age = p.date_of_birth ? calculateAge(p.date_of_birth) : (p.age || '—')
   return [
-    { key: 'id', label: 'Patient ID', value: p.code || p.uuid?.slice(0, 8) },
-    { key: 'mrn', label: 'MRN', value: p.medical_record_number },
-    { key: 'age', label: 'Age', value: age },
-    { key: 'gender', label: 'Gender', value: p.gender },
-    { key: 'blood', label: 'Blood Group', value: p.blood_group },
-    { key: 'weight', label: 'Weight', value: p.weight ? `${p.weight} kg` : null },
-    { key: 'height', label: 'Height', value: p.height ? `${p.height} cm` : null },
-    { key: 'status', label: 'Status', value: p.medical_status || (p.deleted_at ? 'Archived' : 'Active') },
-    { key: 'diagnosis', label: 'Diagnosis', value: p.diagnosis },
-    { key: 'allergies', label: 'Allergies', value: p.allergies },
-    { key: 'chronic', label: 'Chronic Diseases', value: p.chronic_diseases },
-    { key: 'phone', label: 'Phone', value: p.phone },
-    { key: 'last_visit', label: 'Last Visit', value: formatDate(p.last_visit_date || p.last_visit) },
-    { key: 'next_appt', label: 'Next Appointment', value: formatDate(p.next_appointment_date || p.next_appointment) },
-    { key: 'address', label: 'Address', value: p.address },
+    { key: 'id', label: t('patient_summary.patient_id'), value: p.code || p.uuid?.slice(0, 8) },
+    { key: 'mrn', label: t('patient_summary.mrn'), value: p.medical_record_number },
+    { key: 'age', label: t('patient_summary.age'), value: age },
+    { key: 'gender', label: t('patient_summary.gender'), value: p.gender },
+    { key: 'blood', label: t('patient_summary.blood_group'), value: p.blood_group },
+    { key: 'weight', label: t('patient_summary.weight'), value: p.weight ? `${p.weight} kg` : null },
+    { key: 'height', label: t('patient_summary.height'), value: p.height ? `${p.height} cm` : null },
+    { key: 'status', label: t('patient_summary.status'), value: p.medical_status || (p.deleted_at ? t('patient_summary.archived') : t('patient_summary.active')) },
+    { key: 'diagnosis', label: t('patient_summary.diagnosis'), value: p.diagnosis },
+    { key: 'allergies', label: t('patient_summary.allergies'), value: p.allergies },
+    { key: 'chronic', label: t('patient_summary.chronic_diseases'), value: p.chronic_diseases },
+    { key: 'phone', label: t('patient_summary.phone'), value: p.phone },
+    { key: 'last_visit', label: t('patient_summary.last_visit'), value: formatDate(p.last_visit_date || p.last_visit) },
+    { key: 'next_appt', label: t('patient_summary.next_appointment'), value: formatDate(p.next_appointment_date || p.next_appointment) },
+    { key: 'address', label: t('patient_summary.address'), value: p.address },
   ]
 })
 
