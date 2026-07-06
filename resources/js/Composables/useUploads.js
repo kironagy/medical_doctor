@@ -5,7 +5,7 @@ import { useWorkspace } from "./useWorkspace";
 
 const uploads = ref([]);
 let idCounter = 0;
-const POOL_SIZE = 6;
+const POOL_SIZE = 2;
 const MAX_RETRIES = 3;
 const CHUNK_SIZE = 5 * 1024 * 1024;
 const STORAGE_KEY = "upload_sessions";
