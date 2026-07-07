@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Admin\AdminController;
 
 Route::get('/', function () {
     return redirect('/dashboard');
@@ -27,10 +28,13 @@ Route::middleware('auth')->group(function () {
 
     // Admin Routes
     Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['role:super-admin']], function () {
-        Route::resource('doctors', \App\Http\Controllers\Admin\DoctorController::class);
-        Route::post('doctors/{doctor}/suspend', [\App\Http\Controllers\Admin\DoctorController::class, 'suspend'])->name('doctors.suspend');
-        Route::get('doctors/{doctor}/patients', [\App\Http\Controllers\Admin\DoctorController::class, 'patients'])->name('doctors.patients');
-        Route::get('doctors/{doctor}/files', [\App\Http\Controllers\Admin\DoctorController::class, 'files'])->name('doctors.files');
+        Route::get('/', function () {
+            return redirect()->route('admin.doctors.index');
+        })->name('dashboard');
+        Route::resource('doctors', App\Http\Controllers\Admin\DoctorController::class);
+        Route::post('doctors/{doctor}/suspend', [App\Http\Controllers\Admin\DoctorController::class, 'suspend'])->name('doctors.suspend');
+        Route::get('doctors/{doctor}/patients', [App\Http\Controllers\Admin\DoctorController::class, 'patients'])->name('doctors.patients');
+        Route::get('doctors/{doctor}/files', [App\Http\Controllers\Admin\DoctorController::class, 'files'])->name('doctors.files');
     });
 
     // Doctor Workspace

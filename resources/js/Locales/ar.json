@@ -163,7 +163,9 @@
     "placeholder_name": "مثال: د. سارة",
     "placeholder_email": "doctor[at]example.com",
     "placeholder_spec": "مثال: القلب، الأعصاب",
-    "general": "طب عام"
+    "general": "طب عام",
+    "no_doctors_yet": "لم يتم العثور على أطباء",
+    "edit_doctor": "تعديل بيانات الطبيب"
   },
   "shared": {
     "title": "المرضى المشتركون",

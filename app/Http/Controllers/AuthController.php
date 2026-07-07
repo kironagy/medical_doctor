@@ -40,7 +40,10 @@ class AuthController extends Controller
                 Log::warning('Remote API login failed, sidebar will use local data: ' . $e->getMessage());
             }
 
-            return redirect()->intended('dashboard');
+            // Role-based redirect: super-admin goes to admin doctors page, others to dashboard
+            $user = $request->user();
+            $default = $user && $user->role === 'super-admin' ? '/admin/doctors' : '/dashboard';
+            return redirect()->intended($default);
         }
 
         return back()->withErrors([

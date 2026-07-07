@@ -126,4 +126,33 @@ class DoctorController extends Controller
 
         return response()->json($query->latest()->paginate(24));
     }
+
+    public function edit(User $doctor)
+    {
+        return Inertia::render('Admin/Doctors/Edit', [
+            'doctor' => $doctor
+        ]);
+    }
+
+    public function update(Request $request, User $doctor)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($doctor->id)],
+            'phone' => 'nullable|string|max:255',
+            'specialization' => 'nullable|string|max:255',
+            'address' => 'nullable|string|max:1000',
+        ]);
+
+        $doctor->update($validated);
+
+        return redirect()->route('admin.doctors.index')->with('success', 'Doctor updated successfully.');
+    }
+
+    public function destroy(User $doctor)
+    {
+        $doctor->delete();
+
+        return redirect()->route('admin.doctors.index')->with('success', 'Doctor deleted successfully.');
+    }
 }
