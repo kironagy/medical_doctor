@@ -26,9 +26,34 @@ class WorkspaceController extends Controller
 
     private function getCategories($user)
     {
-        $defaultCategories = config('categories', []);
-        $customCategories = $user->preferences['custom_categories'] ?? [];
-        return $this->mergeCategories($defaultCategories, $customCategories);
+        // Force load from config file to avoid stale config cache
+        $defaultCategories = null;
+        try {
+            $defaultCategories = config('categories');
+        } catch (\Throwable $e) {
+            $defaultCategories = null;
+        }
+        if (empty($defaultCategories) || !is_array($defaultCategories)) {
+            // Fallback: load directly from config file
+            $configFile = base_path('config/categories.php');
+            if (file_exists($configFile)) {
+                $defaultCategories = require $configFile;
+            } else {
+                $defaultCategories = [];
+            }
+        }
+        
+        // Ensure preferences is an array
+        $preferences = $user->preferences ?? [];
+        if (!is_array($preferences)) {
+            $preferences = [];
+        }
+        $customCategories = $preferences['custom_categories'] ?? [];
+        
+        $merged = $this->mergeCategories($defaultCategories, $customCategories);
+        
+        // Always return at least default categories if merged is empty
+        return empty($merged) ? $defaultCategories : $merged;
     }
 
     private function mergeCategories($defaults, $custom)
@@ -247,6 +272,9 @@ class WorkspaceController extends Controller
         ];
 
         $categories = $this->getCategories(auth()->user());
+        if (empty($categories)) {
+            Log::warning('Categories list is empty for user', ['user_id' => auth()->id()]);
+        }
 
         $user = auth()->user();
         $t5 = microtime(true);
