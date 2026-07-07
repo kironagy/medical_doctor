@@ -132,7 +132,7 @@
             </div>
             <div class="flex flex-wrap gap-2.5 md:gap-3.5" dir="rtl">
               <div
-                v-for="item in mergedCategoryItems" :key="item.id"
+                v-for="item in paginatedItems" :key="item.id || item.uuid"
                 class="bg-[#e6fbf7] dark:bg-slate-900 border-2 border-[#ccfbf1] dark:border-teal-950/40 rounded-[20px] p-3 flex flex-col w-[calc(50%-5px)] sm:w-[170px] md:w-[180px] lg:w-[190px] xl:w-[200px] min-h-[200px] transition-all"
               >
                 <!-- Card Header (Date) -->
@@ -207,7 +207,7 @@
             </div>
 
             <!-- Pagination -->
-            <div v-if="totalPages > 1" class="flex items-center justify-center gap-1 mt-4">
+            <div v-if="mergedTotalPages > 1" class="flex items-center justify-center gap-1 mt-4">
               <button
                 @click="goToPage(currentPage - 1)"
                 :disabled="currentPage <= 1"
@@ -229,9 +229,9 @@
               </template>
               <button
                 @click="goToPage(currentPage + 1)"
-                :disabled="currentPage >= totalPages"
+                :disabled="currentPage >= mergedTotalPages"
                 class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-                :class="currentPage >= totalPages ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                :class="currentPage >= mergedTotalPages ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'"
               >
                 {{ $t('category.next') }}
               </button>
@@ -612,7 +612,7 @@ const hasActiveFilters = computed(() => {
 
 const displayedPages = computed(() => {
   const pages = []
-  const total = totalPages.value
+  const total = mergedTotalPages.value
   const current = currentPage.value
   if (total <= 7) {
     for (let i = 1; i <= total; i++) pages.push(i)
@@ -1109,6 +1109,17 @@ const mergedCategoryItems = computed(() => {
     title: n.content?.replace(/<[^>]*>/g, '').slice(0, 30) || 'ملاحظة نصية',
   }))
   return [...fileItems, ...noteItems].sort((a, b) => new Date(b.created_at || Date.now()) - new Date(a.created_at || Date.now()))
+})
+
+// Paginated view: 6 items per page from merged list
+const paginatedItems = computed(() => {
+  const all = mergedCategoryItems.value
+  const start = (currentPage.value - 1) * perPage
+  return all.slice(start, start + perPage)
+})
+
+const mergedTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(mergedCategoryItems.value.length / perPage))
 })
 
 async function deleteNoteDirectly(note) {
