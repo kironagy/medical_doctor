@@ -17,7 +17,7 @@ class ChunkUploadService
         private readonly UploadSessionService $sessionService,
     ) {}
 
-    public function storeChunk(UploadSession $session, UploadedFile $chunk, int $chunkIndex): array
+    public function storeChunk(UploadSession $session, UploadedFile $chunk, int $chunkIndex, string $clientChecksum): array
     {
         $startMs = microtime(true);
 
@@ -29,6 +29,18 @@ class ChunkUploadService
             }
 
             $this->validationService->validateChunk($session, $chunk, $chunkIndex);
+
+            // Verify client checksum
+            $serverChecksum = $this->checksumService->chunkChecksum($chunk);
+            if ($serverChecksum !== $clientChecksum) {
+                Log::channel('upload')->warning('chunk:checksum_mismatch', [
+                    'session' => $session->uuid,
+                    'chunk' => $chunkIndex,
+                    'provided' => $clientChecksum,
+                    'computed' => $serverChecksum,
+                ]);
+                throw new HttpException(400, 'Chunk checksum mismatch');
+            }
 
             // Direct-write optimization
             if ($session->final_path) {
@@ -156,19 +168,40 @@ class ChunkUploadService
     {
         $received = $this->validationService->receivedChunks($session);
         sort($received);
+        $receivedCount = count($received);
         $progress = $session->total_chunks > 0
-            ? (int) round((count($received) / $session->total_chunks) * 100)
+            ? (int) round(($receivedCount / $session->total_chunks) * 100)
             : 0;
+
+        // Calculate uploaded bytes precisely
+        $uploadedBytes = 0;
+        foreach ($received as $index) {
+            if ($index == $session->total_chunks - 1) {
+                $lastChunkSize = $session->total_size % $session->chunk_size;
+                if ($lastChunkSize == 0) {
+                    $lastChunkSize = $session->chunk_size;
+                }
+                $uploadedBytes += $lastChunkSize;
+            } else {
+                $uploadedBytes += $session->chunk_size;
+            }
+        }
+        $remainingBytes = $session->total_size - $uploadedBytes;
+
+        $missingChunks = $this->validationService->missingChunks($session);
 
         return [
             'uuid'               => $session->uuid,
             'status'             => $session->status,
             'total_chunks'       => $session->total_chunks,
             'received_chunks'    => $received,
-            'received_count'     => count($received),
+            'received_count'     => $receivedCount,
             'progress'           => $progress,
             'total_size'         => $session->total_size,
             'original_name'      => $session->original_name,
+            'uploaded_bytes'     => $uploadedBytes,
+            'remaining_bytes'    => $remainingBytes,
+            'missing_chunks'     => $missingChunks,
         ];
     }
 

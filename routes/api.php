@@ -78,12 +78,13 @@ Route::prefix('v1')->group(function () {
             Route::put('/profile', [DoctorController::class, 'updateProfile']);
             Route::put('/profile/password', [DoctorController::class, 'updatePassword']);
 
-            // Chunk Uploads
-            Route::post('/chunk/init', [\App\Http\Controllers\Api\ChunkUploadController::class, 'init']);
-            Route::post('/chunk/chunk', [\App\Http\Controllers\Api\ChunkUploadController::class, 'chunk']);
-            Route::post('/chunk/complete', [\App\Http\Controllers\Api\ChunkUploadController::class, 'complete']);
-            Route::post('/chunk/{uuid}/cancel', [\App\Http\Controllers\Api\ChunkUploadController::class, 'cancel']);
-            Route::get('/chunk/{uuid}/status', [\App\Http\Controllers\Api\ChunkUploadController::class, 'status']);
+            // Resumable Uploads
+            Route::post('/uploads/start', [\App\Http\Controllers\Api\UploadsController::class, 'start']);
+            Route::post('/uploads/chunk', [\App\Http\Controllers\Api\UploadsController::class, 'chunk']);
+            Route::get('/uploads/{id}/status', [\App\Http\Controllers\Api\UploadsController::class, 'status']);
+            Route::post('/uploads/{id}/resume', [\App\Http\Controllers\Api\UploadsController::class, 'resume']);
+            Route::post('/uploads/{id}/finish', [\App\Http\Controllers\Api\UploadsController::class, 'finish']);
+            Route::delete('/uploads/{id}', [\App\Http\Controllers\Api\UploadsController::class, 'destroy']);
         });
     });
 });
