@@ -97,6 +97,7 @@ class ChunkUploadController extends Controller
             'upload_id' => 'required|string|size:36',
             'chunk_index' => 'required|integer|min:0',
             'chunk' => 'required|file|max:51200',
+            'checksum' => 'required|string|size:64',
         ]);
 
         try {
@@ -108,7 +109,8 @@ class ChunkUploadController extends Controller
             $result = $this->chunkService->storeChunk(
                 $session,
                 $request->file('chunk'),
-                (int) $validated['chunk_index']
+                (int) $validated['chunk_index'],
+                $validated['checksum']
             );
 
             $duration = (microtime(true) - $start) * 1000;

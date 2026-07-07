@@ -3,6 +3,14 @@ import { reactive, ref } from "vue";
 import { useUploadDiagnostics } from "./useUploadDiagnostics";
 import { useWorkspace } from "./useWorkspace";
 
+// Compute SHA-256 hash of a Blob
+async function sha256(blob) {
+    const buffer = await blob.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 const uploads = ref([]);
 let idCounter = 0;
 const POOL_SIZE = 2;
@@ -326,6 +334,10 @@ export function useUploads() {
         job._chunkSizes.set(chunkIndex, blob.size);
         job._inFlightLoaded.set(chunkIndex, 0);
 
+        // Compute checksum for this chunk
+        const checksum = await sha256(blob);
+        d?._record("chunk_checksum", { chunk: chunkIndex, checksum });
+
         let lastError = null;
         for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
             if (job._cancelled || job._paused) {
@@ -347,6 +359,7 @@ export function useUploads() {
                 fd.append("upload_id", job.uploadId);
                 fd.append("chunk_index", chunkIndex);
                 fd.append("chunk", blob, `chunk_${chunkIndex}`);
+                fd.append("checksum", checksum);
 
                 const response = await axios.post("/api/v1/chunk/chunk", fd, {
                     signal: controller.signal,
