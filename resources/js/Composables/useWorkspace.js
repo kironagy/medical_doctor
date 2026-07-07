@@ -141,7 +141,7 @@ async function selectPatient(uuid) {
         workspaceData.value = res.data;
         const cats = res.data.categories || [];
         cats.forEach((c) => {
-            expandedCategories.value[c.slug] = c.order <= 3;
+            expandedCategories.value[c.slug] = true;
         });
     } catch (e) {
         console.error("Failed to load patient data", e);

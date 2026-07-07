@@ -4,18 +4,15 @@
       <button @click="toggleCategory(slug)" class="flex items-center gap-2 flex-1 text-right text-primary-700 dark:text-primary-400">
         <h3 class="text-base font-bold">{{ name }}</h3>
       </button>
-      
+
       <div class="flex items-center gap-2">
         <button @click.stop="openAddRecord('text')" class="btn-primary !px-3 !py-1.5 flex items-center gap-1 text-xs">
           إضافة (Add)
           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
         </button>
-        
+
         <div class="relative">
-          <button @click.stop="showCategoryMenu = !showCategoryMenu" class="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
-          </button>
-          
+
           <Teleport to="body">
             <div v-if="showCategoryMenu" class="fixed inset-0 z-[200]" @click="showCategoryMenu = false"></div>
             <div v-if="showCategoryMenu" ref="menuRef" class="fixed z-[200] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl py-1.5 min-w-[150px]" :style="menuStyle" dir="rtl">
@@ -133,24 +130,24 @@
                 <span v-if="searchQuery" class="text-slate-400 font-normal lowercase ms-1">({{ totalItems }} {{ $t('category.results') }})</span>
               </h4>
             </div>
-            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            <div class="flex flex-wrap gap-2.5 md:gap-3.5" dir="rtl">
               <div
                 v-for="item in mergedCategoryItems" :key="item.id"
-                class="bg-white dark:bg-slate-900 border border-primary-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm flex flex-col w-full min-h-[180px] max-w-[200px] mx-auto transition-all"
+                class="bg-[#e6fbf7] dark:bg-slate-900 border-2 border-[#ccfbf1] dark:border-teal-950/40 rounded-[20px] p-3 flex flex-col w-[calc(50%-5px)] sm:w-[170px] md:w-[180px] lg:w-[190px] xl:w-[200px] min-h-[200px] transition-all"
               >
                 <!-- Card Header (Date) -->
-                <div class="flex items-center justify-between px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-[11px] font-bold text-slate-500" dir="rtl">
-                  <div class="flex items-center gap-1.5">
-                    <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                <div class="flex items-center justify-between text-xs font-bold text-teal-800 dark:text-teal-400 mb-2" dir="rtl">
+                  <div class="flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                     <span>{{ item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : '—' }}</span>
                   </div>
                 </div>
 
                 <!-- Preview Area -->
-                <div class="flex-1 aspect-[4/3] flex items-center justify-center overflow-hidden w-full relative bg-slate-50 dark:bg-slate-950 cursor-pointer">
+                <div class="aspect-[4/3] w-full bg-white dark:bg-slate-950 border border-teal-100 dark:border-slate-800 rounded-2xl flex items-center justify-center relative overflow-hidden mb-2.5 cursor-pointer">
                   <template v-if="item.type === 'note'">
-                    <div @click="viewNoteContent(item)" class="w-full h-full flex items-center justify-center bg-teal-50/20 dark:bg-slate-950 text-teal-600 dark:text-teal-400">
-                      <svg class="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <div @click="viewNoteContent(item)" class="w-full h-full flex items-center justify-center bg-teal-50/10 text-teal-600 dark:text-teal-400">
+                      <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16m-7 6h7" />
                       </svg>
                     </div>
@@ -167,43 +164,43 @@
                     }" />
                     <div :class="{ 'hidden': item.thumbnail_url }" class="w-full h-full flex items-center justify-center z-10 bg-slate-50 dark:bg-slate-950" @click="openPreview(item)">
                       <div v-if="item.mime_type?.startsWith('image/')" class="text-slate-400 flex items-center justify-center">
-                        <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                       </div>
                       <div v-else class="text-slate-400 flex flex-col items-center justify-center p-2">
-                        <svg v-if="item.mime_type?.startsWith('video/')" class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                        <svg v-else-if="item.mime_type === 'application/pdf'" class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                        <svg v-else class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                        <span class="text-[10px] font-bold mt-1 uppercase">{{ item.extension || 'FILE' }}</span>
+                        <svg v-if="item.mime_type?.startsWith('video/')" class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                        <svg v-else-if="item.mime_type === 'application/pdf'" class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                        <svg v-else class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <span class="text-[9px] font-bold mt-1 uppercase">{{ item.extension || 'FILE' }}</span>
                       </div>
                     </div>
                   </template>
                 </div>
 
                 <!-- Action Buttons -->
-                <div class="flex items-center border-t border-slate-100 dark:border-slate-800 text-xs font-bold divide-x divide-x-reverse divide-slate-100 dark:divide-slate-800" dir="rtl">
+                <div class="flex items-center gap-1.5 mt-auto" dir="rtl">
                   <template v-if="item.type === 'note'">
-                    <button type="button" @click.stop="viewNoteContent(item)" class="flex-1 py-2 text-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-900/10 dark:text-blue-400 transition-colors flex items-center justify-center gap-1">
-                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                      عرض
-                    </button>
-                    <button v-if="canDelete" type="button" @click.stop="deleteNoteDirectly(item)" class="flex-1 py-2 text-center bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-900/10 dark:text-rose-400 transition-colors flex items-center justify-center gap-1">
-                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    <button v-if="canDelete" type="button" @click.stop="deleteNoteDirectly(item)" class="flex-1 py-1.5 text-center bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all">
+                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                       مسح
+                    </button>
+                    <button type="button" @click.stop="viewNoteContent(item)" class="flex-1 py-1.5 text-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all">
+                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                      عرض
                     </button>
                   </template>
                   <template v-else>
-                    <button v-if="item.mime_type?.startsWith('image/')" type="button" @click.stop="printFile(item)" class="flex-1 py-2 text-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-900/10 dark:text-blue-400 transition-colors flex items-center justify-center gap-1">
-                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                      طباعة
-                    </button>
-                    <a v-else :href="item.url" download class="flex-1 py-2 text-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-900/10 dark:text-blue-400 transition-colors flex items-center justify-center gap-1" target="_blank" @click.stop>
-                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                      تحميل
-                    </a>
-                    <button v-if="canDelete" type="button" @click.stop="deleteFileDirectly(item)" class="flex-1 py-2 text-center bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-900/10 dark:text-rose-400 transition-colors flex items-center justify-center gap-1">
-                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    <button v-if="canDelete" type="button" @click.stop="deleteFileDirectly(item)" class="flex-1 py-1.5 text-center bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all">
+                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                       مسح
                     </button>
+                    <button v-if="item.mime_type?.startsWith('image/')" type="button" @click.stop="printFile(item)" class="flex-1 py-1.5 text-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all">
+                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                      طباعة
+                    </button>
+                    <a v-else :href="item.url" download class="flex-1 py-1.5 text-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all" target="_blank" @click.stop>
+                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                      تحميل
+                    </a>
                   </template>
                 </div>
               </div>
@@ -352,6 +349,43 @@
     :initialTab="addRecordModalTab"
     @saved="refreshWorkspaceData"
   />
+
+  <!-- View Note Content Modal -->
+  <Teleport to="body">
+    <Transition name="fade">
+      <div v-if="showViewNoteModal && activeViewNote" class="fixed inset-0 z-[150] flex items-center justify-center p-4">
+        <!-- Backdrop -->
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="showViewNoteModal = false"></div>
+
+        <!-- Modal Box -->
+        <div class="relative bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-lg p-8 text-right flex flex-col border border-slate-100 dark:border-slate-800 animate-scale-up" dir="rtl">
+          <!-- Close Button -->
+          <button @click="showViewNoteModal = false" class="absolute top-4 left-4 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          <!-- Header -->
+          <div class="flex items-center justify-between border-b border-teal-100 dark:border-teal-900 pb-3.5 mb-5" dir="rtl">
+            <h2 class="text-lg font-black text-teal-600 dark:text-teal-400">{{ name }}</h2>
+            <span class="text-xs font-bold text-slate-400">{{ activeViewNote.created_at ? new Date(activeViewNote.created_at).toISOString().split('T')[0] : '' }}</span>
+          </div>
+
+          <!-- Content -->
+          <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed overflow-y-auto max-h-[60vh] py-2" v-html="activeViewNote.content">
+          </div>
+
+          <!-- Footer -->
+          <div class="flex justify-end mt-6">
+            <button @click="showViewNoteModal = false" class="px-8 py-2.5 bg-teal-50 hover:bg-teal-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-teal-600 dark:text-teal-400 rounded-xl text-sm font-bold transition-all">
+              إغلاق
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup>
@@ -791,6 +825,8 @@ watch(uploads, (list) => {
 // UI state
 const showUploadArea = ref(false)
 const showAddRecordModal = ref(false)
+const showViewNoteModal = ref(false)
+const activeViewNote = ref(null)
 const showCategoryMenu = ref(false)
 const dragging = ref(false)
 const fileInput = ref(null)
@@ -1094,11 +1130,8 @@ async function deleteNoteDirectly(note) {
 }
 
 function viewNoteContent(note) {
-  dialog.alert({
-    title: 'تفاصيل الملاحظة',
-    message: note.content?.replace(/<[^>]*>/g, ''),
-    confirmText: 'إغلاق'
-  })
+  activeViewNote.value = note
+  showViewNoteModal.value = true
 }
 
 function printFile(file) {
