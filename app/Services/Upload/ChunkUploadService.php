@@ -17,7 +17,7 @@ class ChunkUploadService
         private readonly UploadSessionService $sessionService,
     ) {}
 
-    public function storeChunk(UploadSession $session, UploadedFile $chunk, int $chunkIndex, string $clientChecksum): array
+    public function storeChunk(UploadSession $session, UploadedFile $chunk, int $chunkIndex, ?string $clientChecksum = null): array
     {
         $startMs = microtime(true);
 
@@ -30,16 +30,18 @@ class ChunkUploadService
 
             $this->validationService->validateChunk($session, $chunk, $chunkIndex);
 
-            // Verify client checksum
-            $serverChecksum = $this->checksumService->chunkChecksum($chunk);
-            if ($serverChecksum !== $clientChecksum) {
-                Log::channel('upload')->warning('chunk:checksum_mismatch', [
-                    'session' => $session->uuid,
-                    'chunk' => $chunkIndex,
-                    'provided' => $clientChecksum,
-                    'computed' => $serverChecksum,
-                ]);
-                throw new HttpException(400, 'Chunk checksum mismatch');
+            // Verify client checksum if provided
+            if ($clientChecksum !== null) {
+                $serverChecksum = $this->checksumService->chunkChecksum($chunk);
+                if ($serverChecksum !== $clientChecksum) {
+                    Log::channel('upload')->warning('chunk:checksum_mismatch', [
+                        'session' => $session->uuid,
+                        'chunk' => $chunkIndex,
+                        'provided' => $clientChecksum,
+                        'computed' => $serverChecksum,
+                    ]);
+                    throw new HttpException(400, 'Chunk checksum mismatch');
+                }
             }
 
             // Direct-write optimization
@@ -57,8 +59,6 @@ class ChunkUploadService
                 ? (int) round((count($received) / $session->total_chunks) * 100)
                 : 0;
 
-            $checksum = $this->checksumService->chunkChecksum($chunk);
-
             $durationMs = (microtime(true) - $startMs) * 1000;
 
             Log::channel('upload')->info('chunk:stored', [
@@ -72,7 +72,6 @@ class ChunkUploadService
 
             return [
                 'chunk_index'      => $chunkIndex,
-                'checksum'         => $checksum,
                 'received_chunks'  => count($received),
                 'total_chunks'     => $session->total_chunks,
                 'progress'         => $progress,
@@ -106,25 +105,45 @@ class ChunkUploadService
             throw new HttpException(500, "Cannot open file for writing");
         }
 
-        if (flock($fp, LOCK_EX)) {
-            try {
-                if (fseek($fp, $offset) !== 0) {
-                    throw new HttpException(500, "Failed to seek in file");
-                }
-                $content = $chunk->getContent();
-                $written = fwrite($fp, $content);
-                fflush($fp);
-                if ($written !== strlen($content)) {
-                    throw new HttpException(500, "Incomplete chunk write");
-                }
-            } finally {
-                flock($fp, LOCK_UN);
-                fclose($fp);
-            }
-        } else {
+        // Seek to the correct offset
+        if (fseek($fp, $offset) !== 0) {
             fclose($fp);
-            throw new HttpException(500, "Could not lock file for writing");
+            throw new HttpException(500, "Failed to seek in file");
         }
+
+        // Stream the chunk from the temporary uploaded file to the final file
+        $tmpPath = $chunk->getRealPath();
+        $input = fopen($tmpPath, 'rb');
+        if (!$input) {
+            fclose($fp);
+            throw new HttpException(500, "Cannot open chunk for reading");
+        }
+
+        $bufferSize = 4 * 1024 * 1024; // 4MB buffer
+        while (!feof($input)) {
+            $buffer = fread($input, $bufferSize);
+            if ($buffer === false) {
+                fclose($input);
+                fclose($fp);
+                throw new HttpException(500, "Error reading chunk");
+            }
+            $bytesRemaining = strlen($buffer);
+            $pos = 0;
+            while ($bytesRemaining > 0) {
+                $written = fwrite($fp, substr($buffer, $pos));
+                if ($written === false || $written === 0) {
+                    fclose($input);
+                    fclose($fp);
+                    throw new HttpException(500, "Error writing to final file");
+                }
+                $pos += $written;
+                $bytesRemaining -= $written;
+            }
+        }
+
+        fclose($input);
+        fflush($fp);
+        fclose($fp);
     }
 
     private function writeChunkLegacy(UploadSession $session, UploadedFile $chunk, int $chunkIndex): void
