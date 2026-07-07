@@ -49,24 +49,30 @@
                 <td class="px-6 py-4 whitespace-nowrap text-slate-400 dark:text-slate-500">
                   {{ doctor.last_login_at ? new Date(doctor.last_login_at).toLocaleDateString() : $t('doctors.never') }}
                 </td>
-                <td class="px-6 py-4 text-end whitespace-nowrap">
-                  <div class="flex items-center justify-end gap-2">
-                    <Link :href="`/admin/doctors/${doctor.id}/edit`" class="px-2.5 py-1.5 text-xs font-medium text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30 hover:bg-primary-100 dark:hover:bg-primary-900/50 rounded-lg transition-colors">
-                      {{ $t('common.edit') }}
-                    </Link>
-                    <button
-                      @click="toggleStatus(doctor)"
-                      :class="[
-                        'px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors',
-                        doctor.status === 'active'
-                          ? 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 hover:bg-rose-100 dark:hover:bg-rose-900/30'
-                          : 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30'
-                      ]"
-                    >
-                      {{ doctor.status === 'active' ? $t('doctors.suspend') : $t('doctors.activate') }}
-                    </button>
-                  </div>
-                </td>
+                 <td class="px-6 py-4 text-end whitespace-nowrap">
+                   <div class="flex items-center justify-end gap-2">
+                     <Link :href="`/admin/doctors/${doctor.id}/edit`" class="px-2.5 py-1.5 text-xs font-medium text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30 hover:bg-primary-100 dark:hover:bg-primary-900/50 rounded-lg transition-colors">
+                       {{ $t('common.edit') }}
+                     </Link>
+                     <button
+                       @click="toggleStatus(doctor)"
+                       :class="[
+                         'px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors',
+                         doctor.status === 'active'
+                           ? 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 hover:bg-rose-100 dark:hover:bg-rose-900/30'
+                           : 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30'
+                       ]"
+                     >
+                       {{ doctor.status === 'active' ? $t('doctors.suspend') : $t('doctors.activate') }}
+                     </button>
+                     <button
+                       @click="deleteDoctor(doctor)"
+                       class="px-2.5 py-1.5 text-xs font-medium text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/20 hover:bg-rose-100 dark:hover:bg-rose-900/30 rounded-lg transition-colors"
+                     >
+                       {{ $t('common.delete') }}
+                     </button>
+                   </div>
+                 </td>
               </tr>
             </tbody>
           </table>
@@ -185,6 +191,25 @@ const confirmStatusChange = () => {
 const cancelStatus = () => {
   showStatusConfirm.value = false;
   pendingStatusChange.value = null;
+};
+
+const deleteDoctor = async (doctor) => {
+  const confirmed = await dialog.confirm({
+    title: t('common.delete'),
+    message: t('doctors.delete_confirm', { name: doctor.name }),
+    confirmText: t('common.delete'),
+    style: 'danger',
+  });
+  if (confirmed) {
+    router.delete(`/admin/doctors/${doctor.id}`, {
+      onSuccess: () => {
+        toast.success(t('common.success'));
+      },
+      onError: () => {
+        toast.error(t('common.error'));
+      }
+    });
+  }
 };
 
 // Close menu on click outside

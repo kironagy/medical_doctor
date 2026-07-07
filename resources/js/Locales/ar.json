@@ -164,8 +164,9 @@
     "placeholder_email": "doctor[at]example.com",
     "placeholder_spec": "مثال: القلب، الأعصاب",
     "general": "طب عام",
-    "no_doctors_yet": "لم يتم العثور على أطباء",
-    "edit_doctor": "تعديل بيانات الطبيب"
+     "no_doctors_yet": "لم يتم العثور على أطباء",
+     "edit_doctor": "تعديل بيانات الطبيب",
+     "delete_confirm": "هل أنت متأكد من حذف {name}؟"
   },
   "shared": {
     "title": "المرضى المشتركون",

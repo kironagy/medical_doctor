@@ -165,9 +165,9 @@
     "placeholder_email": "doctor[at]example.com",
     "placeholder_spec": "e.g. Cardiology, Neurology",
     "general": "General",
-    "no_doctors_yet": "No doctors found",
-    "edit_doctor": "Edit Doctor",
-    "delete_confirm": "Are you sure you want to delete {name}? This action cannot be undone."
+     "no_doctors_yet": "No doctors found",
+     "edit_doctor": "Edit Doctor",
+     "delete_confirm": "Are you sure you want to delete {name}?"
   },
   "shared": {
     "title": "Shared Patients",
