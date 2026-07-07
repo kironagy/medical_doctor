@@ -11,12 +11,15 @@ class PatientFile extends Model
 {
     use HasFactory, HasSyncIdentity, SoftDeletes;
 
-    protected $fillable = ['uuid', 'patient_id', 'title', 'desc', 'type', 'category', 'date', 'file_name', 'file_path', 'thumbnail_path', 'upload_status', 'data', 'client_updated_at', 'duration', 'resolution', 'processing_progress', 'processing_stage'];
+    protected $fillable = ['uuid', 'patient_id', 'uploaded_by_id', 'title', 'desc', 'type', 'category', 'date', 'file_name', 'file_path', 'mime_type', 'size', 'thumbnail_path', 'upload_status', 'data', 'client_updated_at', 'duration', 'resolution', 'processing_progress', 'processing_stage'];
 
     protected $casts = [
         'date' => 'date:Y-m-d',
         'client_updated_at' => 'datetime',
+        'size' => 'integer',
     ];
+
+    protected $appends = ['url', 'thumbnail_url'];
 
     protected static function booted()
     {
@@ -70,5 +73,31 @@ class PatientFile extends Model
     public function patient()
     {
         return $this->belongsTo(Patient::class);
+    }
+
+    public function uploader()
+    {
+        return $this->belongsTo(User::class, 'uploaded_by_id');
+    }
+
+    public function getUrlAttribute()
+    {
+        $baseUrl = rtrim(config('app.url'), '/');
+        return $baseUrl . '/api/v1/files/' . $this->uuid;
+    }
+
+    public function getThumbnailUrlAttribute()
+    {
+        $baseUrl = rtrim(config('app.url'), '/');
+        if ($this->thumbnail_path) {
+            return $baseUrl . '/api/v1/files/' . $this->uuid . '/thumbnail';
+        }
+        if ($this->mime_type && str_starts_with($this->mime_type, 'image/')) {
+            return $this->url;
+        }
+        if ($this->mime_type && str_starts_with($this->mime_type, 'video/')) {
+            return $baseUrl . '/api/v1/files/' . $this->uuid . '/thumbnail';
+        }
+        return null;
     }
 }

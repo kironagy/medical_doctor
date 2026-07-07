@@ -73,6 +73,12 @@ return [
             'replace_placeholders' => true,
         ],
 
+        'upload' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/upload.log'),
+            'level' => env('LOG_LEVEL', 'debug'),
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

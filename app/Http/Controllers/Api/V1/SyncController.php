@@ -90,18 +90,28 @@ class SyncController extends Controller
      * │ Mobile polls /sync/status/{uuid} for progress.                         │
      * └────────────────────────────────────────────────────────────────────────┘
      */
-    public function triggerNow(Request $request, OfflineSyncEngine $engine)
-    {
-        $token = SyncState::where('key', 'api_token')->first()?->value['data'];
+     public function triggerNow(Request $request, OfflineSyncEngine $engine)
+     {
+         $tokenRecord = SyncState::where('key', 'api_token')->first();
+         $token = $tokenRecord ? ($tokenRecord->value['data'] ?? null) : null;
 
-        if (!$token) {
-            return response()->json([
-                'success' => false,
-                'error'   => 'No API token available for synchronization.',
-            ], 401);
-        }
+         // If no token exists, attempt to create one for the authenticated user (web SPA)
+         if (!$token) {
+             if ($request->user()) {
+                 $token = $request->user()->createToken('sync-token')->plainTextToken;
+                 SyncState::create([
+                     'key' => 'api_token',
+                     'value' => ['data' => $token],
+                 ]);
+             } else {
+                 return response()->json([
+                     'success' => false,
+                     'error'   => 'No API token available for synchronization.',
+                 ], 401);
+             }
+         }
 
-        $syncJob = SyncJob::create([
+         $syncJob = SyncJob::create([
             'status'    => 'pending',
             'direction' => 'both',
         ]);

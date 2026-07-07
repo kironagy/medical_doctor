@@ -1,69 +1,78 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\PatientController;
-use App\Http\Controllers\PatientFileController;
-use App\Http\Controllers\PatientVisitController;
-use App\Http\Controllers\PatientOverviewController;
-use App\Http\Controllers\Api\V1\AuthController as V1AuthController;
-use App\Http\Controllers\Api\V1\DashboardController as V1DashboardController;
-use App\Http\Controllers\Api\V1\DoctorController as V1DoctorController;
-use App\Http\Controllers\Api\V1\FileCategoryController as V1FileCategoryController;
-use App\Http\Controllers\Api\V1\PatientController as V1PatientController;
-use App\Http\Controllers\Api\V1\PatientFileController as V1PatientFileController;
-use App\Http\Controllers\Api\V1\PatientVisitController as V1PatientVisitController;
-use App\Http\Controllers\Api\V1\SyncController as V1SyncController;
+use App\Http\Controllers\Api\ChunkUploadController;
+use App\Http\Controllers\Api\UploadController;
+use App\Http\Controllers\Api\FileAccessController;
+use App\Http\Controllers\Api\Mobile\FileController as MobileFileController;
+use App\Http\Controllers\Api\CategoryFileController;
+use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\PatientController as WebPatientController;
+use App\Http\Controllers\Api\V1\PatientController as ApiPatientController;
+use App\Http\Controllers\Api\V1\PatientVisitController;
+use App\Http\Controllers\Api\V1\FileCategoryController;
+use App\Http\Controllers\Api\V1\DoctorController;
+use App\Http\Controllers\Api\V1\SyncController;
 
-use App\Http\Controllers\Api\V1\StreamingController;
 
+// Auth endpoint (public)
+Route::post('/v1/login', [AuthController::class, 'login'])->name('api.v1.auth.login');
+
+// Version 1 API
 Route::prefix('v1')->name('api.v1.')->group(function () {
-    Route::post('/auth/login', [V1AuthController::class, 'login'])
-        ->middleware('throttle:10,1')
-        ->name('auth.login');
-
-    Route::get('/stream-video', [StreamingController::class, 'stream']);
-
+    // Protected by auth
     Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
-        Route::get('/auth/me', [V1AuthController::class, 'me'])->name('auth.me');
-        Route::post('/auth/logout', [V1AuthController::class, 'logout'])->name('auth.logout');
+        Route::post('/logout', [AuthController::class, 'logout'])->name('auth.logout');
+        Route::get('/me', [AuthController::class, 'me'])->name('auth.me');
 
-        Route::get('/dashboard', V1DashboardController::class)->name('dashboard');
+        // Dashboard
+        Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
-        Route::get('/patients/{id}/overview', [PatientOverviewController::class, 'overview']);
-        Route::get('/patients/{id}/visits/paginated', [PatientOverviewController::class, 'visitsPaginated']);
-        Route::get('/patients/{id}/files/paginated', [PatientOverviewController::class, 'filesPaginated']);
-        Route::get('/patients/{id}/files/by-category', [PatientOverviewController::class, 'filesByCategory']);
+        // Patients
+        Route::apiResource('patients', ApiPatientController::class);
 
-        Route::apiResource('patients', V1PatientController::class);
-        Route::apiResource('patients.files', V1PatientFileController::class)
-            ->parameters(['files' => 'file'])
-            ->except(['update']);
+        // Patient Files
+        // Category files
+        Route::get('/patients/{patientUuid}/categories/{slug}/files', [CategoryFileController::class, 'files']);
 
-        Route::post('/files/upload-chunk', [V1PatientFileController::class, 'uploadChunk']);
-        Route::get('/files/status/{uuid}', [V1PatientFileController::class, 'uploadStatus']);
+        // Direct upload (non-chunked)
+        Route::post('/patients/{patientUuid}/files', [UploadController::class, 'store']);
 
-        Route::apiResource('patients.visits', V1PatientVisitController::class)
+        // Chunked upload endpoints
+        Route::post('/chunk/init', [ChunkUploadController::class, 'init']);
+        Route::post('/chunk/chunk', [ChunkUploadController::class, 'chunk']);
+        Route::post('/chunk/complete', [ChunkUploadController::class, 'complete']);
+        Route::post('/chunk/{uuid}/cancel', [ChunkUploadController::class, 'cancel']);
+        Route::get('/chunk/{uuid}/status', [ChunkUploadController::class, 'status']);
+
+        // File access
+        Route::get('/files/{uuid}', [FileAccessController::class, 'streamDirect'])->name('files.stream');
+        Route::get('/files/{uuid}/signed-url', [FileAccessController::class, 'generateSignedUrl']);
+        Route::get('/files/{uuid}/thumbnail', [FileAccessController::class, 'thumbnailDirect']);
+        Route::delete('/files/{uuid}', [FileAccessController::class, 'destroy']);
+        Route::put('/files/{uuid}', [FileAccessController::class, 'update']);
+
+        // Visits
+        Route::apiResource('patients.visits', PatientVisitController::class)
             ->parameters(['visits' => 'visit']);
 
-        Route::apiResource('categories', V1FileCategoryController::class);
+        // Categories
+        Route::apiResource('categories', FileCategoryController::class);
 
+        // Doctor management (admin)
         Route::middleware('can:admin')->group(function () {
-            Route::apiResource('doctors', V1DoctorController::class)
+            Route::apiResource('doctors', DoctorController::class)
                 ->parameters(['doctors' => 'doctor']);
         });
 
+        // Sync endpoints
         Route::prefix('sync')->name('sync.')->group(function () {
-            Route::get('/seed', [V1SyncController::class, 'seed'])->name('seed');
-            Route::get('/changes', [V1SyncController::class, 'changes'])->name('changes');
-            Route::post('/push', [V1SyncController::class, 'push'])->name('push');
-
-            // Trigger async sync — dispatches background job, returns 202 immediately
-            Route::post('/now', [V1SyncController::class, 'triggerNow'])->name('now');
-
-            // Mobile polls this to check sync job progress
-            Route::get('/status/{uuid}', [V1SyncController::class, 'status'])->name('status');
-
-            // Diagnostic: recent sync queue items (SQLite-only)
+            Route::get('/seed', [SyncController::class, 'seed'])->name('seed');
+            Route::get('/changes', [SyncController::class, 'changes'])->name('changes');
+            Route::post('/push', [SyncController::class, 'push'])->name('push');
+            Route::post('/now', [SyncController::class, 'triggerNow'])->name('now');
+            Route::get('/status/{uuid}', [SyncController::class, 'status'])->name('status');
             Route::get('/logs', function () {
                 if (config('database.default') !== 'sqlite') {
                     return response()->json([]);
@@ -72,33 +81,27 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 return response()->json($logs);
             })->name('logs');
         });
+
+        // Additional endpoints from v4 that might be needed
+        Route::get('/patients/{id}/overview', [\App\Http\Controllers\PatientOverviewController::class, 'overview']);
+        Route::get('/patients/{id}/visits/paginated', [\App\Http\Controllers\PatientOverviewController::class, 'visitsPaginated']);
+        Route::get('/patients/{id}/files/paginated', [\App\Http\Controllers\PatientOverviewController::class, 'filesPaginated']);
+        Route::get('/patients/{id}/files/by-category', [\App\Http\Controllers\PatientOverviewController::class, 'filesByCategory']);
+        // Route::post('/notes', [\App\Http\Controllers\PatientController::class, 'storeNote']);
     });
 });
 
-// ── Auth API ────────────────────────────────────────────────────
-Route::post('/login', [\App\Http\Controllers\AuthController::class, 'apiLogin']);
+// Web convenience routes (non-versioned) - keep existing
+Route::get('/patients', [WebPatientController::class, 'index']);
+Route::post('/patients', [WebPatientController::class, 'store']);
+Route::get('/patients/{id}', [WebPatientController::class, 'show']);
+Route::put('/patients/{id}', [WebPatientController::class, 'update']);
+Route::delete('/patients/{id}', [WebPatientController::class, 'destroy']);
 
-// ── Optimized Overview & Paginated APIs ───────────────────────
-// IMPORTANT: These MUST be defined BEFORE resource routes with similar patterns
-// to avoid being captured by {visitId} or {fileId} wildcards.
-Route::get('/patients/{id}/overview', [PatientOverviewController::class, 'overview']);
-Route::get('/patients/{id}/visits/paginated', [PatientOverviewController::class, 'visitsPaginated']);
-Route::get('/patients/{id}/files/paginated', [PatientOverviewController::class, 'filesPaginated']);
-Route::get('/patients/{id}/files/by-category', [PatientOverviewController::class, 'filesByCategory']);
+Route::get('/patients/{id}/files', [\App\Http\Controllers\PatientFileController::class, 'index']);
+Route::post('/patients/{id}/files', function () {}); // placeholder if needed
+Route::delete('/patients/{id}/files/{fileId}', [\App\Http\Controllers\PatientFileController::class, 'destroy']);
 
-// ── Patients ──────────────────────────────────────────────────
-Route::get('/patients', [PatientController::class, 'index']);
-Route::post('/patients', [PatientController::class, 'store']);
-Route::get('/patients/{id}', [PatientController::class, 'show']);
-Route::put('/patients/{id}', [PatientController::class, 'update']);
-Route::delete('/patients/{id}', [PatientController::class, 'destroy']);
-
-// ── Patient Files ─────────────────────────────────────────────
-Route::get('/patients/{id}/files', [PatientFileController::class, 'index']);
-Route::post('/patients/{id}/files', [PatientFileController::class, 'store']);
-Route::delete('/patients/{id}/files/{fileId}', [PatientFileController::class, 'destroy']);
-
-// ── Patient Visits ────────────────────────────────────────────
 Route::get('/patients/{id}/visits', [PatientVisitController::class, 'index']);
 Route::post('/patients/{id}/visits', [PatientVisitController::class, 'store']);
 Route::get('/patients/{id}/visits/{visitId}', [PatientVisitController::class, 'show']);

@@ -1,0 +1,179 @@
+<?php
+
+namespace App\Services\Upload;
+
+use App\Models\UploadSession;
+use App\Models\PatientFile;
+use App\Jobs\GenerateThumbnailJob;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
+use RuntimeException;
+
+class ChunkMergeService
+{
+    private const MERGE_BUFFER = 4 * 1024 * 1024;
+
+    public function __construct(
+        private readonly UploadValidationService $validationService,
+        private readonly UploadChecksumService $checksumService,
+        private readonly UploadSessionService $sessionService,
+    ) {}
+
+    public function merge(UploadSession $session): PatientFile
+    {
+        $startMs = microtime(true);
+        Log::channel('upload')->info('merge:start', ['session' => $session->uuid]);
+
+        $patientFile = DB::transaction(function () use ($session) {
+            $locked = UploadSession::where('id', $session->id)->lockForUpdate()->firstOrFail();
+            $this->validationService->validateComplete($locked);
+
+            $disk = Storage::disk($locked->disk);
+            $patient = $locked->patient;
+
+            $fileUuid = (string) Str::uuid();
+            $extension = $locked->extension;
+
+            if ($locked->final_path) {
+                $finalRelPath = $locked->final_path;
+                $finalAbsPath = $disk->path($finalRelPath);
+                if (!file_exists($finalAbsPath)) {
+                    throw new RuntimeException("Final file not found after direct write: {$finalAbsPath}");
+                }
+                $size = filesize($finalAbsPath) ?: 0;
+                if ($size !== $locked->total_size) {
+                    throw new RuntimeException("Direct-write file size mismatch: expected {$locked->total_size}, got {$size}");
+                }
+            } else {
+                $chunkDir = $locked->chunkDir();
+                $finalRelPath = "patients/{$locked->patient->uuid}/{$fileUuid}.{$extension}";
+                $patientDir = "patients/{$locked->patient->uuid}";
+
+                if (!$disk->exists($patientDir)) {
+                    $disk->makeDirectory($patientDir);
+                }
+
+                $finalAbsPath = $disk->path($finalRelPath);
+                $finalStream = fopen($finalAbsPath, 'wb');
+                if (!$finalStream) {
+                    throw new RuntimeException("Cannot open final file for writing: {$finalAbsPath}");
+                }
+
+                $hashCtx = hash_init('sha256');
+                $t0 = microtime(true);
+                $peakMem = 0;
+                $totalStreamed = 0;
+
+                for ($i = 0; $i < $locked->total_chunks; $i++) {
+                    $chunkAbs = $disk->path("{$chunkDir}/{$i}");
+                    if (!file_exists($chunkAbs)) {
+                        fclose($finalStream);
+                        @unlink($finalAbsPath);
+                        throw new RuntimeException("Missing chunk {$i} during merge");
+                    }
+                    $chunkStream = fopen($chunkAbs, 'rb');
+                    if (!$chunkStream) {
+                        fclose($finalStream);
+                        @unlink($finalAbsPath);
+                        throw new RuntimeException("Cannot read chunk {$i}");
+                    }
+                    $chunkBytes = 0;
+                    while (!feof($chunkStream)) {
+                        $buf = fread($chunkStream, self::MERGE_BUFFER);
+                        if ($buf === false) break;
+                        $bytes = strlen($buf);
+                        fwrite($finalStream, $buf);
+                        hash_update($hashCtx, $buf);
+                        $chunkBytes += $bytes;
+                        $totalStreamed += $bytes;
+                    }
+                    fclose($chunkStream);
+                    @unlink($chunkAbs);
+                    $peakMem = max($peakMem, memory_get_peak_usage(true));
+                }
+
+                fclose($finalStream);
+                $mergeTime = microtime(true) - $t0;
+                $finalHash = hash_final($hashCtx);
+                $size = filesize($finalAbsPath) ?: 0;
+
+                $wholeFileInMemory = $peakMem >= ($size * 0.8);
+                if ($wholeFileInMemory) {
+                    Log::channel('upload')->warning('merge:high_memory', [
+                        'session' => $locked->uuid,
+                        'file_size' => $size,
+                        'peak_memory' => $peakMem,
+                        'buffer_size' => self::MERGE_BUFFER,
+                    ]);
+                }
+
+                Log::channel('upload')->info('merge:chunks_merged', [
+                    'session'        => $locked->uuid,
+                    'file_uuid'      => $fileUuid,
+                    'chunks'         => $locked->total_chunks,
+                    'size'           => $size,
+                    'merge_seconds'  => round($mergeTime, 3),
+                    'hash'           => $finalHash,
+                    'streamed_bytes' => $totalStreamed,
+                    'peak_memory'    => $peakMem,
+                    'buffer_size'    => self::MERGE_BUFFER,
+                    'whole_in_mem'   => $wholeFileInMemory,
+                ]);
+            }
+
+            $mimeType = $locked->mime_type;
+            $type = $this->typeFromMime($mimeType);
+
+            $patientFile = PatientFile::create([
+                'uuid'              => $fileUuid,
+                'patient_id'        => $locked->patient_id,
+                'uploaded_by_id'    => $locked->user_id,
+                'title'             => $locked->metadata['title'] ?? pathinfo($locked->original_name, PATHINFO_FILENAME),
+                'desc'              => $locked->metadata['desc'] ?? null,
+                'type'              => $type,
+                'mime_type'         => $mimeType,
+                'size'              => $size ?? $locked->total_size,
+                'category'          => $locked->metadata['category'] ?? null,
+                'date'              => $locked->metadata['date'] ?? now(),
+                'file_name'         => $locked->original_name,
+                'file_path'         => $finalRelPath,
+                'upload_status'     => 'ready',
+            ]);
+
+            if (!$locked->final_path) {
+                $disk->deleteDirectory($chunkDir);
+            }
+
+            $this->sessionService->markCompleted($locked->uuid, $finalHash ?? null);
+
+            if ($type === 'video') {
+                GenerateThumbnailJob::dispatch($patientFile->id);
+            }
+
+            return $patientFile;
+        });
+
+        $durationMs = (microtime(true) - $startMs) * 1000;
+        Log::channel('upload')->info('merge:complete', [
+            'session'     => $session->uuid,
+            'file_uuid'   => $patientFile->uuid,
+            'duration_ms' => round($durationMs, 2),
+        ]);
+
+        return $patientFile;
+    }
+
+    private function typeFromMime(string $mime): string
+    {
+        return match (true) {
+            str_starts_with($mime, 'image/') => 'image',
+            str_starts_with($mime, 'video/') => 'video',
+            str_starts_with($mime, 'audio/') => 'audio',
+            $mime === 'application/pdf' => 'pdf',
+            str_starts_with($mime, 'text/') => 'text',
+            default => 'document',
+        };
+    }
+}
