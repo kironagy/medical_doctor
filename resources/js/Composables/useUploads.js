@@ -11,42 +11,122 @@ async function sha256(blob) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-const uploads = ref([]);
-let idCounter = 0;
-const POOL_SIZE = 2;
-const MAX_RETRIES = 3;
-const CHUNK_SIZE = 5 * 1024 * 1024;
-const STORAGE_KEY = "upload_sessions";
+// IndexedDB persistence
+class UploadPersistence {
+    constructor() {
+        this.dbName = 'upload_sessions_db';
+        this.storeName = 'uploads';
+        this.db = null;
+    }
 
-function loadPersisted() {
-    try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-    } catch {
-        return {};
+    async init() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(this.dbName, 1);
+            request.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(this.storeName)) {
+                    db.createObjectStore(this.storeName, { keyPath: 'key' });
+                }
+            };
+            request.onsuccess = (e) => {
+                this.db = e.target.result;
+                resolve();
+            };
+            request.onerror = (e) => reject(e);
+        });
+    }
+
+    async get(key) {
+        if (!this.db) await this.init();
+        return new Promise((resolve) => {
+            const tx = this.db.transaction(this.storeName, 'readonly');
+            const store = tx.objectStore(this.storeName);
+            const req = store.get(key);
+            req.onsuccess = () => resolve(req.result?.value || null);
+            req.onerror = () => resolve(null);
+        });
+    }
+
+    async set(key, value) {
+        if (!this.db) await this.init();
+        return new Promise((resolve) => {
+            const tx = this.db.transaction(this.storeName, 'readwrite');
+            const store = tx.objectStore(this.storeName);
+            store.put({ key, value });
+            tx.oncomplete = () => resolve();
+        });
+    }
+
+    async remove(key) {
+        if (!this.db) await this.init();
+        return new Promise((resolve) => {
+            const tx = this.db.transaction(this.storeName, 'readwrite');
+            const store = tx.objectStore(this.storeName);
+            store.delete(key);
+            tx.oncomplete = () => resolve();
+        });
+    }
+
+    async clear() {
+        if (!this.db) await this.init();
+        return new Promise((resolve) => {
+            const tx = this.db.transaction(this.storeName, 'readwrite');
+            const store = tx.objectStore(this.storeName);
+            store.clear();
+            tx.oncomplete = () => resolve();
+        });
     }
 }
-function savePersisted(s) {
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-    } catch {}
-}
-function fileKey(f) {
-    if (!f) return `unknown_${Date.now()}`;
-    return `${f.name || "unnamed"}_${f.size || 0}_${f.lastModified || 0}`;
-}
-function formatSize(b) {
-    if (!b || b === 0) return "0 B";
-    const k = 1024,
-        sizes = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(b) / Math.log(k));
-    return parseFloat((b / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-}
-function formatSpeed(bps) {
-    if (!bps || bps <= 0) return "";
-    return formatSize(bps) + "/s";
-}
+
+const persistence = new UploadPersistence();
 
 export function useUploads() {
+    const uploads = ref([]);
+    let idCounter = 0;
+    const POOL_SIZE = 4; // Increased from 2, adaptive later
+    const MIN_POOL_SIZE = 2;
+    const MAX_POOL_SIZE = 8;
+    const MAX_RETRIES = 3;
+    const CHUNK_SIZE = 5 * 1024 * 1024;
+    const MIN_CHUNK_SIZE = 1 * 1024 * 1024;
+    const MAX_CHUNK_SIZE = 16 * 1024 * 1024;
+
+    function formatSize(b) {
+        if (!b || b === 0) return "0 B";
+        const k = 1024,
+            sizes = ["B", "KB", "MB", "GB", "TB"];
+        const i = Math.floor(Math.log(b) / Math.log(k));
+        return parseFloat((b / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+    }
+
+    function formatSpeed(bps) {
+        if (!bps || bps <= 0) return "";
+        return formatSize(bps) + "/s";
+    }
+
+    function formatTime(seconds) {
+        if (!seconds || seconds <= 0) return "";
+        if (seconds < 60) return `${Math.round(seconds)}s`;
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.round(seconds % 60);
+        return `${mins}m ${secs}s`;
+    }
+
+    // Generate file fingerprint (name + size + lastModified)
+    function fileKey(file) {
+        if (!file) return `unknown_${Date.now()}`;
+        return `${file.name || "unnamed"}_${file.size || 0}_${file.lastModified || 0}`;
+    }
+
+    // Calculate accurate bytes for a chunk index
+    function getChunkSizeAt(session, chunkIndex) {
+        if (chunkIndex === session.totalChunks - 1) {
+            const remainder = session.totalBytes % session.chunkSize;
+            return remainder || session.chunkSize;
+        }
+        return session.chunkSize;
+    }
+
     function createJob(file, patientId, metadata) {
         const id = ++idCounter;
         const job = reactive({
@@ -59,6 +139,7 @@ export function useUploads() {
             uploadedBytes: 0,
             totalBytes: file.size,
             speed: 0,
+            eta: 0,
             error: null,
             uploadId: null,
             chunkSize: CHUNK_SIZE,
@@ -74,12 +155,14 @@ export function useUploads() {
             _chunkSizes: new Map(),
             _inFlightLoaded: new Map(),
             _completedBytesSum: 0,
+            _concurrency: POOL_SIZE,
+            _networkSample: [],
         });
         uploads.value.push(job);
         return job;
     }
 
-    function uploadFile(file, patientId, metadata = {}) {
+    async function uploadFile(file, patientId, metadata = {}) {
         const job = createJob(file, patientId, metadata);
         const debug = useUploadDiagnostics(file, patientId);
         if (debug) {
@@ -88,7 +171,7 @@ export function useUploads() {
             debug.startNetworkMonitor();
             debug.sampleMemory();
         }
-        startUpload(job, debug);
+        await startUpload(job, debug);
         return job;
     }
 
@@ -98,41 +181,34 @@ export function useUploads() {
         try {
             const patientId = job.patientId;
             const metadata = job.metadata || {};
-            const persisted = loadPersisted();
-            const key = fileKey(job.file);
-            let uploadId = null;
-            let completedSet = new Set();
 
             d?.sampleMemory();
 
-            // Resume check
-            if (persisted[key] && persisted[key].status === "uploading") {
-                d?._record("resume_check");
+            // Check for persisted session (page refresh recovery)
+            const persisted = await persistence.get('upload:' + fileKey(job.file));
+            let uploadId = null;
+            let completedSet = new Set();
+
+            if (persisted && persisted.uploadId) {
+                d?._record("recovery_check");
                 try {
-                    const r = await axios.get(
-                        `/api/v1/chunk/${persisted[key].upload_id}/status`,
-                    );
-                    if (
-                        r.data.status === "uploading" ||
-                        r.data.status === "pending"
-                    ) {
+                    const r = await axios.get(`/api/v1/chunk/${persisted.uploadId}/status`);
+                    if (r.data.status === "uploading" || r.data.status === "pending") {
                         uploadId = r.data.uuid;
                         completedSet = new Set(r.data.received_chunks || []);
-                        d?._record("resumed_session", {
+                        d?._record("recovered_session", {
                             uuid: uploadId,
                             chunks: completedSet.size,
+                            from: 'indexeddb',
                         });
                     }
-                } catch {
-                    delete persisted[key];
-                    savePersisted(persisted);
-                    d?.recordError(
-                        "resume_check",
-                        new Error("Failed to check resume status"),
-                    );
+                } catch (e) {
+                    await persistence.remove('upload:' + fileKey(job.file));
+                    d?.recordError("recovery_check", new Error("Failed to verify persisted session"));
                 }
             }
 
+            // If no valid persisted session, create new one
             if (!uploadId) {
                 const meta = {};
                 if (metadata.title) meta.title = metadata.title;
@@ -146,7 +222,7 @@ export function useUploads() {
                     file_size: job.file.size,
                     mime_type: job.file.type || "application/octet-stream",
                     patient_id: patientId,
-                    chunk_size: CHUNK_SIZE,
+                    chunk_size: job.chunkSize,
                     metadata: Object.keys(meta).length ? meta : undefined,
                 });
                 uploadId = initRes.data.upload_id;
@@ -160,52 +236,32 @@ export function useUploads() {
 
             d?.sampleMemory();
             job.uploadId = uploadId;
-            job.chunkSize ??= CHUNK_SIZE;
             job.totalChunks = Math.ceil(job.file.size / job.chunkSize);
             job.completedChunks = completedSet;
 
             // Initialize progress tracking for resumed uploads
-            let sum = job.completedChunks.size * job.chunkSize;
-            if (job.totalChunks > 0) {
-                const lastIdx = job.totalChunks - 1;
-                if (job.completedChunks.has(lastIdx)) {
-                    const lastChunkSize = job.totalBytes % job.chunkSize || job.chunkSize;
-                    sum = sum - job.chunkSize + lastChunkSize;
-                }
-            }
+            let sum = 0;
+            job.completedChunks.forEach(idx => {
+                const chunkSize = getChunkSizeAt(job, idx);
+                sum += chunkSize;
+            });
             job._completedBytesSum = sum;
             job._inFlightLoaded.clear();
             updateProgressFromParts(job);
 
             job.status = "uploading";
 
-            persisted[key] = {
-                upload_id: uploadId,
-                file_name: job.file.name,
-                file_size: job.file.size,
-                patient_id: patientId,
-                total_chunks: job.totalChunks,
-                status: "uploading",
-            };
-            savePersisted(persisted);
+            // Persist session state
+            await saveJobState(job);
 
-            // Log chunk generation mode
-            if (d) {
-                const allIdx = [];
-                for (let i = 0; i < job.totalChunks; i++) {
-                    if (!job.completedChunks.has(i)) allIdx.push(i);
-                }
-                d.setAllPregenerated(
-                    allIdx.length === 0 || allIdx.length === job.totalChunks,
-                );
-                d?._record("pool_start", {
-                    totalChunks: job.totalChunks,
-                    missing: allIdx.length,
-                });
-            }
+            d?._record("pool_start", {
+                totalChunks: job.totalChunks,
+                missing: job.totalChunks - job.completedChunks.size,
+                concurrency: job._concurrency,
+            });
 
-            // Upload with lazy parallel pool
-            await runPool(job, d);
+            // Upload with smart parallel pool
+            await runSmartPool(job, d);
 
             if (job._cancelled) {
                 d?._record("cancelled_after_pool");
@@ -241,9 +297,10 @@ export function useUploads() {
             }
             job.status = "completed";
             job.progress = 100;
+            job.uploadedBytes = job.totalBytes;
+            job.eta = 0;
 
-            delete persisted[key];
-            savePersisted(persisted);
+            await persistence.remove('upload:' + fileKey(job.file));
             d?._record("upload_completed");
             d?.printReport();
             d?.sampleMemory();
@@ -265,59 +322,102 @@ export function useUploads() {
         d?.stopNetworkMonitor();
     }
 
-    // Helper to recalc progress from completed bytes sum and in-flight loaded bytes
-    function updateProgressFromParts(job) {
-        const inFlightTotal = Array.from(job._inFlightLoaded.values()).reduce((sum, val) => sum + val, 0);
-        job.uploadedBytes = job._completedBytesSum + inFlightTotal;
-        job.progress = Math.min(100, Math.round((job.uploadedBytes / job.totalBytes) * 100));
-    }
-
-    // Lazy parallel pool — yields chunk indexes on demand via generator.
-    async function runPool(job, debug = null) {
+    // Smart pool with adaptive concurrency – proper queue scheduler
+    async function runSmartPool(job, debug = null) {
         const d = debug || job?._debug || null;
-        const pool = new Set();
+        const activeWorkers = new Map(); // chunkIndex -> Promise
+        const failedChunks = new Set();
+        const queue = [];
 
-        function* missingChunks() {
-            for (let i = 0; i < job.totalChunks; i++) {
-                if (!job.completedChunks.has(i)) yield i;
+        // Initialize queue with all missing chunks (including any previously failed)
+        for (let i = 0; i < job.totalChunks; i++) {
+            if (!job.completedChunks.has(i)) {
+                queue.push(i);
             }
         }
 
-        const errors = [];
-        async function uploadSafe(chunkIndex) {
+        // Calculate adaptive concurrency based on network samples
+        function adjustConcurrency() {
+            if (job._networkSample.length < 5) return job._concurrency;
+
+            const avgSpeed = job._networkSample.reduce((a, b) => a + b, 0) / job._networkSample.length;
+
+            if (avgSpeed > 5 * 1024 * 1024) { // > 5 MB/s
+                return Math.min(MAX_POOL_SIZE, job._concurrency + 1);
+            } else if (avgSpeed < 512 * 1024) { // < 512 KB/s
+                return Math.max(MIN_POOL_SIZE, job._concurrency - 1);
+            }
+            return job._concurrency;
+        }
+
+        async function worker(chunkIndex) {
+            if (job._cancelled || job._paused) {
+                activeWorkers.delete(chunkIndex);
+                return;
+            }
+
             try {
                 await uploadChunk(job, chunkIndex, d);
+                // After successful chunk, try to increase concurrency if network allows
+                job._concurrency = adjustConcurrency();
             } catch (err) {
-                errors.push(err);
+                if (!job._cancelled && !job._paused) {
+                    failedChunks.add(chunkIndex);
+                    // Reduce concurrency on failure
+                    job._concurrency = Math.max(MIN_POOL_SIZE, job._concurrency - 1);
+                }
+            } finally {
+                activeWorkers.delete(chunkIndex);
             }
         }
 
-        for (const chunkIndex of missingChunks()) {
-            if (job._cancelled || job._paused) break;
-            if (pool.size >= POOL_SIZE) {
-                d?.snapshotPool(pool.size);
-                await Promise.race(pool);
-                d?.detectSequential(pool.size);
-                if (job._cancelled || job._paused) break;
+        // Main scheduler loop – zero idle time
+        while ((queue.length > 0 || activeWorkers.size > 0) && !job._cancelled && !job._paused) {
+            // Start new workers up to concurrency limit
+            while (queue.length > 0 && activeWorkers.size < job._concurrency) {
+                const chunkIndex = queue.shift();
+                const p = worker(chunkIndex);
+                activeWorkers.set(chunkIndex, p);
+                // No separate finally – worker cleans itself
             }
-            d?.markChunkCreated(chunkIndex);
-            d?.setChunksInMemory(pool.size + 1);
-            d?.onChunkQueued(chunkIndex);
-            const p = uploadSafe(chunkIndex).finally(() => pool.delete(p));
-            pool.add(p);
+
+            // Wait for at least one worker to finish if at capacity
+            if (activeWorkers.size >= job._concurrency) {
+                await Promise.race(activeWorkers.values());
+            }
         }
 
-        if (pool.size > 0) {
-            d?.snapshotPool(pool.size);
-            await Promise.allSettled(Array.from(pool));
+        // Retry failed chunks
+        if (failedChunks.size > 0 && !job._cancelled && !job._paused) {
+            d?._record("retry_failed_chunks", { count: failedChunks.size });
+            for (const chunkIndex of failedChunks) {
+                if (!job.completedChunks.has(chunkIndex)) {
+                    // Reset retry state for this chunk
+                    job.failedChunks.delete(chunkIndex);
+                    queue.push(chunkIndex);
+                }
+            }
+            failedChunks.clear();
+
+            // Retry loop – same scheduler
+            while ((queue.length > 0 || activeWorkers.size > 0) && !job._cancelled && !job._paused) {
+                while (queue.length > 0 && activeWorkers.size < job._concurrency) {
+                    const chunkIndex = queue.shift();
+                    const p = worker(chunkIndex);
+                    activeWorkers.set(chunkIndex, p);
+                }
+                if (activeWorkers.size >= job._concurrency) {
+                    await Promise.race(activeWorkers.values());
+                }
+            }
         }
 
-        if (errors.length > 0 && !job._cancelled && !job._paused) {
-            d?.recordError("runPool", errors[0]);
-            // Mark job as failed, do not continue to complete
+        // If any chunks still failed after retries, mark job failed
+        if (failedChunks.size > 0 && !job._cancelled && !job._paused) {
+            d?.recordError("runPool", new Error(`${failedChunks.size} chunks failed after retry`));
             job.status = "failed";
-            job.error = errors[0].response?.data?.message || errors[0].message || "One or more chunks failed";
-            throw errors[0];
+            job.error = `${failedChunks.size} chunks failed after retry`;
+            throw new Error("Upload failed");
         }
     }
 
@@ -327,14 +427,14 @@ export function useUploads() {
         d?.onChunkBlobStart(chunkIndex);
         const start = chunkIndex * job.chunkSize;
         const end = Math.min(start + job.chunkSize, job.totalBytes);
-        const blob = job.file?.slice(start, end);
+        const blob = job.file.slice(start, end);
         d?.onChunkBlobEnd(chunkIndex, blob?.size || 0);
         if (!blob) return;
 
         job._chunkSizes.set(chunkIndex, blob.size);
         job._inFlightLoaded.set(chunkIndex, 0);
 
-        // Compute checksum for this chunk
+        // Compute checksum
         const checksum = await sha256(blob);
         d?._record("chunk_checksum", { chunk: chunkIndex, checksum });
 
@@ -343,10 +443,14 @@ export function useUploads() {
             if (job._cancelled || job._paused) {
                 throw new DOMException("Upload paused or cancelled", "AbortError");
             }
+
+            // Exponential backoff with jitter
             if (attempt > 0) {
-                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+                const baseDelay = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+                const jitter = Math.random() * 1000;
+                const delay = baseDelay + jitter;
                 d?.onChunkRetry(chunkIndex, attempt, delay, lastError);
-                await new Promise((r) => setTimeout(r, delay));
+                await new Promise(r => setTimeout(r, delay));
             }
 
             const controller = new AbortController();
@@ -363,7 +467,7 @@ export function useUploads() {
 
                 const response = await axios.post("/api/v1/chunk/chunk", fd, {
                     signal: controller.signal,
-                    timeout: 300000, // 5 minutes
+                    timeout: 300000,
                     onUploadProgress: (e) => {
                         d?.onChunkUploadProgress(chunkIndex, e.loaded, e.total);
                         if (e.lengthComputable) {
@@ -379,29 +483,43 @@ export function useUploads() {
                 }
 
                 d?.onChunkResponseReceived(chunkIndex);
-                const parallelCount = job.inFlightChunks.size + 1;
-                d?.onChunkComplete(chunkIndex, 200, parallelCount);
+                d?.onChunkComplete(chunkIndex, 200, job.inFlightChunks.size);
                 d?.sampleMemory();
 
-                // Success
+                // Success - update state
                 job.completedChunks.add(chunkIndex);
                 job.inFlightChunks.delete(chunkIndex);
                 job._controllers.delete(chunkIndex);
                 job.failedChunks.delete(chunkIndex);
 
-                const chunkSize = job._chunkSizes.get(chunkIndex) || job.chunkSize;
+                const chunkSize = blob.size;
                 job._completedBytesSum += chunkSize;
 
                 job._inFlightLoaded.delete(chunkIndex);
                 updateProgressFromParts(job);
 
+                // Sample network speed
                 const now = Date.now();
                 if (now - job._lastTime > 200) {
-                    const db = job.uploadedBytes - job._lastLoaded;
-                    job.speed = db > 0 ? Math.round(db / ((now - job._lastTime) / 1000)) : 0;
+                    const deltaBytes = job.uploadedBytes - job._lastLoaded;
+                    if (deltaBytes > 0) {
+                        const deltaSec = (now - job._lastTime) / 1000;
+                        const speed = Math.round(deltaBytes / deltaSec);
+                        job.speed = speed;
+                        job._networkSample.push(speed);
+                        if (job._networkSample.length > 10) {
+                            job._networkSample.shift();
+                        }
+                        // Update ETA
+                        const remainingBytes = job.totalBytes - job.uploadedBytes;
+                        job.eta = remainingBytes > 0 ? remainingBytes / speed : 0;
+                    }
                     job._lastLoaded = job.uploadedBytes;
                     job._lastTime = now;
                 }
+
+                // Persist state
+                await saveJobState(job);
                 return;
             } catch (err) {
                 lastError = err;
@@ -413,120 +531,237 @@ export function useUploads() {
                     d?.recordError(`chunk_${chunkIndex}_cancelled`, err);
                     throw err;
                 }
-                // Record failure and retry
-                job.failedChunks.set(chunkIndex, attempt + 1);
+
+                job.failedChunks.set(chunkIndex, (job.failedChunks.get(chunkIndex) || 0) + 1);
                 d?.recordError(`chunk_${chunkIndex}_attempt_${attempt}`, err);
             }
         }
 
-        // All retries exhausted
         job._controllers.delete(chunkIndex);
         const finalErr = lastError || new Error(`Chunk ${chunkIndex} failed`);
         d?.recordError(`chunk_${chunkIndex}_failed_after_retries`, finalErr);
         throw finalErr;
     }
 
-    function cancelUpload(id) {
-        const job = uploads.value.find((u) => u.id === id);
-        if (!job) return;
-        job._debug?._record("cancel_called");
-        job._cancelled = true;
-        job._controllers.forEach((c) => c.abort());
-        job._controllers.clear();
-        job.inFlightChunks.clear();
-        job.status = "cancelled";
-        if (job.uploadId) {
-            axios.post(`/api/v1/chunk/${job.uploadId}/cancel`).catch(() => {});
-            const p = loadPersisted();
-            for (const k of Object.keys(p)) {
-                if (p[k].upload_id === job.uploadId) delete p[k];
-            }
-            savePersisted(p);
+    function updateProgressFromParts(job) {
+        const inFlightTotal = Array.from(job._inFlightLoaded.values()).reduce((sum, val) => sum + val, 0);
+        job.uploadedBytes = job._completedBytesSum + inFlightTotal;
+        job.progress = Math.min(100, Math.round((job.uploadedBytes / job.totalBytes) * 100));
+    }
+
+    async function saveJobState(job) {
+        try {
+            const state = {
+                uploadId: job.uploadId,
+                patientId: job.patientId,
+                totalBytes: job.totalBytes,
+                totalChunks: job.totalChunks,
+                chunkSize: job.chunkSize,
+                completedChunks: Array.from(job.completedChunks),
+                failedChunks: Array.from(job.failedChunks.entries()),
+                status: job.status,
+                progress: job.progress,
+                uploadedBytes: job.uploadedBytes,
+                speed: job.speed,
+                metadata: job.metadata,
+                fileKey: fileKey(job.file),
+            };
+            await persistence.set('upload:' + state.fileKey, state);
+        } catch (e) {
+            console.warn('Failed to save upload state:', e);
         }
     }
 
-    function pauseUpload(id) {
-        const job = uploads.value.find((u) => u.id === id);
-        if (!job || job.status !== "uploading") return;
-        job._debug?._record("pause_called");
-        job._paused = true;
-        job._controllers.forEach((c) => c.abort());
-        job._controllers.clear();
-        job.status = "paused";
+    async function restoreJobState(job, key) {
+        try {
+            const state = await persistence.get('upload:' + key);
+            if (state && state.uploadId) {
+                job.uploadId = state.uploadId;
+                job.totalBytes = state.totalBytes;
+                job.totalChunks = state.totalChunks;
+                job.chunkSize = state.chunkSize;
+                job.completedChunks = new Set(state.completedChunks);
+                job.failedChunks = new Map(state.failedChunks);
+                job.uploadedBytes = state.uploadedBytes;
+                job.progress = state.progress;
+                job.speed = state.speed;
+                return true;
+            }
+        } catch (e) {
+            console.warn('Failed to restore upload state:', e);
+        }
+        return false;
     }
 
-    function resumeUpload(id) {
-        const job = uploads.value.find((u) => u.id === id);
+    // Resume an existing upload without restarting
+    async function resumeUpload(id) {
+        const job = uploads.value.find(u => u.id === id);
         if (!job || job.status !== "paused") return;
-        job._debug?._record("resume_called");
+
+        const d = job._debug;
+        d?._record("resume_called");
+
         job.status = "uploading";
         job._paused = false;
         job._cancelled = false;
-        executeRetry(job);
+
+        // Sync with server to get authoritative state
+        d?._record("sync_server_state");
+        try {
+            const res = await axios.get(`/api/v1/chunk/${job.uploadId}/status`);
+            const serverChunks = new Set(res.data.received_chunks || []);
+            job.completedChunks = serverChunks;
+            job._completedBytesSum = 0;
+            job.completedChunks.forEach(idx => {
+                job._completedBytesSum += getChunkSizeAt(job, idx);
+            });
+            updateProgressFromParts(job);
+            await saveJobState(job);
+            d?._record("server_state_synced", { chunks: serverChunks.size });
+        } catch (e) {
+            d?.recordError("resume_sync_failed", e);
+            // Continue with local state if server unreachable
+        }
+
+        // Continue uploading - DO NOT call startUpload
+        await runSmartPool(job, d);
+
+        if (job._cancelled) return;
+
+        // Completion
+        d?.onMergeStart();
+        const completeRes = await axios.post("/api/v1/chunk/complete", {
+            upload_id: job.uploadId,
+        });
+        d?.onMergeComplete();
+
+        const { addFileLocally } = useWorkspace();
+        if (completeRes?.data?.uuid) {
+            addFileLocally({
+                uuid: completeRes.data.uuid,
+                patient_id: job.patientId,
+                title: job.metadata?.title || job.file?.name || "",
+                desc: job.metadata?.desc || "",
+                category: job.metadata?.category || "",
+                file_name: job.file?.name || "",
+                mime_type: job.file?.type || "application/octet-stream",
+                size: job.file?.size || 0,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                upload_status: "ready",
+                url: completeRes.data.url,
+                thumbnail_url: completeRes.data.thumbnail_url,
+                type: completeRes.data.type,
+            });
+        }
+
+        job.status = "completed";
+        job.progress = 100;
+        job.uploadedBytes = job.totalBytes;
+        job.eta = 0;
+
+        await persistence.remove('upload:' + fileKey(job.file));
+        d?._record("upload_completed");
+        d?.printReport();
+        delete job.file;
+    }
+
+    function pauseUpload(id) {
+        const job = uploads.value.find(u => u.id === id);
+        if (!job || job.status !== "uploading") return;
+
+        job._debug?._record("pause_called");
+        job._paused = true;
+        job._controllers.forEach(c => c.abort());
+        job._controllers.clear();
+        job.status = "paused";
+
+        saveJobState(job);
+    }
+
+    function cancelUpload(id) {
+        const job = uploads.value.find(u => u.id === id);
+        if (!job) return;
+
+        const d = job._debug;
+        d?._record("cancel_called");
+        job._cancelled = true;
+        job._controllers.forEach(c => c.abort());
+        job._controllers.clear();
+        job.inFlightChunks.clear();
+        job.status = "cancelled";
+
+        if (job.uploadId) {
+            axios.post(`/api/v1/chunk/${job.uploadId}/cancel`).catch(() => {});
+            persistence.remove('upload:' + fileKey(job.file));
+        }
     }
 
     function retryUpload(id) {
-        const job = uploads.value.find((u) => u.id === id);
+        const job = uploads.value.find(u => u.id === id);
         if (!job) return;
-        job._debug?._record("retry_called");
+
+        const d = job._debug;
+        d?._record("retry_called");
         job.status = "uploading";
         job.error = null;
         job._cancelled = false;
         job._paused = false;
-        job.failedChunks.clear();
-        executeRetry(job);
-    }
 
-    async function executeRetry(job) {
-        const d = job?._debug || null;
-        const { addFileLocally } = useWorkspace();
-        try {
-            if (!job.uploadId || !job.totalChunks) {
-                d?._record("retry_start_from_scratch");
-                await startUpload(job, d);
-                return;
-            }
-            d?._record("retry_start");
-            await runPool(job, d);
-            if (job._cancelled) return;
-            d?.onMergeStart();
-            const completeRes = await axios.post("/api/v1/chunk/complete", {
-                upload_id: job.uploadId,
+        // Retry only failed chunks; keep completed ones
+        saveJobState(job).then(() => {
+            runSmartPool(job, d).then(async () => {
+                if (job._cancelled) return;
+
+                d?.onMergeStart();
+                try {
+                    const completeRes = await axios.post("/api/v1/chunk/complete", {
+                        upload_id: job.uploadId,
+                    });
+                    d?.onMergeComplete();
+
+                    const { addFileLocally } = useWorkspace();
+                    if (completeRes?.data?.uuid) {
+                        addFileLocally({
+                            uuid: completeRes.data.uuid,
+                            patient_id: job.patientId,
+                            title: job.metadata?.title || job.file?.name || "",
+                            desc: job.metadata?.desc || "",
+                            category: job.metadata?.category || "",
+                            file_name: job.file?.name || "",
+                            mime_type: job.file?.type || "application/octet-stream",
+                            size: job.file?.size || 0,
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                            upload_status: "ready",
+                            url: completeRes.data.url,
+                            thumbnail_url: completeRes.data.thumbnail_url,
+                            type: completeRes.data.type,
+                        });
+                    }
+                    job.status = "completed";
+                    job.progress = 100;
+                    job.uploadedBytes = job.totalBytes;
+                    job.eta = 0;
+                    await persistence.remove('upload:' + fileKey(job.file));
+                    d?._record("retry_completed");
+                    d?.printReport();
+                    delete job.file;
+                } catch (err) {
+                    job.status = "failed";
+                    job.error = err.response?.data?.message || err.message || "Upload failed";
+                    d?.recordError("executeRetry", err);
+                }
+            }).catch(err => {
+                job.status = "failed";
+                job.error = err.message || "Upload failed";
             });
-            d?.onMergeComplete();
-            if (completeRes?.data?.uuid) {
-                addFileLocally({
-                    uuid: completeRes.data.uuid,
-                    patient_id: job.patientId,
-                    title: job.metadata?.title || job.file?.name || "",
-                    desc: job.metadata?.desc || "",
-                    category: job.metadata?.category || "",
-                    file_name: job.file?.name || "",
-                    mime_type: job.file?.type || "application/octet-stream",
-                    size: job.file?.size || 0,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                    upload_status: "ready",
-                    url: completeRes.data.url,
-                    thumbnail_url: completeRes.data.thumbnail_url,
-                    type: completeRes.data.type,
-                });
-            }
-            job.status = "completed";
-            job.progress = 100;
-            d?._record("retry_completed");
-            d?.printReport();
-            delete job.file;
-        } catch (err) {
-            job.status = "failed";
-            job.error = err.response?.data?.message || err.response?.data?.error || err.message || "Upload failed";
-            d?.recordError("executeRetry", err);
-        }
+        });
     }
 
     function clearCompleted() {
         uploads.value = uploads.value.filter(
-            (u) => u.status === "uploading" || u.status === "failed",
+            u => u.status === "uploading" || u.status === "failed"
         );
     }
 
@@ -540,5 +775,6 @@ export function useUploads() {
         clearCompleted,
         formatSize,
         formatSpeed,
+        formatTime,
     };
 }
