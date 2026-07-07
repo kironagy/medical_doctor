@@ -1,6 +1,6 @@
 <template>
-  <BaseDialog v-model="open" :title="$t('patients.share_record')" size="md">
-    <!-- Search Step -->
+  <BaseDialog v-model="open" title="مشاركة الملف الطبي" size="md">
+    <div dir="rtl" class="text-right space-y-4">
     <div v-if="step === 'search'" class="space-y-4">
       <div class="relative">
         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -145,44 +145,45 @@
         </div>
       </div>
     </div>
+    </div>
 
     <template #footer>
-      <div class="flex items-center justify-between w-full gap-3">
+      <div class="flex items-center justify-between w-full gap-3" dir="rtl">
         <div>
           <button
             v-if="step === 'permission'"
             @click="step = 'search'"
-            class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+            class="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 transition-colors"
           >
-            {{ $t('common.back') }}
+            رجوع
           </button>
         </div>
-        <div class="flex gap-3">
+        <div class="flex gap-3 flex-row-reverse">
           <button
             v-if="step !== 'confirm'"
             @click="open = false"
-            class="px-5 py-2 text-sm font-medium border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-all"
+            class="px-5 py-2 text-sm font-bold border border-primary-500 text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-lg transition-all"
           >
-            {{ $t('common.cancel') }}
+            إلغاء
           </button>
           <button
             v-if="step === 'permission'"
             @click="step = 'confirm'"
-            class="px-5 py-2 text-sm font-medium bg-primary-600 hover:bg-primary-700 text-white rounded-xl transition-all"
+            class="px-5 py-2 text-sm font-bold bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-all"
           >
-            {{ $t('common.continue') }}
+            استمرار
           </button>
           <button
             v-if="step === 'confirm'"
             @click="submitShare"
             :disabled="submitting"
-            class="px-6 py-2 text-sm font-medium bg-primary-600 hover:bg-primary-700 disabled:bg-primary-400 text-white rounded-xl transition-all inline-flex items-center gap-2"
+            class="px-6 py-2 text-sm font-bold bg-primary-600 hover:bg-primary-700 disabled:bg-primary-400 text-white rounded-lg transition-all inline-flex items-center gap-2"
           >
             <svg v-if="submitting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            {{ mode === 'edit' ? $t('common.save') : $t('patients.share_record') }}
+            {{ mode === 'edit' ? 'حفظ التعديلات' : 'مشاركة الملف' }}
           </button>
         </div>
       </div>

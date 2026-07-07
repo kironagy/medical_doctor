@@ -1,226 +1,106 @@
 <template>
-<aside
-  class="flex flex-col h-full bg-white dark:bg-slate-900"
-  :class="[
-    isMobile
-      ? 'fixed inset-y-0 z-40 w-[300px] shadow-2xl transition-transform duration-300 ease-in-out pt-safe pb-safe'
-      : 'relative w-full',
-    isMobile && !mobileOpen ? (isRtl ? 'translate-x-full' : '-translate-x-full') : '',
-    isMobile ? (isRtl ? 'right-0' : 'left-0') : '',
-    isRtl ? 'border-l border-slate-200 dark:border-slate-800' : 'border-r border-slate-200 dark:border-slate-800'
-  ]"
->
-    <div class="flex items-center justify-between px-4 h-14 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
-      <div class="flex items-center gap-2.5">
-        <div class="w-7 h-7 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">M</div>
-        <span class="font-heading font-semibold text-sm text-slate-800 dark:text-white">{{ $t('nav.patients') }}</span>
-        <span class="text-[11px] text-slate-400">({{ patientsMeta?.total || 0 }})</span>
-      </div>
-      <button v-if="isMobile" @click="$emit('close')" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">
-        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-      </button>
-    </div>
-
-    <div class="p-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
-      <div class="relative">
-        <svg class="absolute left-3 top-2.5 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-           <input
-             v-model="searchQuery"
-             type="text"
-             :placeholder="$t('patients.search_placeholder')"
-             class="w-full pl-9 pr-3 py-2 text-sm bg-slate-100 dark:bg-slate-800 border-0 rounded-lg text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-primary-500 transition-all"
-           />
-      </div>
+  <aside
+    class="flex flex-col h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 relative"
+    dir="rtl"
+  >
+    <!-- Add Patient Button at the top (Desktop Only) -->
+    <div v-if="!isMobile" class="p-3 pb-2 flex-shrink-0">
       <button
         @click="$emit('add-patient')"
-        class="mt-2 w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-primary-700 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/30 hover:bg-primary-100 dark:hover:bg-primary-900/50 rounded-lg transition-colors"
+        class="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors shadow-sm"
       >
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-         {{ $t('patients.add_new') }}
-       </button>
-    </div>
-
-    <div class="flex-1 overflow-y-auto overscroll-contain">
-      <div v-if="showArchived && archivedPatients.length > 0" class="px-3 pt-3 pb-1">
-        <div class="flex items-center justify-between mb-1">
-           <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{{ $t('workspace.archived_patients') }}</span>
-          <span class="text-[10px] text-slate-400">({{ archivedPatientsMeta?.total || 0 }})</span>
-        </div>
-      </div>
-      <template v-if="showArchived">
-        <div v-for="patient in archivedPatients" :key="'arch-' + patient.uuid" class="px-2 py-0.5">
-          <div
-            class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all border border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50"
-          >
-            <button @click="selectAndClose(patient.uuid)" class="flex items-center gap-3 min-w-0 flex-1">
-              <div class="relative flex-shrink-0">
-                <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
-                </div>
-              </div>
-              <div class="min-w-0">
-                <div class="flex items-center justify-between">
-                  <p class="text-sm font-medium text-slate-500 dark:text-slate-400 truncate">{{ patient.name }}</p>
-                   <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 ml-2">{{ $t('common.archived') }}</span>
-                </div>
-                <div class="flex items-center gap-1.5 mt-0.5 text-xs text-slate-400">
-                  <span class="truncate">{{ patient.phone || '—' }}</span>
-                  <span>•</span>
-                  <span>{{ patient.code }}</span>
-                </div>
-              </div>
-            </button>
-            <div class="flex items-center gap-1 flex-shrink-0">
-              <button @click.stop="handleRestore(patient.uuid)" class="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-slate-400 hover:text-emerald-600 transition-colors" :title="$t('common.restore')">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-              </button>
-              <button @click.stop="handleForceDelete(patient.uuid)" class="p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-900/20 text-slate-400 hover:text-rose-600 transition-colors" :title="$t('common.force_delete')">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-              </button>
-            </div>
-          </div>
-        </div>
-        <!-- Pagination for archived patients -->
-        <div v-if="archivedPatientsMeta && archivedPatientsMeta.last_page > 1" class="px-3 py-2">
-          <div class="flex items-center justify-between gap-2">
-            <button
-              @click="fetchArchivedPatients(archivedPatientsMeta.current_page - 1)"
-              :disabled="archivedPatientsMeta.current_page <= 1"
-              class="px-2 py-1 text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-               {{ $t('category.previous') }}
-             </button>
-             <span class="text-xs text-slate-400">{{ archivedPatientsMeta.current_page }} / {{ archivedPatientsMeta.last_page }}</span>
-             <button
-               @click="fetchArchivedPatients(archivedPatientsMeta.current_page + 1)"
-               :disabled="archivedPatientsMeta.current_page >= archivedPatientsMeta.last_page"
-               class="px-2 py-1 text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-             >
-               {{ $t('category.next') }}
-            </button>
-          </div>
-        </div>
-      </template>
-
-      <div v-if="showArchived && archivedPatients.length === 0 && !searchQuery && loadingArchived" class="flex flex-col items-center justify-center h-24">
-        <div class="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-
-      <div v-if="showArchived && archivedPatients.length > 0" class="border-t border-slate-100 dark:border-slate-800 mx-3 my-2"></div>
-
-      <div v-if="!searchQuery" class="px-3 pt-1 pb-1">
-        <div class="flex items-center justify-between mb-1">
-           <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{{ $t('workspace.active_patients') }}</span>
-          <span class="text-[10px] text-slate-400">({{ patientsMeta?.total || 0 }})</span>
-        </div>
-      </div>
-
-      <div v-if="filteredPatients.length === 0 && !(showArchived && archivedPatients.length > 0)" class="flex flex-col items-center justify-center h-40 text-slate-400 dark:text-slate-500 px-4">
-        <div v-if="loadingPatients" class="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mb-2"></div>
-        <svg v-else class="w-10 h-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-         <p class="text-sm">{{ $t('patients.no_patients') }}</p>
-      </div>
-
-      <div v-for="patient in filteredPatients" :key="patient.uuid" class="px-2 py-0.5">
-        <button
-          @click="selectAndClose(patient.uuid)"
-          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all active:scale-[0.98]"
-          :class="selectedPatientId === patient.uuid
-            ? 'bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800'
-            : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-transparent'"
-        >
-          <div class="relative flex-shrink-0">
-            <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
-              :class="selectedPatientId === patient.uuid
-                ? 'bg-primary-200 dark:bg-primary-800 text-primary-700 dark:text-primary-300'
-                : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'"
-            >
-              {{ patient.name?.charAt(0) || '?' }}
-            </div>
-            <div v-if="patient.unread" class="absolute -top-0.5 -right-0.5 w-3 h-3 bg-rose-500 border-2 border-white dark:border-slate-900 rounded-full"></div>
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center justify-between">
-              <p class="text-sm font-medium text-slate-900 dark:text-white truncate">{{ patient.name }}</p>
-              <span
-                class="text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0"
-                :class="patient.status === 'active'
-                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'"
-              >{{ patient.status }}</span>
-            </div>
-            <div class="flex items-center gap-1.5 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              <span class="truncate">{{ patient.phone || '—' }}</span>
-              <span>•</span>
-              <span>{{ patient.code }}</span>
-            </div>
-            <p v-if="patient.last_visit" class="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-              {{ $t('patient_summary.last_visit') }}: {{ new Date(patient.last_visit).toLocaleDateString() }}
-            </p>
-          </div>
-        </button>
-      </div>
-
-      <!-- Pagination for active patients -->
-      <div v-if="patientsMeta && patientsMeta.last_page > 1 && !searchQuery" class="px-3 py-2">
-        <div class="flex items-center justify-between gap-2">
-          <button
-            @click="refreshPatientList(patientsMeta.current_page - 1)"
-            :disabled="patientsMeta.current_page <= 1"
-            class="px-2 py-1 text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {{ $t('category.previous') }}
-          </button>
-          <span class="text-xs text-slate-400">{{ patientsMeta.current_page }} / {{ patientsMeta.last_page }}</span>
-          <button
-            @click="refreshPatientList(patientsMeta.current_page + 1)"
-            :disabled="patientsMeta.current_page >= patientsMeta.last_page"
-            class="px-2 py-1 text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {{ $t('category.next') }}
-          </button>
-        </div>
-      </div>
-
-      <div class="h-4"></div>
-    </div>
-
-    <div class="border-t border-slate-100 dark:border-slate-800 px-3 py-2">
-      <button @click="toggleArchived" class="w-full flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-        <span class="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-400">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
-           {{ $t('workspace.show_archived') }}
-        </span>
-        <div class="w-4 h-4 rounded border border-slate-300 dark:border-slate-600 flex items-center justify-center transition-colors" :class="showArchived ? 'bg-primary-600 border-primary-600' : ''">
-          <svg v-if="showArchived" class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
-        </div>
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
+        مريض جديد
       </button>
     </div>
 
-    <div class="border-t border-slate-200 dark:border-slate-800 p-3 flex-shrink-0">
-      <div class="flex items-center gap-3 px-2 py-2">
-        <div class="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center flex-shrink-0 overflow-hidden">
-          <img v-if="user?.avatar_url" :src="user.avatar_url" class="w-full h-full object-cover" />
-          <span v-else class="text-sm font-bold text-slate-500 dark:text-slate-400">{{ user?.name?.charAt(0) || 'D' }}</span>
-        </div>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-slate-900 dark:text-white truncate">{{ user?.name || 'Doctor' }}</p>
-          <p class="text-[11px] text-slate-500 dark:text-slate-400 truncate">{{ user?.specialization || 'Doctor' }}</p>
-        </div>
+    <!-- Search Box -->
+    <div class="px-3 py-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+      <div class="relative">
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="بحث بالاسم / التليفون..."
+          class="w-full pl-3 pr-10 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all text-right font-medium"
+        />
+        <svg class="absolute right-3 top-3 w-4.5 h-4.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
       </div>
-      <div class="flex items-center gap-1 mt-1">
-        <button @click="openSettings()" class="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826 3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-          {{ $t('nav.settings') }}
-        </button>
+    </div>
 
+    <!-- Patients List -->
+    <div class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-1">
+      <div v-for="patient in filteredPatients" :key="patient.uuid">
+        <button
+          @click="selectAndClose(patient.uuid)"
+          class="w-full text-right p-3.5 rounded-xl border transition-all"
+          :class="selectedPatientId === patient.uuid
+            ? 'bg-teal-50 dark:bg-teal-950/20 border-primary-500 dark:border-primary-400 shadow-sm'
+            : 'bg-white dark:bg-slate-900 border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50'"
+        >
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <!-- Code Badge (Far Right in RTL) -->
+            <span class="text-xs px-2.5 py-0.5 rounded-lg font-bold bg-teal-50 dark:bg-teal-950/50 border border-teal-200 dark:border-teal-800 text-primary-700 dark:text-primary-400 flex-shrink-0">
+              #{{ patient.code }}
+            </span>
+            
+            <!-- Name (Far Left in RTL, so it floats left) -->
+            <p class="text-sm font-bold text-slate-900 dark:text-white truncate text-left">
+              {{ patient.name }}
+            </p>
+          </div>
 
-
-        <button @click="handleLogout" class="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-colors">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-          {{ $t('nav.logout') }}
+          <!-- Phone (Aligned to Left in RTL) -->
+          <div class="flex items-center justify-end gap-1.5 text-xs text-slate-500 dark:text-slate-400" dir="ltr">
+            <span class="truncate font-semibold">{{ patient.phone || '—' }}</span>
+            <svg class="w-3.5 h-3.5 text-primary-600 dark:text-primary-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+          </div>
         </button>
       </div>
+
+      <div v-if="filteredPatients.length === 0" class="flex flex-col items-center justify-center h-40 text-slate-400 dark:text-slate-500 px-4">
+        <svg class="w-10 h-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+        <p class="text-sm">لا يوجد مرضى</p>
+      </div>
+    </div>
+
+    <!-- Floating Action Button for Mobile -->
+    <button
+      v-if="isMobile"
+      @click="$emit('add-patient')"
+      class="absolute bottom-24 left-6 z-50 w-12 h-12 bg-primary-600 hover:bg-primary-700 active:scale-95 text-white rounded-full flex items-center justify-center shadow-lg transition-transform"
+    >
+      <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
+    </button>
+
+    <!-- Pagination & Settings Button at the bottom -->
+    <div class="border-t border-slate-100 dark:border-slate-800 p-3 bg-white dark:bg-slate-900 space-y-2.5 flex-shrink-0">
+      <!-- Pagination -->
+      <div v-if="patientsMeta && patientsMeta.last_page > 1" class="flex items-center justify-between gap-2 text-xs font-bold">
+        <button
+          @click="refreshPatientList(patientsMeta.current_page - 1)"
+          :disabled="patientsMeta.current_page <= 1"
+          class="px-3 py-1.5 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors"
+        >
+          السابق
+        </button>
+        <span class="text-slate-500">{{ patientsMeta.current_page }} / {{ patientsMeta.last_page }}</span>
+        <button
+          @click="refreshPatientList(patientsMeta.current_page + 1)"
+          :disabled="patientsMeta.current_page >= patientsMeta.last_page"
+          class="px-3 py-1.5 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors"
+        >
+          التالي
+        </button>
+      </div>
+
+      <!-- Settings Button -->
+      <button
+        @click="openSettings()"
+        class="w-full flex items-center justify-center gap-2 py-2.5 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-sm transition-colors"
+      >
+        <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+        الإعدادات
+      </button>
     </div>
   </aside>
 </template>

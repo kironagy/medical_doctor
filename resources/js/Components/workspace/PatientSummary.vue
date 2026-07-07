@@ -1,86 +1,63 @@
 <template>
-  <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
-    <div class="p-4 md:p-5">
-      <div class="flex items-start gap-4">
-        <div class="w-14 h-14 md:w-16 md:h-16 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-700 dark:text-primary-300 font-bold text-xl md:text-2xl flex-shrink-0">
-          {{ patient.name?.charAt(0) || '?' }}
-        </div>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2 flex-wrap">
-            <h2 class="text-lg md:text-xl font-bold font-heading text-slate-900 dark:text-white">{{ patient.name }}</h2>
-            <span class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded"
-              :class="isPrimaryDoctor
-                ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'"
-            >{{ isPrimaryDoctor ? $t('workspace.primary') : $t('workspace.shared') }}</span>
-          </div>
-          <p class="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            {{ patient.code }} <span class="mx-1">•</span> {{ patient.phone || '—' }} <span v-if="patient.email" class="mx-1">•</span> {{ patient.email }}
-          </p>
-        </div>
-        <button @click="$emit('action')" class="p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex-shrink-0">
-          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
-        </button>
+  <div class="card-surface p-4 md:p-6 border-2 !border-primary-500 dark:!border-primary-700" dir="rtl">
+    <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+      
+      <!-- Right Side: Name and Code -->
+      <div class="flex flex-col items-end w-full md:w-auto text-right">
+        <h2 class="text-xl md:text-2xl font-bold text-slate-900 dark:text-white mb-2">
+          الاسم: {{ patient.name }}
+        </h2>
+        <p class="text-sm font-bold text-primary-600 dark:text-primary-400">
+          # الكود : {{ patient.code || patient.uuid?.slice(0, 6) }}
+        </p>
       </div>
 
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 mt-4">
-        <div v-for="field in summaryFields" :key="field.key" class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2.5">
-          <p class="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ field.label }}</p>
-          <p class="text-xs md:text-sm font-medium text-slate-800 dark:text-slate-200 mt-0.5 truncate" :title="field.value">
-            {{ field.value || '—' }}
-          </p>
+      <!-- Middle: Address and Phone -->
+      <div class="flex flex-col md:flex-row items-center gap-6 w-full md:w-auto justify-center md:justify-end text-sm text-slate-700 dark:text-slate-300 font-medium">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-primary-600 dark:text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+          <span>العنوان: {{ patient.address || '—' }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-primary-600 dark:text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+          <span dir="ltr">التليفون: {{ patient.phone || '—' }}</span>
         </div>
       </div>
+
+      <!-- Left Side: Diagnosis and Actions -->
+      <div class="flex flex-col items-start gap-2.5 w-full md:w-auto">
+        <!-- Buttons -->
+        <div class="flex items-center gap-3 w-full justify-start md:justify-end">
+          <button @click="$emit('share')" class="px-4 py-1.5 bg-primary-50 hover:bg-primary-100 dark:hover:bg-primary-900/20 border border-primary-200 text-primary-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+            مشاركة
+          </button>
+          <button @click="$emit('edit')" class="btn-primary !px-4 !py-1.5 flex items-center gap-1.5 text-xs font-bold">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+            تعديل
+          </button>
+          <button @click="$emit('delete')" class="px-4 py-1.5 bg-rose-50 hover:bg-rose-100 dark:hover:bg-rose-900/20 border border-rose-200 text-rose-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            مسح المريض
+          </button>
+        </div>
+
+        <!-- Diagnosis -->
+        <div class="flex items-center gap-1.5 text-rose-600 font-bold text-sm">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+          <span>التشخيص: {{ patient.diagnosis || '—' }}</span>
+        </div>
+      </div>
+
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
-
-const { t } = useI18n()
-
 const props = defineProps({
   patient: Object,
   isPrimaryDoctor: Boolean,
 })
 
-defineEmits(['action'])
-
-const summaryFields = computed(() => {
-  const p = props.patient || {}
-  const age = p.date_of_birth ? calculateAge(p.date_of_birth) : (p.age || '—')
-  return [
-    { key: 'id', label: t('patient_summary.patient_id'), value: p.code || p.uuid?.slice(0, 8) },
-    { key: 'mrn', label: t('patient_summary.mrn'), value: p.medical_record_number },
-    { key: 'age', label: t('patient_summary.age'), value: age },
-    { key: 'gender', label: t('patient_summary.gender'), value: p.gender },
-    { key: 'blood', label: t('patient_summary.blood_group'), value: p.blood_group },
-    { key: 'weight', label: t('patient_summary.weight'), value: p.weight ? `${p.weight} kg` : null },
-    { key: 'height', label: t('patient_summary.height'), value: p.height ? `${p.height} cm` : null },
-    { key: 'status', label: t('patient_summary.status'), value: p.medical_status || (p.deleted_at ? t('patient_summary.archived') : t('patient_summary.active')) },
-    { key: 'diagnosis', label: t('patient_summary.diagnosis'), value: p.diagnosis },
-    { key: 'allergies', label: t('patient_summary.allergies'), value: p.allergies },
-    { key: 'chronic', label: t('patient_summary.chronic_diseases'), value: p.chronic_diseases },
-    { key: 'phone', label: t('patient_summary.phone'), value: p.phone },
-    { key: 'last_visit', label: t('patient_summary.last_visit'), value: formatDate(p.last_visit_date || p.last_visit) },
-    { key: 'next_appt', label: t('patient_summary.next_appointment'), value: formatDate(p.next_appointment_date || p.next_appointment) },
-    { key: 'address', label: t('patient_summary.address'), value: p.address },
-  ]
-})
-
-function calculateAge(dob) {
-  const birth = new Date(dob)
-  const today = new Date()
-  let age = today.getFullYear() - birth.getFullYear()
-  const m = today.getMonth() - birth.getMonth()
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
-  return age
-}
-
-function formatDate(d) {
-  if (!d) return null
-  return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-}
+defineEmits(['edit', 'delete', 'share'])
 </script>
