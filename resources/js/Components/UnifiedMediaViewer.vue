@@ -1,7 +1,7 @@
 <template>
-  <div v-if="show" class="fixed inset-0 z-[100] flex flex-col bg-slate-900 backdrop-blur-md pb-safe">
+  <div v-if="show" class="fixed inset-0 z-[100] flex flex-col bg-slate-900 backdrop-blur-md" style="padding-bottom: env(safe-area-inset-bottom, 0px);">
     <!-- Top Bar -->
-    <div class="flex items-center justify-between px-4 py-3 pt-safe bg-slate-900/90 border-b border-slate-700/50 shadow-sm z-50">
+    <div class="flex items-center justify-between px-4 py-3 bg-slate-900/90 border-b border-slate-700/50 shadow-sm z-50 flex-shrink-0" style="padding-top: max(12px, env(safe-area-inset-top, 0px));">  
       <div class="flex items-center space-x-3 text-white truncate max-w-2xl">
         <svg v-if="type === 'video'" class="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
         <svg v-else-if="type === 'image'" class="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
@@ -29,8 +29,14 @@
       
       <!-- Video Player -->
       <div v-if="type === 'video'" class="w-full h-full flex items-center justify-center bg-black p-4">
+        <!-- Show spinner while fetching the signed URL for the video -->
+        <div v-if="loadingSignedUrl" class="flex flex-col items-center gap-3">
+          <div class="w-10 h-10 border-4 border-white/20 border-t-white rounded-full animate-spin" />
+          <span class="text-white/50 text-xs">جارٍ تحميل الفيديو…</span>
+        </div>
         <VideoPlayer
-          :src="fileUrl"
+          v-else-if="signedUrl"
+          :src="signedUrl"
           :type="file?.mime_type || 'video/mp4'"
           :poster="posterUrl"
           class="w-full h-full rounded-lg overflow-hidden"
@@ -40,7 +46,11 @@
       
       <!-- Image Viewer (v-viewer) -->
       <div v-else-if="type === 'image'" class="w-full h-full flex items-center justify-center p-4">
-        <viewer :images="[fileUrl]" class="w-full h-full flex items-center justify-center">
+        <viewer
+          :images="[fileUrl]"
+          :options="viewerOptions"
+          class="w-full h-full flex items-center justify-center"
+        >
           <img :src="fileUrl" class="max-w-full max-h-full object-contain cursor-zoom-in" :alt="file?.file_name" />
         </viewer>
       </div>
@@ -110,6 +120,26 @@ const emit = defineEmits(['close']);
 const textContent = ref('');
 const loadingText = ref(false);
 const codeBlock = ref(null);
+
+// v-viewer (viewerjs) options — hide edit/flip/rotate buttons, keep only essential ones
+const viewerOptions = {
+  toolbar: {
+    zoomIn: { show: true, size: 'large' },
+    zoomOut: { show: true, size: 'large' },
+    oneToOne: { show: true, size: 'large' },
+    reset: { show: true, size: 'large' },
+    prev: { show: false },
+    play: { show: false },
+    next: { show: false },
+    rotateLeft: { show: false },
+    rotateRight: { show: false },
+    flipHorizontal: { show: false },
+    flipVertical: { show: false },
+    download: { show: false },
+  },
+  navbar: false,
+  title: false,
+};
 
 // Signed URL for media that the browser fetches directly (video, audio, image, pdf).
 // We fetch it once when the viewer opens and cache it for the session lifetime.
@@ -224,4 +254,34 @@ const formatBytes = (bytes, decimals = 2) => {
 };
 </script>
 
-<style></style>
+<style>
+/* Ensure v-viewer / viewerjs toolbar and navbar respect iOS safe area */
+.viewer-container {
+  padding-top: env(safe-area-inset-top, 0px) !important;
+}
+.viewer-navbar,
+.viewer-toolbar {
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 16px)) !important;
+}
+/* Shift the close/action buttons well below the notch */
+.viewer-container .viewer-button {
+  top: max(24px, env(safe-area-inset-top, 24px)) !important;
+  right: 16px !important;
+  width: 44px !important;
+  height: 44px !important;
+}
+/* Bigger tap targets for all toolbar icons */
+.viewer-toolbar > ul > li {
+  width: 48px !important;
+  height: 48px !important;
+  margin: 0 6px !important;
+}
+.viewer-toolbar > ul > li::before {
+  width: 30px !important;
+  height: 30px !important;
+  margin-top: 9px !important;
+  margin-left: 9px !important;
+  background-size: 30px 30px !important;
+}
+</style>
+
