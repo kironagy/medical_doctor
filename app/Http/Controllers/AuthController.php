@@ -12,10 +12,7 @@ class AuthController extends Controller
 {
     public function showLogin(Request $request)
     {
-        if ($request->user()) {
-            return redirect()->intended('dashboard');
-        }
-
+        // Let the client handle redirect for authenticated users to properly manage history
         return Inertia::render('Auth/Login');
     }
 

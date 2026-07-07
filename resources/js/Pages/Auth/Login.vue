@@ -89,6 +89,7 @@ const form = useForm({
 
 const submit = () => {
   form.post('/login', {
+    replace: true,
     onSuccess: () => {
       try { localStorage.setItem('np_persist_login', '1') } catch(e) {}
     },
