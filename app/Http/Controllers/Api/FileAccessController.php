@@ -318,8 +318,8 @@ class FileAccessController extends Controller
     {
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
-        if ($request->user()->cannot('delete', $file->patient)) {
-            return response()->json(['message' => 'Unauthorized. Only primary doctor can delete files.'], 403);
+        if ($request->user()->cannot('update', $file->patient)) {
+            return response()->json(['message' => 'Unauthorized. Only primary doctor or editors can delete files.'], 403);
         }
 
         // Collect paths to delete
@@ -375,9 +375,9 @@ class FileAccessController extends Controller
         }
 
         try {
-            $file->delete();
+            $file->forceDelete();
         } catch (\Throwable $e) {
-            Log::error('Failed to soft delete PatientFile', ['uuid' => $uuid, 'exception' => $e]);
+            Log::error('Failed to force delete PatientFile', ['uuid' => $uuid, 'exception' => $e]);
             return response()->json([
                 'message' => 'Failed to delete file record',
                 'errors' => [(string) $e->getMessage()],

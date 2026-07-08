@@ -215,9 +215,9 @@ class FileController extends Controller
         }
 
         try {
-            $file->delete();
+            $file->forceDelete();
         } catch (\Throwable $e) {
-            Log::error('Failed to soft delete PatientFile', ['uuid' => $fileUuid, 'exception' => $e]);
+            Log::error('Failed to force delete PatientFile', ['uuid' => $fileUuid, 'exception' => $e]);
             return response()->json([
                 'message' => 'Failed to delete file record',
                 'errors' => [(string) $e->getMessage()],

@@ -22,10 +22,6 @@
             <a v-if="file?.url" :href="file.url" target="_blank" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" :title="$t('file_preview.download')">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
             </a>
-            <!-- Edit Button -->
-            <button v-if="canEdit" @click="openEdit" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" title="Edit">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-            </button>
             <!-- Delete Button -->
             <button v-if="canDelete" :disabled="deleting" @click="confirmDelete" class="p-2 text-rose-400 hover:text-rose-300 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed" title="Delete">
               <svg v-if="!deleting" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -97,40 +93,6 @@
     </Transition>
   </Teleport>
 
-  <!-- Edit Dialog -->
-  <Teleport to="body">
-    <Transition name="backdrop-fade">
-      <div v-if="showEdit" class="fixed inset-0 z-[200] flex items-end md:items-center justify-center" @click.self="closeEdit">
-        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="closeEdit" />
-        <div class="relative bg-white dark:bg-slate-900 border dark:border-slate-800 w-full md:max-w-lg max-h-[90vh] md:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden"
-             style="padding-bottom: var(--sab, 0px)">
-          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-10">
-            <h3 class="text-base font-bold text-slate-900 dark:text-white">{{ $t('file_preview.edit_file') }}</h3>
-            <button @click="closeEdit" class="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-          </div>
-          <div class="overflow-y-auto overscroll-contain flex-1 p-5 space-y-4">
-            <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('file_preview.title') }}</label>
-              <input v-model="editForm.title" type="text" class="input-field w-full" maxlength="255" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('file_preview.description') }}</label>
-              <textarea v-model="editForm.desc" rows="3" class="input-field w-full" />
-            </div>
-          </div>
-          <div class="sticky bottom-0 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 px-5 py-4 flex justify-end gap-3">
-            <button @click="closeEdit" class="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">{{ $t('file_preview.cancel') }}</button>
-            <BaseButton @click="saveEdit" :disabled="saving" size="sm">
-              <svg v-if="saving" class="w-4 h-4 animate-spin me-1.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-              {{ saving ? $t('file_preview.saving') : $t('file_preview.save') }}
-            </BaseButton>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
 </template>
 
 <script setup>
@@ -149,9 +111,7 @@ const {
   showPreview: show,
   previewFile: file,
   closePreview: close,
-  canEdit,
   canDelete,
-  updateFileLocally,
   removeFileLocally,
   categories
 } = useWorkspace()
@@ -189,75 +149,10 @@ watch(file, async (newFile) => {
   }
 }, { immediate: true })
 
-const showEdit = ref(false)
-const saving = ref(false)
 const deleting = ref(false)
-const editForm = ref({ title: '', desc: '' })
 
 const dialog = useDialog()
 const toast = useToast()
-
-function openEdit() {
-  editForm.value = {
-    title: file.value?.title || file.value?.file_name || '',
-    desc: file.value?.description || file.value?.desc || '',
-  }
-  showEdit.value = true
-}
-
-function closeEdit() {
-  showEdit.value = false
-}
-
-async function saveEdit() {
-  if (!file.value?.uuid) return
-  const nextTitle = editForm.value.title?.trim() || ''
-  const nextDesc = editForm.value.desc?.trim() || ''
-  if (!nextTitle) {
-    toast.error($t('file_preview.title_required'))
-    return
-  }
-  saving.value = true
-  try {
-    const payload = {}
-    const currentTitle = file.value?.title || file.value?.file_name || ''
-    const currentDesc = file.value?.description ?? file.value?.desc ?? ''
-    if (nextTitle !== currentTitle?.trim()) payload.title = nextTitle
-    if (nextDesc !== (currentDesc ?? '').trim()) payload.desc = nextDesc
-    if (Object.keys(payload).length === 0) {
-      showEdit.value = false
-      return
-    }
-
-    const res = await axios.put(`/api/v1/files/${file.value.uuid}`, payload)
-    updateFileLocally(res.data)
-    file.value = { ...file.value, ...res.data }
-    showEdit.value = false
-    toast.success($t('file_preview.update_success'))
-  } catch (e) {
-    console.error('Edit failed:', e)
-    let errorMsg = 'Failed to update file'
-    if (e.response?.data?.message) {
-      if (typeof e.response.data.message === 'object') {
-        const errors = []
-        for (const key in e.response.data.message) {
-          const val = e.response.data.message[key]
-          if (Array.isArray(val)) {
-            errors.push(...val)
-          } else {
-            errors.push(val)
-          }
-        }
-        errorMsg = errors.join(', ')
-      } else {
-        errorMsg = e.response.data.message
-      }
-    }
-    toast.error(errorMsg)
-  } finally {
-    saving.value = false
-  }
-}
 
 async function confirmDelete() {
    if (deleting.value) return

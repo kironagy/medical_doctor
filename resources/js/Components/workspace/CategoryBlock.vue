@@ -586,6 +586,19 @@ const notesCount = computed(() => {
   ).length
 })
 
+// Sync deletions globally
+watch(() => allFiles.value, (newAllFiles) => {
+  if (initialLoadDone.value && serverFiles.value.length > 0) {
+    const allUuids = new Set(newAllFiles.map(f => f.uuid));
+    const originalLen = serverFiles.value.length;
+    serverFiles.value = serverFiles.value.filter(f => allUuids.has(f.uuid));
+    if (serverFiles.value.length < originalLen) {
+      serverMeta.value = { ...serverMeta.value, total: Math.max(0, (serverMeta.value.total || 0) - (originalLen - serverFiles.value.length)) };
+      serverFiles.value = [...serverFiles.value];
+    }
+  }
+}, { deep: false });
+
 // Paginated file slice — merge any newly uploaded files immediately
 const files = computed(() => {
   if (initialLoadDone.value && serverFiles.value.length > 0) {
