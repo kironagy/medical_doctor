@@ -75,10 +75,13 @@ import BaseButton from '@/Components/BaseButton.vue';
 
 const page = usePage()
 
-// If user is already authenticated (session survived restart), redirect to dashboard
+// If user is already authenticated (session survived restart), redirect to home
 const user = computed(() => page.props.auth?.user)
-if (user.value) {
-  router.visit('/dashboard', { replace: true })
+if (user.value && typeof window !== 'undefined') {
+  // Using window.location.replace instead of router.visit ensures that if a user 
+  // hits the back button to reach this page, we permanently replace the login page 
+  // history entry with the home page, allowing them to continue going back.
+  window.location.replace('/')
 }
 
 const form = useForm({
