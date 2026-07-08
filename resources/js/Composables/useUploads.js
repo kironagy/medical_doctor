@@ -86,8 +86,8 @@ function isUploadRequest(config) {
 axios.interceptors.request.use(config => {
     if (!isUploadRequest(config)) {
         normalRequestsPending++;
+        config._perfStart = Date.now();
         logPerf(`Normal Axios request started (${config.url}). Pending: ${normalRequestsPending}`);
-        performance.mark(`axios_start_${config.url}`);
     }
     return config;
 });
@@ -95,9 +95,8 @@ axios.interceptors.request.use(config => {
 function decrementNormalRequests(config) {
     if (config && !isUploadRequest(config)) {
         normalRequestsPending = Math.max(0, normalRequestsPending - 1);
-        logPerf(`Normal Axios request finished (${config.url}). Pending: ${normalRequestsPending}`);
-        performance.mark(`axios_end_${config.url}`);
-        performance.measure(`axios_duration_${config.url}`, `axios_start_${config.url}`, `axios_end_${config.url}`);
+        const duration = config._perfStart ? (Date.now() - config._perfStart) : 'unknown';
+        logPerf(`Normal Axios request finished (${config.url}) in ${duration}ms. Pending: ${normalRequestsPending}`);
         pumpScheduler(); // Try to resume queued chunks if navigation finished
     }
 }
@@ -116,17 +115,21 @@ axios.interceptors.response.use(
 // ─── Inertia Navigation Tracking ────────────────────────────────────────────
 // Inertia uses its own internal Axios instance. We MUST track these events
 // to pause chunk uploads during page transitions.
+const inertiaVisitStarts = {};
+
 router.on('start', (event) => {
     normalRequestsPending++;
-    logPerf(`Inertia navigation started (${event.detail.visit.url}). Pending: ${normalRequestsPending}`);
-    performance.mark(`inertia_start_${event.detail.visit.url}`);
+    const url = event.detail.visit.url.toString();
+    inertiaVisitStarts[url] = Date.now();
+    logPerf(`Inertia navigation started (${url}). Pending: ${normalRequestsPending}`);
 });
 
 function decrementInertiaRequests(event, type) {
     normalRequestsPending = Math.max(0, normalRequestsPending - 1);
-    logPerf(`Inertia navigation ${type} (${event.detail.visit.url}). Pending: ${normalRequestsPending}`);
-    performance.mark(`inertia_end_${event.detail.visit.url}`);
-    performance.measure(`inertia_duration_${event.detail.visit.url}`, `inertia_start_${event.detail.visit.url}`, `inertia_end_${event.detail.visit.url}`);
+    const url = event.detail.visit.url.toString();
+    const duration = inertiaVisitStarts[url] ? (Date.now() - inertiaVisitStarts[url]) : 'unknown';
+    delete inertiaVisitStarts[url];
+    logPerf(`Inertia navigation ${type} (${url}) in ${duration}ms. Pending: ${normalRequestsPending}`);
     pumpScheduler();
 }
 
