@@ -22,7 +22,9 @@ class ChunkUploadService
         $startMs = microtime(true);
 
         try {
-            // Ensure session is in uploading state (atomic)
+            // Ensure session is active.
+            // Fast path when already 'uploading': no DB lock taken (see UploadSessionService).
+            // Slow path (once per session): atomic pending->uploading transition.
             $session = $this->sessionService->ensureUploading($session);
             if ($session->status !== 'uploading') {
                 throw new HttpException(400, 'Session is not in uploading state');
@@ -36,7 +38,7 @@ class ChunkUploadService
                 if ($serverChecksum !== $clientChecksum) {
                     Log::channel('upload')->warning('chunk:checksum_mismatch', [
                         'session' => $session->uuid,
-                        'chunk' => $chunkIndex,
+                        'chunk'   => $chunkIndex,
                         'provided' => $clientChecksum,
                         'computed' => $serverChecksum,
                     ]);
@@ -44,19 +46,24 @@ class ChunkUploadService
                 }
             }
 
-            // Direct-write optimization
+            // Write the chunk data
             if ($session->final_path) {
                 $this->writeChunkDirect($session, $chunk, $chunkIndex);
             } else {
                 $this->writeChunkLegacy($session, $chunk, $chunkIndex);
             }
 
-            // Atomic receipt record (idempotent)
+            // Record receipt (idempotent INSERT OR IGNORE)
             $this->recordChunkReceipt($session, $chunkIndex);
 
-            $received = $this->validationService->receivedChunks($session);
+            // Count received chunks with a single cheap COUNT query —
+            // avoids fetching all chunk indexes just to get the array length.
+            $receivedCount = DB::table('upload_chunk_receipts')
+                ->where('session_id', $session->id)
+                ->count();
+
             $progress = $session->total_chunks > 0
-                ? (int) round((count($received) / $session->total_chunks) * 100)
+                ? (int) round(($receivedCount / $session->total_chunks) * 100)
                 : 0;
 
             $durationMs = (microtime(true) - $startMs) * 1000;
@@ -65,14 +72,14 @@ class ChunkUploadService
                 'session'      => $session->uuid,
                 'chunk'        => $chunkIndex,
                 'size'         => $chunk->getSize(),
-                'received_cnt' => count($received),
+                'received_cnt' => $receivedCount,
                 'progress'     => $progress,
                 'duration_ms'  => round($durationMs, 2),
             ]);
 
             return [
                 'chunk_index'      => $chunkIndex,
-                'received_chunks'  => count($received),
+                'received_chunks'  => $receivedCount,
                 'total_chunks'     => $session->total_chunks,
                 'progress'         => $progress,
                 'server_time_ms'   => round($durationMs, 2),
@@ -165,22 +172,18 @@ class ChunkUploadService
 
     private function recordChunkReceipt(UploadSession $session, int $chunkIndex): void
     {
-        // Insert with duplicate ignore; safe for retries
-        $affected = DB::table('upload_chunk_receipts')->insertOrIgnore([
-            'session_id' => $session->id,
+        // INSERT OR IGNORE is idempotent — safe for retries and concurrent
+        // requests for the same chunk index.
+        // NOTE: We deliberately do NOT update the received_chunk_indexes JSON
+        // column on upload_sessions here.  That column is redundant:
+        // upload_chunk_receipts is the single authoritative source for received
+        // chunks.  The extra JSON_ARRAY_APPEND UPDATE was one of the root causes
+        // of lock contention under concurrent chunk uploads.
+        DB::table('upload_chunk_receipts')->insertOrIgnore([
+            'session_id'  => $session->id,
             'chunk_index' => $chunkIndex,
             'received_at' => DB::raw('CURRENT_TIMESTAMP'),
         ]);
-
-        // Also keep the json column in sessions in sync for quick access (best effort)
-        if ($affected) {
-            DB::table('upload_sessions')
-                ->where('id', $session->id)
-                ->update([
-                    'received_chunk_indexes' => DB::raw("JSON_ARRAY_APPEND(COALESCE(received_chunk_indexes, '[]'), '$', $chunkIndex)"),
-                    'updated_at' => now()->toDateTimeString(),
-                ]);
-        }
     }
 
     public function getStatus(UploadSession $session): array

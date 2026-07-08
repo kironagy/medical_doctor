@@ -106,7 +106,12 @@ function memorySnap() {
 // Diagnostics instance (one per upload)
 // ═══════════════════════════════════════════════════════════════════════════════
 export class UploadDiagnostics {
-  constructor(file, patientId) {
+  /**
+   * @param {File}   file
+   * @param {*}      patientId
+   * @param {number} poolSize  — actual POOL_SIZE from useUploads (avoids stale copy)
+   */
+  constructor(file, patientId, poolSize = 4) {
     if (!UPLOAD_DEBUG) return
 
     this._id = uid()
@@ -118,6 +123,11 @@ export class UploadDiagnostics {
     this._uploadUuid = null
     this._device = collectDevice()
     this._networkStart = collectNetwork()
+
+    // Pool size comes from the caller — never hardcode here
+    this._poolSize = poolSize
+    // Actual chunk size is set later once the init response arrives
+    this._chunkSize = null
 
     // Timelines
     this._events = []
@@ -137,6 +147,7 @@ export class UploadDiagnostics {
     this._poolSizeHistory = []
     this._sequentialDetected = false
     this._allPregenerated = false
+    this._idleGaps = []           // tracks when pool drops below full capacity
 
     this._networkListener = null
 
@@ -144,8 +155,6 @@ export class UploadDiagnostics {
       name: file.name,
       size: file.size,
       mime: file.type || '?',
-      totalChunks: Math.ceil(file.size / (5 * 1024 * 1024)),
-      chunkSize: 5 * 1024 * 1024,
     })
   }
 
@@ -222,8 +231,7 @@ export class UploadDiagnostics {
     console.log('MIME Type:', this._file.type || 'application/octet-stream')
     console.log('Size:', fmtBytes(this._file.size), `(${this._file.size} bytes)`)
     console.log('Last Modified:', new Date(this._file.lastModified).toISOString())
-    console.log('Total Chunks:', Math.ceil(this._file.size / (5 * 1024 * 1024)))
-    console.log('Chunk Size:', fmtBytes(5 * 1024 * 1024))
+    console.log('Parallel Pool Size:', this._poolSize)
     console.groupEnd()
 
     // Startup delay
@@ -296,7 +304,12 @@ export class UploadDiagnostics {
   // ── Pool monitoring ─────────────────────────────────────────────────────────
   snapshotPool(activeCount) {
     if (!UPLOAD_DEBUG) return
-    this._poolSizeHistory.push({ active: activeCount, at: this._rel() })
+    const snap = { active: activeCount, at: this._rel() }
+    this._poolSizeHistory.push(snap)
+    // Record idle gap when pool falls below configured size
+    if (activeCount < this._poolSize) {
+      this._idleGaps.push(snap)
+    }
   }
 
   setChunksInMemory(n) {
@@ -530,13 +543,13 @@ export class UploadDiagnostics {
   // ── Sequential detection ────────────────────────────────────────────────────
   detectSequential(currentActive) {
     if (!UPLOAD_DEBUG) return false
-    if (currentActive < POOL_SIZE && this._poolSizeHistory.length > 5) {
+    if (currentActive < this._poolSize && this._poolSizeHistory.length > 5) {
       const recent = this._poolSizeHistory.slice(-5)
       const allBelow = recent.every(r => r.active < 2)
       if (allBelow && !this._sequentialDetected) {
         this._sequentialDetected = true
         console.log(
-          `%c[UPLOAD${this._id}] ⚠ WARNING  Parallel upload lost. Expected: ${POOL_SIZE} active, Current: ${currentActive}`,
+          `%c[UPLOAD${this._id}] ⚠ WARNING  Parallel upload lost. Expected: ${this._poolSize} active, Current: ${currentActive}`,
           'color:red;font-weight:bold;font-size:13px'
         )
         return true
@@ -601,6 +614,11 @@ export class UploadDiagnostics {
       bottlenecks.push(`Memory spike (${fmtBytes(memPeak.used - memStart.used)} growth)`)
     }
 
+    // Determine actual chunk size from first completed chunk if available
+    const actualChunkSize = allChunks.length > 0
+      ? (allChunks.find(c => c.chunkSize > 0)?.chunkSize ?? this._chunkSize ?? 0)
+      : (this._chunkSize ?? 0)
+
     const report = {
       uploadId: this._clientId,
       serverUploadId: this._uploadUuid,
@@ -609,10 +627,12 @@ export class UploadDiagnostics {
       fileSize: this._file?.size || 0,
       device: { ...this._device },
       network: { start: this._networkStart, end: netEnd, samples: this._networkSamples },
-      chunkSize: 5 * 1024 * 1024,
+      chunkSize: actualChunkSize,
+      chunkSizeHuman: fmtBytes(actualChunkSize),
       totalChunks: allChunks.length,
       chunkGenerationMode: this._allPregenerated ? 'PREGENERATED' : 'LAZY STREAMING',
-      parallelUploads: POOL_SIZE,
+      parallelUploads: this._poolSize,
+      idleGapCount: this._idleGaps.length,
       averageQueueTime: fmtDuration(avgQueue),
       maxQueueTime: fmtDuration(maxQueue),
       fastestChunk: fmtDuration(fastest),
@@ -640,9 +660,9 @@ export class UploadDiagnostics {
   _buildRecommendations(bottlenecks, net) {
     const recs = []
     if (bottlenecks.length === 0) recs.push('No bottlenecks detected — system performing optimally.')
-    if (net && net.downlink < 1) recs.push('Very slow connection: consider reducing chunk size or enabling resumable uploads.')
+    if (net && net.downlink < 1) recs.push('Very slow connection: consider reducing chunk size to 2-3 MB.')
     if (bottlenecks.some(b => b.includes('sequential'))) {
-      recs.push('Uploads becoming sequential: check server supports concurrent chunk uploads.')
+      recs.push('Uploads becoming sequential: pool is starved. Ensure chunk count >> pool size (use 5 MB chunks).')
     }
     if (bottlenecks.some(b => b.includes('startup'))) {
       recs.push('Large startup delay: check file reading or init endpoint latency.')
@@ -651,7 +671,10 @@ export class UploadDiagnostics {
       recs.push('High retry rate: check network stability or server error rate.')
     }
     if (bottlenecks.some(b => b.includes('queue'))) {
-      recs.push('High queue wait time: consider reducing POOL_SIZE or increasing server throughput.')
+      recs.push('High queue wait time: pool may be exhausted. Consider reducing POOL_SIZE to 3.')
+    }
+    if (this._idleGaps.length > 3) {
+      recs.push(`Pool went idle ${this._idleGaps.length} times — chunk size may be too large relative to pool size.`)
     }
     return recs
   }
@@ -687,10 +710,11 @@ export class UploadDiagnostics {
     console.groupEnd()
     console.log('')
     console.group('Chunks')
-    console.log('Chunk Size:', fmtBytes(r.chunkSize))
+    console.log('Chunk Size:', r.chunkSizeHuman || fmtBytes(r.chunkSize))
     console.log('Total Chunks:', r.totalChunks)
     console.log('Generation Mode:', r.chunkGenerationMode)
-    console.log('Parallel Uploads:', r.parallelUploads)
+    console.log('Parallel Uploads (pool):', r.parallelUploads)
+    console.log('Pool Idle Events:', r.idleGapCount)
     console.log('Average Queue Time:', r.averageQueueTime)
     console.log('Fastest Chunk:', r.fastestChunk)
     console.log('Slowest Chunk:', r.slowestChunk)
@@ -773,11 +797,10 @@ export class UploadDiagnostics {
   get poolSizeHistory() { return this._poolSizeHistory }
 }
 
-// Module-level POOL_SIZE reference (will be set from useUploads.js)
-const POOL_SIZE = 3
-
 // ── Factory ───────────────────────────────────────────────────────────────────
-export function useUploadDiagnostics(file, patientId) {
+// poolSize is passed in from useUploads so we always use the live value,
+// never a stale hardcoded copy.
+export function useUploadDiagnostics(file, patientId, poolSize = 4) {
   if (!UPLOAD_DEBUG) return null
-  return new UploadDiagnostics(file, patientId)
+  return new UploadDiagnostics(file, patientId, poolSize)
 }

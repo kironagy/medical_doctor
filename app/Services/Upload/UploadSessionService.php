@@ -73,21 +73,37 @@ class UploadSessionService
 
     /**
      * Atomic transition pending -> uploading using row-level lock.
-     * Safe under parallel chunk requests; only one will perform the transition
-     * but both are allowed to proceed (status is already uploading).
+     *
+     * IMPORTANT: This is intentionally a fast-path optimisation.
+     * When the session is already 'uploading' (the common case for every chunk
+     * after the first), we return immediately without acquiring a DB lock.
+     * The previous implementation locked every chunk request, causing deadlocks
+     * and lock-wait timeouts under parallel uploads (4 concurrent slots).
+     *
+     * The exclusive lock is only taken when transitioning from 'pending',
+     * which happens exactly once per upload session.
      */
     public function ensureUploading(UploadSession $session): UploadSession
     {
+        // Fast path: already uploading — no lock needed, just return the session.
+        if ($session->status === 'uploading') {
+            return $session;
+        }
+
+        // Slow path: need to transition from pending -> uploading (happens once).
         return DB::transaction(function () use ($session) {
             $locked = UploadSession::where('id', $session->id)->lockForUpdate()->first();
-            if ($locked && $locked->status === 'pending') {
+            if (!$locked) {
+                return $session;
+            }
+            if ($locked->status === 'pending') {
                 $locked->update(['status' => 'uploading']);
                 Log::channel('upload')->info('session:transition pending->uploading', [
                     'session' => $locked->uuid,
                 ]);
                 return $locked->fresh();
             }
-            return $locked ?? $session;
+            return $locked;
         });
     }
 
