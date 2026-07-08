@@ -92,6 +92,30 @@ class DoctorController extends Controller
         ]);
     }
 
+    // API endpoint for admin workspace
+    public function apiShow(User $doctor)
+    {
+        $doctor->loadCount(['patients']);
+        
+        $files = \App\Domains\Media\Models\PatientFile::whereHas('patient', function($q) use ($doctor) {
+            $q->withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)
+              ->where('primary_doctor_id', $doctor->id);
+        })->get();
+        
+        $totalStorageBytes = $files->sum('file_size');
+        $totalFiles = $files->count();
+
+        return response()->json([
+            'doctor' => $doctor,
+            'stats' => [
+                'total_patients' => $doctor->patients_count,
+                'total_files' => $totalFiles,
+                'storage_bytes' => $totalStorageBytes,
+                'storage_mb' => round($totalStorageBytes / (1024*1024), 2),
+            ]
+        ]);
+    }
+
     public function patients(Request $request, User $doctor)
     {
         $query = \App\Domains\Patients\Models\Patient::withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)
