@@ -134,6 +134,10 @@
           <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('doctors.phone') }}</label>
           <input v-model="addForm.phone" type="text" class="input-field" dir="ltr" />
         </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{{ $t('doctors.password') }}</label>
+          <input v-model="addForm.password" type="password" class="input-field" required minlength="8" autocomplete="new-password" />
+        </div>
         <div class="flex justify-end gap-3">
           <button type="button" @click="showAddDoctor = false" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">{{ $t('common.cancel') }}</button>
           <BaseButton type="submit" :loading="addingDoctor">{{ $t('common.save') }}</BaseButton>
@@ -248,8 +252,10 @@ function openSettings() {
 }
 
 // Forms
-const addForm = ref({ name: '', email: '', specialization: '', phone: '' })
+const addForm = ref({ name: '', email: '', specialization: '', phone: '', password: '' })
 const editForm = ref({ name: '', email: '', specialization: '', phone: '' })
+const addingDoctor = ref(false)
+const editingDoctor = ref(false)
 
 // Computed
 const selectedDoctor = computed(() => {
@@ -342,12 +348,16 @@ function confirmSuspend() {
 }
 
 function submitAddDoctor() {
+  addingDoctor.value = true
   const payload = { ...addForm.value }
   router.post('/admin/doctors', payload, {
     onSuccess: () => {
       showAddDoctor.value = false
-      addForm.value = { name: '', email: '', specialization: '', phone: '' }
-      router.reload({ preserveState: true })
+      addForm.value = { name: '', email: '', specialization: '', phone: '', password: '' }
+      addingDoctor.value = false
+    },
+    onError: () => {
+      addingDoctor.value = false
     }
   })
 }
@@ -374,11 +384,15 @@ async function handleSelectDoctor(id) {
 
 function submitEditDoctor() {
   if (!currentDoctor.value) return
+  editingDoctor.value = true
   const payload = { ...editForm.value }
   router.put(`/admin/doctors/${currentDoctor.value.id}`, payload, {
     onSuccess: () => {
       showEditDoctor.value = false
-      router.reload({ preserveState: true })
+      editingDoctor.value = false
+    },
+    onError: () => {
+      editingDoctor.value = false
     }
   })
 }
