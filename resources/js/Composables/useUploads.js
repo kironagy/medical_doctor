@@ -1,5 +1,6 @@
 import axios from "axios";
 import { reactive, ref } from "vue";
+import { router } from "@inertiajs/vue3";
 import { useUploadDiagnostics } from "./useUploadDiagnostics";
 import { useWorkspace } from "./useWorkspace";
 
@@ -53,9 +54,25 @@ let idCounter = 0;
 // navigating the app (e.g. fetching patient data) remains fast.
 // Normal application requests strictly pause new chunks.
 
+// ─── Independent Upload Networking Layer ────────────────────────────────────────
+// Decouple upload chunks from global application interceptors to prevent
+// shared pipeline contention.
+const uploadHttp = axios.create();
+// Ensure CSRF token is included if available
+const csrfToken = document.head.querySelector('meta[name="csrf-token"]');
+if (csrfToken) {
+    uploadHttp.defaults.headers.common['X-CSRF-TOKEN'] = csrfToken.content;
+}
+uploadHttp.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
+
 let globalActiveChunks = 0;
 const globalChunkQueue = [];
 let normalRequestsPending = 0;
+
+// Instrumentation helper
+function logPerf(msg) {
+    console.log(`%c[Perf] ${msg}`, 'color: #3b82f6; font-weight: bold;');
+}
 
 function isUploadRequest(config) {
     if (!config || !config.url) return false;
@@ -65,10 +82,12 @@ function isUploadRequest(config) {
            (config.url.includes('/chunk/') && config.url.includes('/status'));
 }
 
-// Intercept all Axios requests to track normal vs upload requests
+// Intercept global Axios requests (e.g. useWorkspace fetching data)
 axios.interceptors.request.use(config => {
     if (!isUploadRequest(config)) {
         normalRequestsPending++;
+        logPerf(`Normal Axios request started (${config.url}). Pending: ${normalRequestsPending}`);
+        performance.mark(`axios_start_${config.url}`);
     }
     return config;
 });
@@ -76,6 +95,9 @@ axios.interceptors.request.use(config => {
 function decrementNormalRequests(config) {
     if (config && !isUploadRequest(config)) {
         normalRequestsPending = Math.max(0, normalRequestsPending - 1);
+        logPerf(`Normal Axios request finished (${config.url}). Pending: ${normalRequestsPending}`);
+        performance.mark(`axios_end_${config.url}`);
+        performance.measure(`axios_duration_${config.url}`, `axios_start_${config.url}`, `axios_end_${config.url}`);
         pumpScheduler(); // Try to resume queued chunks if navigation finished
     }
 }
@@ -90,6 +112,27 @@ axios.interceptors.response.use(
         return Promise.reject(error);
     }
 );
+
+// ─── Inertia Navigation Tracking ────────────────────────────────────────────
+// Inertia uses its own internal Axios instance. We MUST track these events
+// to pause chunk uploads during page transitions.
+router.on('start', (event) => {
+    normalRequestsPending++;
+    logPerf(`Inertia navigation started (${event.detail.visit.url}). Pending: ${normalRequestsPending}`);
+    performance.mark(`inertia_start_${event.detail.visit.url}`);
+});
+
+function decrementInertiaRequests(event, type) {
+    normalRequestsPending = Math.max(0, normalRequestsPending - 1);
+    logPerf(`Inertia navigation ${type} (${event.detail.visit.url}). Pending: ${normalRequestsPending}`);
+    performance.mark(`inertia_end_${event.detail.visit.url}`);
+    performance.measure(`inertia_duration_${event.detail.visit.url}`, `inertia_start_${event.detail.visit.url}`, `inertia_end_${event.detail.visit.url}`);
+    pumpScheduler();
+}
+
+router.on('finish', (event) => decrementInertiaRequests(event, 'finished'));
+// router.on('exception') / router.on('success') are technically covered by finish,
+// but we just rely on finish which runs unconditionally at the end of a visit.
 
 function canScheduleChunk() {
     return globalActiveChunks < POOL_SIZE && normalRequestsPending === 0;
@@ -234,7 +277,7 @@ export function useUploads() {
             if (persisted[key] && persisted[key].status === "uploading") {
                 d?._record("resume_check");
                 try {
-                    const r = await axios.get(
+                    const r = await uploadHttp.get(
                         `/api/v1/chunk/${persisted[key].upload_id}/status`,
                     );
                     if (
@@ -267,7 +310,7 @@ export function useUploads() {
                 if (metadata.date)     meta.date     = metadata.date;
 
                 d?._record("init_start");
-                const initRes = await axios.post("/api/v1/chunk/init", {
+                const initRes = await uploadHttp.post("/api/v1/chunk/init", {
                     file_name:  job.file.name,
                     file_size:  job.file.size,
                     mime_type:  job.file.type || "application/octet-stream",
@@ -342,7 +385,7 @@ export function useUploads() {
             d?._record("complete_start");
             if (job.uploadId) {
                 d?.onMergeStart();
-                const completeRes = await axios.post("/api/v1/chunk/complete", {
+                const completeRes = await uploadHttp.post("/api/v1/chunk/complete", {
                     upload_id: job.uploadId,
                 });
                 d?.onMergeComplete();
@@ -503,7 +546,7 @@ export function useUploads() {
                 fd.append("chunk_index", chunkIndex);
                 fd.append("chunk",       blob, `chunk_${chunkIndex}`);
 
-                const response = await axios.post("/api/v1/chunk/chunk", fd, {
+                const response = await uploadHttp.post("/api/v1/chunk/chunk", fd, {
                     signal: controller.signal,
                     timeout: 300000, // 5 minutes per chunk — ample for 5 MB on any connection
                     onUploadProgress: (e) => {
@@ -576,7 +619,7 @@ export function useUploads() {
         job._speedTracker?.reset();
         job.status = "cancelled";
         if (job.uploadId) {
-            axios.post(`/api/v1/chunk/${job.uploadId}/cancel`).catch(() => {});
+            uploadHttp.post(`/api/v1/chunk/${job.uploadId}/cancel`).catch(() => {});
             const p = loadPersisted();
             for (const k of Object.keys(p)) {
                 if (p[k].upload_id === job.uploadId) delete p[k];
@@ -631,7 +674,7 @@ export function useUploads() {
             await runPool(job, d);
             if (job._cancelled) return;
             d?.onMergeStart();
-            const completeRes = await axios.post("/api/v1/chunk/complete", {
+            const completeRes = await uploadHttp.post("/api/v1/chunk/complete", {
                 upload_id: job.uploadId,
             });
             d?.onMergeComplete();
