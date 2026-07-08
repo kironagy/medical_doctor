@@ -47,15 +47,64 @@ export function getUploadConfig() {
 const uploads = ref([]);
 let idCounter = 0;
 
-// ─── Global Concurrency Semaphore ─────────────────────────────────────────────
+// ─── Global Concurrency Semaphore & Priority Scheduler ──────────────────────────
 // Limits the TOTAL number of in-flight chunk requests across all active uploads.
 // This prevents exhausting the browser's 6-connection limit, ensuring that
-// navigating the app (e.g. fetching patient data) remains fast even with 4 files uploading.
+// navigating the app (e.g. fetching patient data) remains fast.
+// Normal application requests strictly pause new chunks.
+
 let globalActiveChunks = 0;
 const globalChunkQueue = [];
+let normalRequestsPending = 0;
+
+function isUploadRequest(config) {
+    if (!config || !config.url) return false;
+    return config.url.includes('/chunk/chunk') ||
+           config.url.includes('/chunk/init') ||
+           config.url.includes('/chunk/complete') ||
+           (config.url.includes('/chunk/') && config.url.includes('/status'));
+}
+
+// Intercept all Axios requests to track normal vs upload requests
+axios.interceptors.request.use(config => {
+    if (!isUploadRequest(config)) {
+        normalRequestsPending++;
+    }
+    return config;
+});
+
+function decrementNormalRequests(config) {
+    if (config && !isUploadRequest(config)) {
+        normalRequestsPending = Math.max(0, normalRequestsPending - 1);
+        pumpScheduler(); // Try to resume queued chunks if navigation finished
+    }
+}
+
+axios.interceptors.response.use(
+    response => {
+        decrementNormalRequests(response.config);
+        return response;
+    },
+    error => {
+        decrementNormalRequests(error?.config);
+        return Promise.reject(error);
+    }
+);
+
+function canScheduleChunk() {
+    return globalActiveChunks < POOL_SIZE && normalRequestsPending === 0;
+}
+
+function pumpScheduler() {
+    while (canScheduleChunk() && globalChunkQueue.length > 0) {
+        const resolve = globalChunkQueue.shift();
+        globalActiveChunks++;
+        resolve(); // Hand off slot directly
+    }
+}
 
 async function acquireGlobalSlot() {
-    if (globalActiveChunks < POOL_SIZE) {
+    if (canScheduleChunk()) {
         globalActiveChunks++;
         return;
     }
@@ -63,12 +112,8 @@ async function acquireGlobalSlot() {
 }
 
 function releaseGlobalSlot() {
-    if (globalChunkQueue.length > 0) {
-        const resolve = globalChunkQueue.shift();
-        resolve(); // Hand off slot directly
-    } else {
-        globalActiveChunks--;
-    }
+    globalActiveChunks--;
+    pumpScheduler();
 }
 
 function loadPersisted() {
