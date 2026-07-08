@@ -47,6 +47,30 @@ export function getUploadConfig() {
 const uploads = ref([]);
 let idCounter = 0;
 
+// ─── Global Concurrency Semaphore ─────────────────────────────────────────────
+// Limits the TOTAL number of in-flight chunk requests across all active uploads.
+// This prevents exhausting the browser's 6-connection limit, ensuring that
+// navigating the app (e.g. fetching patient data) remains fast even with 4 files uploading.
+let globalActiveChunks = 0;
+const globalChunkQueue = [];
+
+async function acquireGlobalSlot() {
+    if (globalActiveChunks < POOL_SIZE) {
+        globalActiveChunks++;
+        return;
+    }
+    return new Promise(resolve => globalChunkQueue.push(resolve));
+}
+
+function releaseGlobalSlot() {
+    if (globalChunkQueue.length > 0) {
+        const resolve = globalChunkQueue.shift();
+        resolve(); // Hand off slot directly
+    } else {
+        globalActiveChunks--;
+    }
+}
+
 function loadPersisted() {
     try {
         return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
@@ -359,16 +383,23 @@ export function useUploads() {
 
         for (const chunkIndex of missingChunks()) {
             if (job._cancelled || job._paused) break;
-            if (pool.size >= POOL_SIZE) {
-                d?.snapshotPool(pool.size);
-                await Promise.race(pool);
-                d?.detectSequential(pool.size);
-                if (job._cancelled || job._paused) break;
+            
+            // Wait for a global slot to open up, ensuring total in-flight chunks <= POOL_SIZE
+            await acquireGlobalSlot();
+            
+            if (job._cancelled || job._paused) {
+                releaseGlobalSlot();
+                break;
             }
+
             d?.markChunkCreated(chunkIndex);
             d?.setChunksInMemory(pool.size + 1);
             d?.onChunkQueued(chunkIndex);
-            const p = uploadSafe(chunkIndex).finally(() => pool.delete(p));
+            
+            const p = uploadSafe(chunkIndex).finally(() => {
+                pool.delete(p);
+                releaseGlobalSlot();
+            });
             pool.add(p);
         }
 
