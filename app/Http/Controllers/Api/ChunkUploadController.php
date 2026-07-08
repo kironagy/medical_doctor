@@ -25,6 +25,9 @@ class ChunkUploadController extends Controller
 
     public function init(Request $request)
     {
+        if ($request->hasSession()) {
+            $request->session()->save();
+        }
         $start = microtime(true);
 
         $validated = $request->validate([
@@ -91,6 +94,9 @@ class ChunkUploadController extends Controller
 
     public function chunk(Request $request)
     {
+        if ($request->hasSession()) {
+            $request->session()->save();
+        }
         $start = microtime(true);
 
         $validated = $request->validate([
@@ -138,6 +144,9 @@ class ChunkUploadController extends Controller
 
     public function complete(Request $request)
     {
+        if ($request->hasSession()) {
+            $request->session()->save();
+        }
         $start = microtime(true);
 
         $validated = $request->validate([
@@ -182,6 +191,9 @@ class ChunkUploadController extends Controller
 
     public function cancel(Request $request, string $uuid)
     {
+        if ($request->hasSession()) {
+            $request->session()->save();
+        }
         try {
             $session = $this->sessionService->findOrFail($uuid);
             if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
@@ -204,6 +216,9 @@ class ChunkUploadController extends Controller
 
     public function status(Request $request, string $uuid)
     {
+        if ($request->hasSession()) {
+            $request->session()->save();
+        }
         try {
             $session = $this->sessionService->findOrFail($uuid);
             if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {

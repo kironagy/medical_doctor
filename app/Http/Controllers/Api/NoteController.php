@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class NoteController extends Controller
 {
@@ -41,9 +42,11 @@ class NoteController extends Controller
 
     public function update(Request $request, string $patientUuid, string $uuid)
     {
-        $note = PatientNote::where('uuid', $uuid)->firstOrFail();
+        $note = PatientNote::with('patient')->where('uuid', $uuid)->firstOrFail();
 
-        abort_if($note->author_id !== $request->user()->id, 403);
+        if ($note->author_id !== $request->user()->id) {
+            Gate::authorize('update', $note->patient);
+        }
 
         $validated = $request->validate([
             'content' => 'required|string',
@@ -57,9 +60,11 @@ class NoteController extends Controller
 
     public function destroy(Request $request, string $patientUuid, string $uuid)
     {
-        $note = PatientNote::where('uuid', $uuid)->firstOrFail();
+        $note = PatientNote::with('patient')->where('uuid', $uuid)->firstOrFail();
 
-        abort_if($note->author_id !== $request->user()->id, 403);
+        if ($note->author_id !== $request->user()->id) {
+            Gate::authorize('update', $note->patient);
+        }
 
         $note->delete();
 

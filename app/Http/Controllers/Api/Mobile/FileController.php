@@ -160,7 +160,7 @@ class FileController extends Controller
     public function destroy(Request $request, string $fileUuid)
     {
         $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
-        Gate::authorize('delete', $file->patient);
+        Gate::authorize('update', $file->patient);
 
         // Collect paths to delete
         $pathsToDelete = array_filter([
