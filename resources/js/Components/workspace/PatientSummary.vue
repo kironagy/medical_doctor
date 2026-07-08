@@ -10,6 +10,30 @@
         <p class="text-sm font-bold text-primary-600 dark:text-primary-400">
           # الكود : {{ patient.code || patient.uuid?.slice(0, 6) }}
         </p>
+
+        <!-- Shared badge: shown when this patient was shared with the current doctor -->
+        <div
+          v-if="isShared"
+          class="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
+          :class="isReadOnly
+            ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700'
+            : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-700'"
+        >
+          <!-- Share icon -->
+          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+          </svg>
+          <span>
+            مشارك من: {{ sharedByName || 'طبيب آخر' }}
+          </span>
+          <!-- Read-only indicator -->
+          <span
+            v-if="isReadOnly"
+            class="mr-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 uppercase tracking-wide"
+          >
+            للعرض فقط
+          </span>
+        </div>
       </div>
 
       <!-- Middle: Address and Phone -->
@@ -26,8 +50,8 @@
 
       <!-- Left Side: Diagnosis and Actions -->
       <div class="flex flex-col items-start gap-2.5 w-full md:w-auto">
-        <!-- Buttons -->
-        <div class="flex items-center gap-3 w-full justify-start md:justify-end">
+        <!-- Action Buttons — hidden completely when read-only access -->
+        <div v-if="!isReadOnly" class="flex items-center gap-3 w-full justify-start md:justify-end">
           <button @click="$emit('share')" class="px-4 py-1.5 bg-primary-50 hover:bg-primary-100 dark:hover:bg-primary-900/20 border border-primary-200 text-primary-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
             مشاركة
@@ -54,10 +78,14 @@
 </template>
 
 <script setup>
+import { useWorkspace } from '@/Composables/useWorkspace'
+
 const props = defineProps({
   patient: Object,
   isPrimaryDoctor: Boolean,
 })
 
 defineEmits(['edit', 'delete', 'share'])
+
+const { isShared, isReadOnly, sharedByName } = useWorkspace()
 </script>

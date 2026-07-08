@@ -282,19 +282,33 @@ class WorkspaceController extends Controller
         // Get the Patient model instance for permission checks
         $patientModel = Patient::where('uuid', $uuid)->firstOrFail();
 
+        // If this doctor has access via a share (not as primary), load share metadata
+        // so the frontend can show who shared the patient and enforce read-only mode.
+        $myShare = null;
+        if (($patient['primary_doctor_id'] ?? null) !== $user?->id) {
+            $myShare = \App\Domains\Patients\Models\PatientShare::where('patient_id', $patientModel->id)
+                ->where('doctor_id', $user?->id)
+                ->with('sharedBy:id,name')
+                ->first();
+        }
+
         $payload = [
             'patient' => $patientData,
-            'files' => $files,
-            'notes' => $notes,
-            'visits' => $visits,
-            'shares' => [],
+            'files'   => $files,
+            'notes'   => $notes,
+            'visits'  => $visits,
+            'shares'  => [],
             'categories' => $categories,
-            'stats' => $stats,
+            'stats'   => $stats,
             'permissions' => [
-                'can_edit' => $user?->can('update', $patientModel) ?? false,
-                'can_delete' => $user?->can('delete', $patientModel) ?? false,
-                'can_share' => $user?->can('share', $patientModel) ?? false,
-                'is_primary' => ($patient['primary_doctor_id'] ?? null) === $user?->id,
+                'can_edit'        => $user?->can('update', $patientModel) ?? false,
+                'can_delete'      => $user?->can('delete', $patientModel) ?? false,
+                'can_share'       => $user?->can('share', $patientModel) ?? false,
+                'is_primary'      => ($patient['primary_doctor_id'] ?? null) === $user?->id,
+                // Share metadata — null when this is the primary doctor
+                'is_shared'       => $myShare !== null,
+                'access_level'    => $myShare?->access_level ?? 'write',
+                'shared_by_name'  => $myShare?->sharedBy?->name ?? null,
             ],
         ];
 

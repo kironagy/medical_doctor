@@ -86,6 +86,13 @@ const canShare = computed(() => {
     return workspaceData.value.permissions?.can_share;
 });
 
+// Share metadata — available when the current doctor is a guest (not primary)
+const isShared = computed(() => workspaceData.value?.permissions?.is_shared ?? false);
+const accessLevel = computed(() => workspaceData.value?.permissions?.access_level ?? 'write');
+const sharedByName = computed(() => workspaceData.value?.permissions?.shared_by_name ?? null);
+// Read-only: shared patients with access_level='read' must not show any write actions
+const isReadOnly = computed(() => isShared.value && accessLevel.value === 'read');
+
 const categories = computed(() => {
     return workspaceData.value?.categories || [];
 });
@@ -439,6 +446,10 @@ export function useWorkspace() {
         canEdit,
         canDelete,
         canShare,
+        isShared,
+        accessLevel,
+        sharedByName,
+        isReadOnly,
         categories,
         allFiles,
         allNotes,

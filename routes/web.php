@@ -8,6 +8,9 @@ use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\DoctorController;
 
 Route::get('/', function () {
+    if (auth()->check() && auth()->user()->hasRole('super-admin')) {
+        return redirect()->route('admin.doctors.index');
+    }
     return redirect('/dashboard');
 });
 
@@ -29,9 +32,7 @@ Route::middleware('auth')->group(function () {
 
     // Admin Routes
     Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['role:super-admin']], function () {
-        Route::get('/', function () {
-            return redirect()->route('admin.doctors.index');
-        })->name('dashboard');
+        Route::get('/', [App\Http\Controllers\Admin\DoctorController::class, 'index'])->name('dashboard');
         Route::resource('doctors', App\Http\Controllers\Admin\DoctorController::class);
         Route::post('doctors/{doctor}/suspend', [App\Http\Controllers\Admin\DoctorController::class, 'suspend'])->name('doctors.suspend');
         Route::get('doctors/{doctor}/patients', [App\Http\Controllers\Admin\DoctorController::class, 'patients'])->name('doctors.patients');
