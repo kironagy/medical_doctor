@@ -41,8 +41,11 @@ class AuthController extends Controller
 
             // Role-based redirect: super-admin goes to admin doctors page, others to dashboard
             $user = $request->user();
-            $default = $user && $user->role === 'super-admin' ? '/admin/doctors' : '/dashboard';
-            return redirect()->intended($default);
+            if ($user && ($user->role === 'super-admin' || $user->hasRole('super-admin'))) {
+                return redirect('/admin/doctors');
+            }
+            
+            return redirect()->intended('/dashboard');
         }
 
         return back()->withErrors([

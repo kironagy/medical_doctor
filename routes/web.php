@@ -8,7 +8,7 @@ use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\DoctorController;
 
 Route::get('/', function () {
-    if (auth()->check() && auth()->user()->hasRole('super-admin')) {
+    if (auth()->check() && (auth()->user()->hasRole('super-admin') || auth()->user()->role === 'super-admin')) {
         return redirect()->route('admin.doctors.index');
     }
     return redirect('/dashboard');
