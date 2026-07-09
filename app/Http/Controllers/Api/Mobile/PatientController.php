@@ -72,6 +72,10 @@ class PatientController extends Controller
             'uuid' => 'nullable|uuid',
         ]);
 
+        if (empty($validated['code'])) {
+            $validated['code'] = (string) random_int(100000, 999999);
+        }
+
         $validated['primary_doctor_id'] = $request->user()->id;
         $validated['created_by_id'] = $request->user()->id;
 

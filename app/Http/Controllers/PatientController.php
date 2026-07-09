@@ -46,7 +46,7 @@ class PatientController extends Controller
             'diagnosis' => 'nullable|string|max:1000',
         ]);
 
-        $validated['code'] = 'PT-' . strtoupper(Str::random(6));
+        $validated['code'] = (string) random_int(100000, 999999);
         $validated['primary_doctor_id'] = $request->user()->id;
         $validated['created_by_id'] = $request->user()->id;
 
