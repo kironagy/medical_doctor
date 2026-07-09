@@ -70,6 +70,21 @@
               <span class="text-[10px] text-teal-600 font-bold" v-if="syncing">جاري المزامنة...</span>
             </button>
 
+            <!-- Admin Categories Manager (إدارة الأقسام) -->
+            <button
+              v-if="$page.props.auth?.user?.role === 'super-admin'"
+              type="button"
+              @click="openCategoryManager"
+              class="w-full flex items-center justify-between px-5 py-3 border border-teal-500/30 dark:border-teal-500/20 text-teal-700 dark:text-teal-400 bg-teal-50/10 hover:bg-teal-50/30 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
+            >
+              <span class="flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                </svg>
+                إدارة الأقسام
+              </span>
+            </button>
+
             <!-- 4. Download App (تحميل التطبيق) -->
             <button
               type="button"
@@ -114,6 +129,9 @@
         </div>
       </div>
     </Transition>
+    
+    <!-- Category Manager Modal (Admin only) -->
+    <CategoryManagerModal v-model="showCategoryManager" />
   </Teleport>
 </template>
 
@@ -124,12 +142,13 @@ import { useTheme } from '@/Composables/useTheme'
 import { useLocale } from '@/Composables/useLocale'
 import { useToast } from '@/Composables/useToast'
 import axios from 'axios'
+import CategoryManagerModal from '@/Components/workspace/CategoryManagerModal.vue'
 
 defineProps({
   modelValue: Boolean
 })
 
-defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue'])
 
 const { theme } = useTheme()
 const { locale } = useLocale()
@@ -139,6 +158,15 @@ const syncing = ref(false)
 const version = ref('v1.0.0')
 const downloadUrl = ref('')
 const downloadingApp = ref(false)
+
+const showCategoryManager = ref(false)
+
+function openCategoryManager() {
+  emit('update:modelValue', false) // close settings modal
+  setTimeout(() => {
+    showCategoryManager.value = true
+  }, 300) // allow fade out
+}
 
 const GITHUB_API = 'https://api.github.com/repos/kironagy/medical_doctor/releases/latest'
 

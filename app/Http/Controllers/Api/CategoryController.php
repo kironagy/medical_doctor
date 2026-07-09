@@ -30,11 +30,22 @@ class CategoryController extends Controller
             'categories.*.is_visible' => 'nullable|boolean',
         ]);
 
-        $preferences = $user->preferences ?? [];
-        $preferences['custom_categories'] = $validated['categories'];
-        $user->update(['preferences' => $preferences]);
+        $isSuperAdmin = $user && ($user->role === 'super-admin' || $user->hasRole('super-admin'));
 
-        Cache::forget("user_categories_{$user->id}");
+        if ($isSuperAdmin) {
+            $allUsers = \App\Domains\Users\Models\User::all();
+            foreach ($allUsers as $u) {
+                $preferences = $u->preferences ?? [];
+                $preferences['custom_categories'] = $validated['categories'];
+                $u->update(['preferences' => $preferences]);
+                Cache::forget("user_categories_{$u->id}");
+            }
+        } else {
+            $preferences = $user->preferences ?? [];
+            $preferences['custom_categories'] = $validated['categories'];
+            $user->update(['preferences' => $preferences]);
+            Cache::forget("user_categories_{$user->id}");
+        }
 
         return response()->json($validated['categories']);
     }
@@ -50,10 +61,7 @@ class CategoryController extends Controller
             'order' => 'nullable|integer',
         ]);
 
-        $preferences = $user->preferences ?? [];
-        $customCategories = $preferences['custom_categories'] ?? [];
-
-        $customCategories[] = [
+        $newCategory = [
             'slug' => $validated['slug'],
             'name' => $validated['name'],
             'icon' => $validated['icon'] ?? 'folder',
@@ -62,20 +70,63 @@ class CategoryController extends Controller
             'is_visible' => true,
         ];
 
-        $preferences['custom_categories'] = $customCategories;
-        $user->update(['preferences' => $preferences]);
+        $isSuperAdmin = $user && ($user->role === 'super-admin' || $user->hasRole('super-admin'));
 
-        return response()->json($customCategories);
+        if ($isSuperAdmin) {
+            $allUsers = \App\Domains\Users\Models\User::all();
+            foreach ($allUsers as $u) {
+                $preferences = $u->preferences ?? [];
+                $customCategories = $preferences['custom_categories'] ?? [];
+                
+                // check if exists
+                $exists = false;
+                foreach($customCategories as $c) {
+                    if (($c['slug'] ?? '') === $validated['slug']) { $exists = true; break; }
+                }
+                
+                if (!$exists) {
+                    $customCategories[] = $newCategory;
+                    $preferences['custom_categories'] = $customCategories;
+                    $u->update(['preferences' => $preferences]);
+                    Cache::forget("user_categories_{$u->id}");
+                }
+            }
+        } else {
+            $preferences = $user->preferences ?? [];
+            $customCategories = $preferences['custom_categories'] ?? [];
+            $customCategories[] = $newCategory;
+            $preferences['custom_categories'] = $customCategories;
+            $user->update(['preferences' => $preferences]);
+            Cache::forget("user_categories_{$user->id}");
+        }
+
+        // Return the modified categories for the current user
+        return response()->json($user->fresh()->preferences['custom_categories'] ?? []);
     }
 
     public function deleteCategory(Request $request, string $slug)
     {
         $user = $request->user();
-        $preferences = $user->preferences ?? [];
-        $customCategories = $preferences['custom_categories'] ?? [];
-        $customCategories = array_values(array_filter($customCategories, fn($c) => ($c['slug'] ?? '') !== $slug));
-        $preferences['custom_categories'] = $customCategories;
-        $user->update(['preferences' => $preferences]);
+        $isSuperAdmin = $user && ($user->role === 'super-admin' || $user->hasRole('super-admin'));
+
+        if ($isSuperAdmin) {
+            $allUsers = \App\Domains\Users\Models\User::all();
+            foreach ($allUsers as $u) {
+                $preferences = $u->preferences ?? [];
+                $customCategories = $preferences['custom_categories'] ?? [];
+                $customCategories = array_values(array_filter($customCategories, fn($c) => ($c['slug'] ?? '') !== $slug));
+                $preferences['custom_categories'] = $customCategories;
+                $u->update(['preferences' => $preferences]);
+                Cache::forget("user_categories_{$u->id}");
+            }
+        } else {
+            $preferences = $user->preferences ?? [];
+            $customCategories = $preferences['custom_categories'] ?? [];
+            $customCategories = array_values(array_filter($customCategories, fn($c) => ($c['slug'] ?? '') !== $slug));
+            $preferences['custom_categories'] = $customCategories;
+            $user->update(['preferences' => $preferences]);
+            Cache::forget("user_categories_{$user->id}");
+        }
 
         return response()->json(['message' => 'Category removed']);
     }
