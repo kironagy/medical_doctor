@@ -79,7 +79,7 @@
         </div>
 
         <!-- Workspace Content -->
-        <div v-else class="w-full" dir="rtl">
+        <div v-else class="w-full">
           <!-- Mobile Back Button Header -->
           <div v-if="isMobile" class="sticky top-0 bg-white dark:bg-slate-900 border-b border-teal-100 dark:border-slate-850 z-30 px-4 py-3.5 flex items-center justify-center">
             <button @click="selectedDoctorId = null; mobileDoctorListOpen = true" class="flex items-center gap-2 text-teal-800 dark:text-teal-400 font-extrabold text-base hover:text-teal-900 transition-colors">

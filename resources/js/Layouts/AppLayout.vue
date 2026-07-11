@@ -25,7 +25,7 @@
           </Link>
         </div>
       
-      <div class="p-4 mt-auto mb-2 mx-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm" dir="rtl">
+      <div class="p-4 mt-auto mb-2 mx-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
         <div class="flex items-center gap-3 mb-4">
           <div class="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/30 flex-shrink-0 flex items-center justify-center font-bold text-primary-600 dark:text-primary-400">
             {{ $page.props.auth?.user?.name?.charAt(0) || 'U' }}

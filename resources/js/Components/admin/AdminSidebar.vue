@@ -1,7 +1,6 @@
 <template>
   <aside
     class="flex flex-col h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 relative"
-    dir="rtl"
   >
     <!-- Add Doctor Button at the top (Desktop Only) -->
     <div v-if="!isMobile" class="p-3 pb-2 flex-shrink-0">

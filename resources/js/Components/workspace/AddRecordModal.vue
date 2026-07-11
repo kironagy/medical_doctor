@@ -6,7 +6,7 @@
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="$emit('update:modelValue', false)"></div>
 
         <!-- Modal Box -->
-        <div class="relative bg-white dark:bg-slate-900 rounded-[28px] shadow-2xl w-full max-w-md p-8 text-right flex flex-col border border-slate-100 dark:border-slate-800 animate-scale-up" dir="rtl">
+        <div class="relative bg-white dark:bg-slate-900 rounded-[28px] shadow-2xl w-full max-w-md p-8 flex flex-col border border-slate-100 dark:border-slate-800 animate-scale-up text-start">
           <!-- Close Button -->
           <button @click="$emit('update:modelValue', false)" class="absolute top-4 left-4 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

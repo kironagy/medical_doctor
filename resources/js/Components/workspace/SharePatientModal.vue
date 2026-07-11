@@ -1,6 +1,6 @@
 <template>
   <BaseDialog v-model="open" title="مشاركة الملف الطبي" size="md">
-    <div dir="rtl" class="text-right space-y-4">
+    <div class="text-start space-y-4">
     <div v-if="step === 'search'" class="space-y-4">
       <div class="relative">
         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -148,7 +148,7 @@
     </div>
 
     <template #footer>
-      <div class="flex items-center justify-between w-full gap-3" dir="rtl">
+      <div class="flex items-center justify-between w-full gap-3">
         <div>
           <button
             v-if="step === 'permission'"

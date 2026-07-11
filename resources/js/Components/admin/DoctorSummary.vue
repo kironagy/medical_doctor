@@ -1,5 +1,5 @@
 <template>
-  <div class="card-surface p-4 md:p-6 border-2 !border-primary-500 dark:!border-primary-700" dir="rtl">
+  <div class="card-surface p-4 md:p-6 border-2 !border-primary-500 dark:!border-primary-700">
     <div class="flex flex-col md:flex-row items-center justify-between gap-4">
       
       <!-- Right Side: Name and Code -->

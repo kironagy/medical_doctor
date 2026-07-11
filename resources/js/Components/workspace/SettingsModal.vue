@@ -6,7 +6,7 @@
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="$emit('update:modelValue', false)"></div>
 
         <!-- Modal Box -->
-        <div class="relative bg-white dark:bg-slate-900 rounded-[28px] shadow-2xl w-full max-w-sm p-8 text-center flex flex-col items-center border border-slate-100 dark:border-slate-800 animate-scale-up" dir="rtl">
+        <div class="relative bg-white dark:bg-slate-900 rounded-[28px] shadow-2xl w-full max-w-sm p-8 text-center flex flex-col items-center border border-slate-100 dark:border-slate-800 animate-scale-up">
           <!-- Big Settings Cogwheel Icon -->
           <div class="w-16 h-16 rounded-full bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400 flex items-center justify-center mb-4 transition-transform duration-700 hover:rotate-90">
             <svg class="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

@@ -33,6 +33,8 @@
     "sign_in_btn": "تسجيل الدخول"
   },
   "patients": {
+    "search_short": "ابحث بالاسم / التليفون...",
+    "no_patients_short": "لا يوجد مرضى",
     "search_placeholder": "ابحث عن المرضى بالاسم، الهوية، أو الهاتف...",
     "new": "مريض جديد",
     "name": "اسم المريض",
@@ -342,7 +344,9 @@
     "archived": "مؤرشف",
     "last_visit": "آخر زيارة",
     "restore": "استعادة",
-    "force_delete": "حذف نهائي"
+    "force_delete": "حذف نهائي",
+    "previous": "السابق",
+    "next": "التالي"
   },
   "editor": {
     "placeholder": "اكتب ملاحظتك هنا...",
@@ -566,7 +570,16 @@
     "phone": "الهاتف",
     "last_visit": "آخر زيارة",
     "next_appointment": "الموعد القادم",
-    "address": "العنوان"
+    "address": "العنوان",
+    "name": "الاسم",
+    "code": "الكود",
+    "shared_by": "مشارك من",
+    "other_doctor": "طبيب آخر",
+    "read_only": "للعرض فقط",
+    "download": "تحميل الملفات",
+    "share": "مشاركة",
+    "edit": "تعديل",
+    "delete": "مسح المريض"
   },
   "quick_share": "مشاركة",
   "quick_appointment": "موعد",

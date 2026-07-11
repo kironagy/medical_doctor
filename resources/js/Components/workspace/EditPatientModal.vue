@@ -1,6 +1,6 @@
 <template>
   <WorkspaceModal :modelValue="modelValue" @update:modelValue="$emit('update:modelValue', $event)" @close="$emit('update:modelValue', false)" title="تعديل مريض" size="md" persistent>
-    <div dir="rtl" class="text-right">
+    <div class="text-start">
       <form @submit.prevent="submit" class="space-y-4 pt-2">
         <div>
           <label class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">الاسم</label>

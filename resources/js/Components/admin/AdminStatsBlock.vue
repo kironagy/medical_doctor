@@ -1,5 +1,5 @@
 <template>
-  <div class="border-2 border-primary-300 dark:border-primary-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900" dir="rtl">
+  <div class="border-2 border-primary-300 dark:border-primary-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
     <div class="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
       <button @click="toggleSection" class="flex items-center gap-2 flex-1 text-right text-primary-700 dark:text-primary-400">
         <h3 class="text-base font-bold">{{ title }}</h3>

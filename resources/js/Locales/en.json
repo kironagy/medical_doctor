@@ -33,6 +33,8 @@
     "sign_in_btn": "Sign in"
   },
   "patients": {
+    "search_short": "Search by name / phone...",
+    "no_patients_short": "No patients",
     "search_placeholder": "Search patients by name, ID, or phone...",
     "new": "New Patient",
     "name": "Patient Name",
@@ -343,7 +345,9 @@
     "archived": "Archived",
     "last_visit": "Last",
     "restore": "Restore",
-    "force_delete": "Delete Permanently"
+    "force_delete": "Delete Permanently",
+    "previous": "Previous",
+    "next": "Next"
   },
   "editor": {
     "placeholder": "Write your note here...",
@@ -567,7 +571,16 @@
     "phone": "Phone",
     "last_visit": "Last Visit",
     "next_appointment": "Next Appointment",
-    "address": "Address"
+    "address": "Address",
+    "name": "Name",
+    "code": "Code",
+    "shared_by": "Shared by",
+    "other_doctor": "Other doctor",
+    "read_only": "Read Only",
+    "download": "Download Files",
+    "share": "Share",
+    "edit": "Edit",
+    "delete": "Delete Patient"
   },
   "quick_share": "Share",
   "quick_appointment": "Appointment",
