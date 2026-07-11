@@ -190,7 +190,7 @@ header.sticky {
   }
 
   .input-field {
-    @apply bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm rounded-lg focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-primary-500 dark:focus:border-primary-400 block w-full p-2.5 shadow-sm transition-all;
+    @apply bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-base md:text-lg rounded-lg focus:ring-primary-500 dark:focus:ring-primary-400 focus:border-primary-500 dark:focus:border-primary-400 block w-full p-2.5 shadow-sm transition-all;
   }
 
   .card-surface {

@@ -382,7 +382,7 @@
           </div>
 
           <!-- Content -->
-          <div class="text-sm text-slate-700 dark:text-slate-300 leading-relaxed overflow-y-auto max-h-[60vh] py-2" v-html="activeViewNote.content">
+          <div class="text-base md:text-lg text-slate-700 dark:text-slate-300 leading-relaxed overflow-y-auto max-h-[60vh] py-2" v-html="activeViewNote.content">
           </div>
 
           <!-- Footer -->
