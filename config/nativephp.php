@@ -238,9 +238,9 @@ return [
         '7zip-location' => env('NATIVEPHP_7ZIP_LOCATION', 'C:\\Program Files\\7-Zip\\7z.exe'),
 
         // Android SDK versions
-        'compile_sdk' => 36,
-        'min_sdk' => 33,
-        'target_sdk' => 36,
+        'compile_sdk' => 35,
+        'min_sdk' => 24,
+        'target_sdk' => 35,
 
         /*
         |--------------------------------------------------------------------------

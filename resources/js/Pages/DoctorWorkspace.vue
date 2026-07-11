@@ -57,6 +57,10 @@
             <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
             {{ $t('workspace.export_pdf') }}
           </button>
+          <button @click="handleDownloadFiles" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-start">
+            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-3 3m0 0l-3-3m3 3V4" /></svg>
+            {{ $t('workspace.download_files') || 'Download Files' }}
+          </button>
           <template v-if="!isReadOnly">
             <hr class="my-1 border-slate-100 dark:border-slate-700" />
             <button v-if="selectedPatient?.status === 'archived'" @click="handleRestore" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors text-start">
@@ -151,7 +155,7 @@
           <div class="px-3 md:px-6 py-4 md:py-6 space-y-5">
             <!-- Section 1: Patient Summary (Header) -->
             <div ref="summaryRef" class="workspace-section">
-              <PatientSummary :patient="currentPatient" :isPrimaryDoctor="isPrimaryDoctor" @edit="openEditPatient" @delete="handleDelete" @share="showShareModal = true" />
+              <PatientSummary :patient="currentPatient" :isPrimaryDoctor="isPrimaryDoctor" @edit="openEditPatient" @delete="handleDelete" @share="showShareModal = true" @download="handleDownloadFiles" />
             </div>
 
             <!-- Section 2: Dynamic Categories -->
@@ -477,9 +481,41 @@ function handlePrint() {
 }
 
 function handleExport() {
+  if (selectedPatient.value) {
+    showActionMenu.value = false
+    window.open(`/workspace/${selectedPatient.value.uuid}/export`, '_blank')
+  }
+}
+
+async function handleDownloadFiles() {
   showActionMenu.value = false
-  if (!selectedPatient.value?.uuid) return
-  window.open(`/api/v1/workspace/${selectedPatient.value.uuid}/export`, '_blank')
+  if (!selectedPatient.value) return
+  
+  try {
+    const res = await axios.post(`/api/v1/workspace/${selectedPatient.value.uuid}/download-files`)
+    const jobId = res.data.jobId
+    
+    toast.info('Preparing files for download...', { timeout: 3000 })
+    
+    const interval = setInterval(async () => {
+      try {
+        const statusRes = await axios.get(`/api/v1/workspace/downloads/${jobId}/status`)
+        if (statusRes.data.status === 'completed') {
+          clearInterval(interval)
+          toast.success('Download started!')
+          window.location.href = statusRes.data.url
+        } else if (statusRes.data.status === 'error') {
+          clearInterval(interval)
+          toast.error(statusRes.data.message || 'Error creating zip')
+        }
+      } catch (err) {
+        clearInterval(interval)
+        toast.error('Error checking download status')
+      }
+    }, 2000)
+  } catch (error) {
+    toast.error('Failed to start download')
+  }
 }
 
 function toggleShowArchived() {
@@ -786,7 +822,15 @@ async function submitVisitForm() {
 let removeStart = null
 let removeFinish = null
 
+const handlePopState = (event) => {
+  // Prevent back button from exiting if on patient page
+  history.pushState(null, null, window.location.href)
+}
+
 onMounted(() => {
+  history.pushState(null, null, window.location.href)
+  window.addEventListener('popstate', handlePopState)
+
   performance.mark('vue-mount-start')
 
   try {
@@ -821,6 +865,7 @@ onMounted(() => {
 onUnmounted(() => {
   closeAllMenus()
   showSettings.value = false
+  window.removeEventListener('popstate', handlePopState)
   if (removeStart) removeStart()
   if (removeFinish) removeFinish()
 })

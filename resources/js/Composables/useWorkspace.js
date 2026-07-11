@@ -158,14 +158,21 @@ async function selectPatient(uuid) {
     }
 }
 
-function openPreview(file) {
+const previewSiblings = ref([]);
+const loadMoreSiblings = ref(null);
+
+function openPreview(file, siblings = [], loadMoreFn = null) {
     previewFile.value = file;
+    previewSiblings.value = siblings;
+    loadMoreSiblings.value = loadMoreFn;
     showPreview.value = true;
 }
 
 function closePreview() {
     showPreview.value = false;
     previewFile.value = null;
+    previewSiblings.value = [];
+    loadMoreSiblings.value = null;
 }
 
 function refreshWorkspaceData() {
@@ -440,6 +447,8 @@ export function useWorkspace() {
         activeSection,
         expandedCategories,
         previewFile,
+        previewSiblings,
+        loadMoreSiblings,
         showPreview,
         isMobile,
         isPrimaryDoctor,

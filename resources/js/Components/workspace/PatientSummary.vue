@@ -51,16 +51,20 @@
       <!-- Left Side: Diagnosis and Actions -->
       <div class="flex flex-col items-start gap-2.5 w-full md:w-auto">
         <!-- Action Buttons — hidden completely when read-only access -->
-        <div v-if="!isReadOnly" class="flex items-center gap-3 w-full justify-start md:justify-end">
-          <button @click="$emit('share')" class="px-4 py-1.5 bg-primary-50 hover:bg-primary-100 dark:hover:bg-primary-900/20 border border-primary-200 text-primary-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors">
+        <div v-if="!isReadOnly" class="flex flex-wrap items-center gap-2 w-full justify-start md:justify-end">
+          <button @click="$emit('download')" class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:hover:bg-indigo-900/20 border border-indigo-200 text-indigo-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-3 3m0 0l-3-3m3 3V4" /></svg>
+            تحميل الملفات
+          </button>
+          <button @click="$emit('share')" class="px-3 py-1.5 bg-primary-50 hover:bg-primary-100 dark:hover:bg-primary-900/20 border border-primary-200 text-primary-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
             مشاركة
           </button>
-          <button @click="$emit('edit')" class="btn-primary !px-4 !py-1.5 flex items-center gap-1.5 text-xs font-bold">
+          <button @click="$emit('edit')" class="btn-primary !px-3 !py-1.5 flex items-center gap-1.5 text-xs font-bold">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
             تعديل
           </button>
-          <button @click="$emit('delete')" class="px-4 py-1.5 bg-rose-50 hover:bg-rose-100 dark:hover:bg-rose-900/20 border border-rose-200 text-rose-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors">
+          <button @click="$emit('delete')" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:hover:bg-rose-900/20 border border-rose-200 text-rose-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
             مسح المريض
           </button>

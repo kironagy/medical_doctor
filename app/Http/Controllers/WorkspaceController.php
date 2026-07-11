@@ -371,4 +371,43 @@ class WorkspaceController extends Controller
             'doctorName' => auth()->user()->name,
         ]);
     }
+
+    public function downloadFiles(string $uuid)
+    {
+        $patientModel = Patient::where('uuid', $uuid)->firstOrFail();
+        $jobId = Str::uuid()->toString();
+
+        \App\Jobs\ExportPatientFilesJob::dispatch($patientModel, $jobId);
+
+        return response()->json([
+            'jobId' => $jobId,
+            'status' => 'processing',
+        ]);
+    }
+
+    public function checkDownloadStatus(string $jobId)
+    {
+        $status = \Illuminate\Support\Facades\Cache::get("export_patient_files_{$jobId}");
+        
+        if (!$status) {
+            return response()->json(['status' => 'not_found'], 404);
+        }
+
+        return response()->json($status);
+    }
+
+    public function downloadZip(string $uuid, string $jobId)
+    {
+        $zipName = "patient_{$uuid}_files.zip";
+        $zipPath = \Illuminate\Support\Facades\Storage::disk('local')->path($zipName);
+
+        if (!file_exists($zipPath)) {
+            abort(404);
+        }
+
+        $patient = \App\Domains\Patients\Models\Patient::where('uuid', $uuid)->first();
+        $downloadName = $patient ? (str_replace(' ', '_', $patient->name) . '_' . $patient->code . '_files.zip') : $zipName;
+
+        return response()->download($zipPath, $downloadName)->deleteFileAfterSend(true);
+    }
 }

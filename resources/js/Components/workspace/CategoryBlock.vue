@@ -153,7 +153,7 @@
                     </div>
                   </template>
                   <template v-else>
-                    <img v-if="item.thumbnail_url" :src="item.thumbnail_url" class="object-cover w-full h-full absolute inset-0 z-0" @click="openPreview(item)" @error="e => {
+                    <img v-if="item.thumbnail_url" :src="item.thumbnail_url" class="object-cover w-full h-full absolute inset-0 z-0" @click="openPreview(item, serverFiles, (page) => loadMoreForPreview(page))" @error="e => {
                       const relativeUrl = '/api/v1/files/' + item.uuid + '/thumbnail';
                       if (!e.target.src.endsWith(relativeUrl)) {
                         e.target.src = relativeUrl;
@@ -162,7 +162,16 @@
                         e.target.nextElementSibling?.classList.remove('hidden');
                       }
                     }" />
-                    <div :class="{ 'hidden': item.thumbnail_url }" class="w-full h-full flex items-center justify-center z-10 bg-slate-50 dark:bg-slate-950" @click="openPreview(item)">
+
+                    <!-- Fallback / Play icon overlay for Video -->
+                    <div v-if="item.mime_type?.startsWith('video/')" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none" :class="{ 'bg-slate-900/40': item.thumbnail_url }">
+                      <div class="w-10 h-10 bg-white/90 dark:bg-slate-800/90 rounded-full flex items-center justify-center backdrop-blur-sm shadow-sm">
+                        <svg class="w-5 h-5 text-indigo-600 dark:text-indigo-400 translate-x-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      </div>
+                    </div>
+
+                    <!-- Generic fallback for image without thumbnail -->
+                    <div :class="{ 'hidden': item.thumbnail_url }" class="w-full h-full flex items-center justify-center z-10 bg-slate-50 dark:bg-slate-950" @click="openPreview(item, serverFiles, (page) => loadMoreForPreview(page))">
                       <div v-if="item.mime_type?.startsWith('image/')" class="text-slate-400 flex items-center justify-center">
                         <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                       </div>
@@ -465,6 +474,30 @@ async function loadCategoryData(page = 1) {
     toast.error('Failed to load files')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadMoreForPreview(currentPageForPreview) {
+  if (!selectedPatient.value?.uuid) return []
+  if (currentPageForPreview >= serverMeta.value.last_page) return []
+
+  try {
+    const params = {
+      page: currentPageForPreview + 1,
+      per_page: perPage,
+      sort: sortBy.value
+    }
+    if (searchQuery.value) params.search = searchQuery.value
+    if (dateFilter.value && customDateFrom.value) params.date_from = customDateFrom.value
+    if (dateFilter.value && customDateTo.value) params.date_to = customDateTo.value
+    if (timeFilter.value && customTimeFrom.value) params.time_from = customTimeFrom.value
+    if (timeFilter.value && customTimeTo.value) params.time_to = customTimeTo.value
+
+    const response = await axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params })
+    return response.data.data || []
+  } catch (e) {
+    console.error('Failed to load more for preview', e)
+    return []
   }
 }
 

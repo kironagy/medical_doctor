@@ -15,7 +15,7 @@
     </div>
 
     <!-- Search Box -->
-    <div class="px-3 py-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+    <div class="px-3 pb-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0" :class="isMobile ? 'pt-14' : 'pt-3'">
       <div class="relative">
         <input
           v-model="searchQuery"

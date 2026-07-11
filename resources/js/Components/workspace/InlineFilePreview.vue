@@ -33,20 +33,34 @@
           </div>
         </div>
 
-        <div class="flex-1 flex items-center justify-center p-2 md:p-6 overflow-hidden relative" @wheel="onWheel">
+        <div class="flex-1 flex items-center justify-center p-2 md:p-6 overflow-hidden relative group" @wheel="onWheel" @touchstart="onTouchStart" @touchend="onTouchEnd">
+          
+          <!-- Prev Button (Right Arrow in RTL) -->
+          <button v-if="hasPrev" @click.stop="prevFile" class="absolute right-2 md:right-6 top-1/2 -translate-y-1/2 p-3 bg-slate-800/50 hover:bg-slate-700/80 text-white rounded-full transition-all opacity-50 hover:opacity-100 focus:opacity-100 z-10" :title="$t('common.previous')">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+          </button>
+
+          <!-- Next Button (Left Arrow in RTL) -->
+          <button v-if="hasNext" @click.stop="nextFile" class="absolute left-2 md:left-6 top-1/2 -translate-y-1/2 p-3 bg-slate-800/50 hover:bg-slate-700/80 text-white rounded-full transition-all opacity-50 hover:opacity-100 focus:opacity-100 z-10" :title="$t('common.next')">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
+          </button>
           <div v-if="file?.mime_type?.startsWith('image/')"
-            class="flex items-center justify-center w-full h-full overflow-auto overscroll-contain cursor-zoom-in"
-            :class="{ 'cursor-zoom-out': isZoomed }"
-            @click="toggleZoom"
+            class="flex items-center justify-center w-full h-full overflow-hidden overscroll-none"
+            :class="isZoomed ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in'"
+            @click.self="isZoomed ? null : toggleZoom()"
+            @mousedown="onImageMouseDown"
+            @mousemove="onImageMouseMove"
+            @mouseup="onImageMouseUp"
+            @mouseleave="onImageMouseUp"
           >
             <img
               :src="fileUrl"
               loading="lazy"
               decoding="async"
-              class="transition-transform duration-200 rounded-lg"
-              :class="isZoomed ? 'max-w-none' : 'max-w-full max-h-full object-contain'"
-              :style="isZoomed ? { transform: 'scale(2)', transformOrigin: zoomOrigin } : {}"
-              @mousemove="onImageMouseMove"
+              class="transition-transform duration-200 rounded-lg select-none"
+              :class="isZoomed ? 'max-w-none pointer-events-none' : 'max-w-full max-h-full object-contain pointer-events-auto'"
+              :style="isZoomed ? { transform: `scale(2) translate(${panX / 2}px, ${panY / 2}px)` } : {}"
+              @click.stop="isZoomed ? null : toggleZoom()"
               @error="e => {
                 const relativeUrl = '/api/v1/files/' + file.uuid;
                 if (!e.target.src.endsWith(relativeUrl)) {
@@ -110,15 +124,78 @@ const { t } = useI18n()
 const {
   showPreview: show,
   previewFile: file,
+  previewSiblings,
   closePreview: close,
   canDelete,
   removeFileLocally,
-  categories
 } = useWorkspace()
 
-const isZoomed = ref(false)
-const zoomOrigin = ref('center center')
-const imageRef = ref(null)
+const siblings = computed(() => {
+  if (!previewSiblings.value) return []
+  return previewSiblings.value.filter(r => r.mime_type?.startsWith('image/') || r.mime_type?.startsWith('video/'))
+})
+
+const currentIndex = computed(() => {
+  if (!file.value || !siblings.value.length) return -1
+  return siblings.value.findIndex(r => r.uuid === file.value.uuid)
+})
+
+const hasNext = computed(() => currentIndex.value !== -1 && currentIndex.value < siblings.value.length - 1)
+const hasPrev = computed(() => currentIndex.value > 0)
+
+const isLoadingMore = ref(false)
+
+async function nextFile() {
+  if (currentIndex.value >= siblings.value.length - 2 && loadMoreSiblings.value && !isLoadingMore.value) {
+    isLoadingMore.value = true
+    const newFiles = await loadMoreSiblings.value(Math.ceil(siblings.value.length / 6)) // approximate page
+    if (newFiles && newFiles.length > 0) {
+      previewSiblings.value = [...previewSiblings.value, ...newFiles]
+    }
+    isLoadingMore.value = false
+  }
+
+  if (hasNext.value) file.value = siblings.value[currentIndex.value + 1]
+}
+
+function prevFile() {
+  if (hasPrev.value) file.value = siblings.value[currentIndex.value - 1]
+}
+
+const touchStartX = ref(0)
+function onTouchStart(e) {
+  if (isZoomed.value) return
+  touchStartX.value = e.changedTouches[0].screenX
+}
+function onTouchEnd(e) {
+  if (isZoomed.value) return
+  const touchEndX = e.changedTouches[0].screenX
+  const diff = touchStartX.value - touchEndX
+  if (Math.abs(diff) > 50) {
+    if (diff > 0) {
+      nextFile()
+    } else {
+      prevFile()
+    }
+  }
+}
+
+import { onMounted, onUnmounted } from 'vue'
+
+const handleKeydown = (e) => {
+  if (!show.value) return
+  if (e.key === 'ArrowLeft') nextFile() // Next because RTL
+  if (e.key === 'ArrowRight') prevFile() // Prev because RTL
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
+
 
 const signedUrl = ref('')
 const signedThumbnailUrl = ref('')
@@ -177,16 +254,47 @@ async function confirmDelete() {
   }
 }
 
+const isZoomed = ref(false)
+const isDragging = ref(false)
+const dragStartX = ref(0)
+const dragStartY = ref(0)
+const currentPanX = ref(0)
+const currentPanY = ref(0)
+const panX = ref(0)
+const panY = ref(0)
+const imageRef = ref(null)
+
 function toggleZoom() {
   isZoomed.value = !isZoomed.value
+  if (!isZoomed.value) {
+    panX.value = 0
+    panY.value = 0
+    currentPanX.value = 0
+    currentPanY.value = 0
+  }
+}
+
+function onImageMouseDown(e) {
+  if (!isZoomed.value) return
+  e.preventDefault()
+  isDragging.value = true
+  dragStartX.value = e.clientX
+  dragStartY.value = e.clientY
 }
 
 function onImageMouseMove(e) {
-  if (!isZoomed.value || !imageRef.value) return
-  const rect = imageRef.value.getBoundingClientRect()
-  const x = ((e.clientX - rect.left) / rect.width) * 100
-  const y = ((e.clientY - rect.top) / rect.height) * 100
-  zoomOrigin.value = `${x}% ${y}%`
+  if (!isDragging.value || !isZoomed.value) return
+  const dx = e.clientX - dragStartX.value
+  const dy = e.clientY - dragStartY.value
+  panX.value = currentPanX.value + dx
+  panY.value = currentPanY.value + dy
+}
+
+function onImageMouseUp(e) {
+  if (!isDragging.value) return
+  isDragging.value = false
+  currentPanX.value = panX.value
+  currentPanY.value = panY.value
 }
 
 function onWheel(e) {
