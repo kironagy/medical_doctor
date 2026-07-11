@@ -319,7 +319,11 @@ function formatBytes(bytes) {
 
 watch(show, (val) => {
   if (!val) {
-    isZoomed.value = false
+    scale.value = 1
+    panX.value = 0
+    panY.value = 0
+    currentPanX.value = 0
+    currentPanY.value = 0
   }
 })
 </script>
