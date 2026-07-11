@@ -162,6 +162,79 @@ function prevFile() {
   if (hasPrev.value) file.value = siblings.value[currentIndex.value - 1]
 }
 
+import { onMounted, onUnmounted } from 'vue'
+
+const handleKeydown = (e) => {
+  if (!show.value) return
+  if (e.key === 'ArrowLeft') nextFile() // Next because RTL
+  if (e.key === 'ArrowRight') prevFile() // Prev because RTL
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
+
+const signedUrl = ref('')
+const signedThumbnailUrl = ref('')
+
+const fileUrl = computed(() => {
+  return signedUrl.value || file.value?.url || ''
+})
+
+const thumbnailPostUrl = computed(() => {
+  return signedThumbnailUrl.value || file.value?.thumbnail_url || ''
+})
+
+const fetchSignedUrls = async () => {
+  if (!file.value?.uuid) return
+  try {
+    const res = await axios.get(`/api/v1/files/${file.value.uuid}/signed-url`)
+    signedUrl.value = res.data.url
+  } catch (e) {
+    console.warn('Failed to fetch signed URL, using direct URL', e)
+  }
+}
+
+watch(file, async (newFile) => {
+  signedUrl.value = ''
+  signedThumbnailUrl.value = ''
+  if (newFile) {
+    await fetchSignedUrls()
+  }
+}, { immediate: true })
+
+const deleting = ref(false)
+
+const dialog = useDialog()
+const toast = useToast()
+
+async function confirmDelete() {
+   if (deleting.value) return
+   const confirmed = await dialog.confirm({
+     title: t('file_preview.delete_confirm_title'),
+     message: t('file_preview.delete_confirm_message', { filename: file.value?.title || file.value?.file_name }),
+     confirmText: t('file_preview.delete_confirm_button'),
+     style: 'danger',
+   })
+  if (!confirmed) return
+  deleting.value = true
+  try {
+    await axios.delete(`/api/v1/files/${file.value.uuid}`)
+    removeFileLocally(file.value.uuid)
+    close()
+    toast.success(t('file_preview.delete_success'))
+  } catch (e) {
+    console.error('Delete failed:', e)
+    toast.error(e.response?.data?.message || 'Failed to delete file')
+  } finally {
+    deleting.value = false
+  }
+}
+
 const scale = ref(1)
 const isZoomed = computed(() => scale.value > 1)
 const isDragging = ref(false)
