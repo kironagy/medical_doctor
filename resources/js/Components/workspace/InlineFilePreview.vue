@@ -59,7 +59,7 @@
               decoding="async"
               class="transition-transform rounded-lg select-none"
               :class="isZoomed ? 'max-w-none pointer-events-none' : 'max-w-full max-h-full object-contain pointer-events-auto'"
-              :style="{ transform: `translate(${panX}px, ${panY}px) scale(${scale})`, transitionDuration: isDragging || initialPinchDistance > 0 ? '0s' : '0.2s' }"
+              :style="imageStyle"
               @dblclick.stop="toggleZoom()"
               @error="e => {
                 const relativeUrl = '/api/v1/files/' + file.uuid;
@@ -172,6 +172,14 @@ const currentPanY = ref(0)
 const panX = ref(0)
 const panY = ref(0)
 const imageRef = ref(null)
+
+const imageStyle = computed(() => {
+  return {
+    transform: `translate(${panX.value}px, ${panY.value}px) scale(${scale.value})`,
+    transitionDuration: isDragging.value || initialPinchDistance.value > 0 ? '0s' : '0.2s',
+    transformOrigin: 'center center'
+  }
+})
 
 function toggleZoom() {
   if (scale.value > 1) {
