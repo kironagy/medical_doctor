@@ -175,7 +175,7 @@ async function fetchLatestVersion() {
     const res = await fetch(GITHUB_API, {
       headers: {
         'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'MedicalPlus-App'
+        'User-Agent': 'prof-hosam-fekry-App'
       }
     })
     if (res.ok) {
@@ -227,7 +227,7 @@ function handleDownloadApp() {
     } else {
       const link = document.createElement('a')
       link.href = downloadUrl.value
-      link.download = 'MedicalPlus.apk'
+      link.download = 'prof-hosam-fekry.apk'
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)

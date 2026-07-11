@@ -82,7 +82,7 @@ async function fetchRelease() {
     const res = await fetch(GITHUB_API, {
       headers: {
         'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'MedicalPlus-App'
+        'User-Agent': 'prof-hosam-fekry-App'
       }
     });
     if (res.status === 404) {
@@ -112,7 +112,7 @@ function startDownload() {
   } else {
     const link = document.createElement('a');
     link.href = release.value.downloadUrl;
-    link.download = 'MedicalPlus.apk';
+    link.setAttribute('download', 'prof-hosam-fekry.apk');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

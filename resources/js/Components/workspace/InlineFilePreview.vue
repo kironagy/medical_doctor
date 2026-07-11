@@ -33,7 +33,7 @@
           </div>
         </div>
 
-        <div class="flex-1 flex items-center justify-center p-2 md:p-6 overflow-hidden relative group" @wheel="onWheel" @touchstart="onTouchStart" @touchend="onTouchEnd">
+        <div class="flex-1 flex items-center justify-center p-2 md:p-6 overflow-hidden relative group" @wheel="onWheel" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
           
           <!-- Prev Button (Right Arrow in RTL) -->
           <button v-if="hasPrev" @click.stop="prevFile" class="absolute right-2 md:right-6 top-1/2 -translate-y-1/2 p-3 bg-slate-800/50 hover:bg-slate-700/80 text-white rounded-full transition-all opacity-50 hover:opacity-100 focus:opacity-100 z-10" :title="$t('common.previous')">
@@ -47,7 +47,7 @@
           <div v-if="file?.mime_type?.startsWith('image/')"
             class="flex items-center justify-center w-full h-full overflow-hidden overscroll-none"
             :class="isZoomed ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-zoom-in'"
-            @click.self="isZoomed ? null : toggleZoom()"
+            @dblclick.self="toggleZoom()"
             @mousedown="onImageMouseDown"
             @mousemove="onImageMouseMove"
             @mouseup="onImageMouseUp"
@@ -57,10 +57,10 @@
               :src="fileUrl"
               loading="lazy"
               decoding="async"
-              class="transition-transform duration-200 rounded-lg select-none"
+              class="transition-transform rounded-lg select-none"
               :class="isZoomed ? 'max-w-none pointer-events-none' : 'max-w-full max-h-full object-contain pointer-events-auto'"
-              :style="isZoomed ? { transform: `scale(2) translate(${panX / 2}px, ${panY / 2}px)` } : {}"
-              @click.stop="isZoomed ? null : toggleZoom()"
+              :style="{ transform: `translate(${panX}px, ${panY}px) scale(${scale})`, transitionDuration: isDragging || initialPinchDistance > 0 ? '0s' : '0.2s' }"
+              @dblclick.stop="toggleZoom()"
               @error="e => {
                 const relativeUrl = '/api/v1/files/' + file.uuid;
                 if (!e.target.src.endsWith(relativeUrl)) {
@@ -162,99 +162,8 @@ function prevFile() {
   if (hasPrev.value) file.value = siblings.value[currentIndex.value - 1]
 }
 
-const touchStartX = ref(0)
-function onTouchStart(e) {
-  if (isZoomed.value) return
-  touchStartX.value = e.changedTouches[0].screenX
-}
-function onTouchEnd(e) {
-  if (isZoomed.value) return
-  const touchEndX = e.changedTouches[0].screenX
-  const diff = touchStartX.value - touchEndX
-  if (Math.abs(diff) > 50) {
-    if (diff > 0) {
-      nextFile()
-    } else {
-      prevFile()
-    }
-  }
-}
-
-import { onMounted, onUnmounted } from 'vue'
-
-const handleKeydown = (e) => {
-  if (!show.value) return
-  if (e.key === 'ArrowLeft') nextFile() // Next because RTL
-  if (e.key === 'ArrowRight') prevFile() // Prev because RTL
-}
-
-onMounted(() => {
-  window.addEventListener('keydown', handleKeydown)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown)
-})
-
-
-const signedUrl = ref('')
-const signedThumbnailUrl = ref('')
-
-const fileUrl = computed(() => {
-  return signedUrl.value || file.value?.url || ''
-})
-
-const thumbnailPostUrl = computed(() => {
-  return signedThumbnailUrl.value || file.value?.thumbnail_url || ''
-})
-
-const fetchSignedUrls = async () => {
-  if (!file.value?.uuid) return
-  try {
-    const res = await axios.get(`/api/v1/files/${file.value.uuid}/signed-url`)
-    signedUrl.value = res.data.url
-  } catch (e) {
-    console.warn('Failed to fetch signed URL, using direct URL', e)
-  }
-}
-
-watch(file, async (newFile) => {
-  signedUrl.value = ''
-  signedThumbnailUrl.value = ''
-  if (newFile) {
-    await fetchSignedUrls()
-  }
-}, { immediate: true })
-
-const deleting = ref(false)
-
-const dialog = useDialog()
-const toast = useToast()
-
-async function confirmDelete() {
-   if (deleting.value) return
-   const confirmed = await dialog.confirm({
-     title: $t('file_preview.delete_confirm_title'),
-     message: $t('file_preview.delete_confirm_message', { filename: file.value?.title || file.value?.file_name }),
-     confirmText: $t('file_preview.delete_confirm_button'),
-     style: 'danger',
-   })
-  if (!confirmed) return
-  deleting.value = true
-  try {
-    await axios.delete(`/api/v1/files/${file.value.uuid}`)
-    removeFileLocally(file.value.uuid)
-    close()
-    toast.success($t('file_preview.delete_success'))
-  } catch (e) {
-    console.error('Delete failed:', e)
-    toast.error(e.response?.data?.message || 'Failed to delete file')
-  } finally {
-    deleting.value = false
-  }
-}
-
-const isZoomed = ref(false)
+const scale = ref(1)
+const isZoomed = computed(() => scale.value > 1)
 const isDragging = ref(false)
 const dragStartX = ref(0)
 const dragStartY = ref(0)
@@ -265,25 +174,96 @@ const panY = ref(0)
 const imageRef = ref(null)
 
 function toggleZoom() {
-  isZoomed.value = !isZoomed.value
-  if (!isZoomed.value) {
+  if (scale.value > 1) {
+    scale.value = 1
     panX.value = 0
     panY.value = 0
     currentPanX.value = 0
     currentPanY.value = 0
+  } else {
+    scale.value = 2
+  }
+}
+
+const touchStartX = ref(0)
+const initialPinchDistance = ref(0)
+const initialScale = ref(1)
+
+function onTouchStart(e) {
+  if (e.touches.length === 2) {
+    initialPinchDistance.value = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    )
+    initialScale.value = scale.value
+  } else if (e.touches.length === 1) {
+    if (scale.value > 1) {
+      isDragging.value = true
+      dragStartX.value = e.touches[0].clientX
+      dragStartY.value = e.touches[0].clientY
+      currentPanX.value = panX.value
+      currentPanY.value = panY.value
+    } else {
+      touchStartX.value = e.touches[0].clientX
+    }
+  }
+}
+
+function onTouchMove(e) {
+  if (e.touches.length === 2 && initialPinchDistance.value > 0) {
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    )
+    const zoomRatio = dist / initialPinchDistance.value
+    const newScale = Math.max(1, Math.min(10, initialScale.value * zoomRatio))
+    scale.value = newScale
+    if (newScale === 1) {
+      panX.value = 0
+      panY.value = 0
+      currentPanX.value = 0
+      currentPanY.value = 0
+    }
+  } else if (e.touches.length === 1 && scale.value > 1 && isDragging.value) {
+    panX.value = currentPanX.value + (e.touches[0].clientX - dragStartX.value)
+    panY.value = currentPanY.value + (e.touches[0].clientY - dragStartY.value)
+  }
+}
+
+function onTouchEnd(e) {
+  if (e.touches.length < 2) {
+    initialPinchDistance.value = 0
+  }
+  if (e.touches.length === 0) {
+    if (isDragging.value) {
+      isDragging.value = false
+      currentPanX.value = panX.value
+      currentPanY.value = panY.value
+    }
+    if (scale.value === 1 && touchStartX.value) {
+      const touchEndX = e.changedTouches[0].clientX
+      const diff = touchStartX.value - touchEndX
+      if (Math.abs(diff) > 50) {
+        if (diff > 0) nextFile()
+        else prevFile()
+      }
+      touchStartX.value = 0
+    }
   }
 }
 
 function onImageMouseDown(e) {
-  if (!isZoomed.value) return
+  if (scale.value === 1) return
   e.preventDefault()
   isDragging.value = true
   dragStartX.value = e.clientX
   dragStartY.value = e.clientY
+  currentPanX.value = panX.value
+  currentPanY.value = panY.value
 }
 
 function onImageMouseMove(e) {
-  if (!isDragging.value || !isZoomed.value) return
+  if (!isDragging.value || scale.value === 1) return
   const dx = e.clientX - dragStartX.value
   const dy = e.clientY - dragStartY.value
   panX.value = currentPanX.value + dx
@@ -298,8 +278,26 @@ function onImageMouseUp(e) {
 }
 
 function onWheel(e) {
-  if (file.value?.mime_type?.startsWith('image/') && isZoomed.value) {
-    e.preventDefault()
+  if (!file.value?.mime_type?.startsWith('image/')) return
+  e.preventDefault()
+  
+  if (e.ctrlKey) {
+    // pinch to zoom
+    const zoomDelta = e.deltaY > 0 ? 0.9 : 1.1
+    const newScale = Math.max(1, Math.min(10, scale.value * zoomDelta))
+    scale.value = newScale
+    if (newScale === 1) {
+      panX.value = 0
+      panY.value = 0
+      currentPanX.value = 0
+      currentPanY.value = 0
+    }
+  } else if (scale.value > 1) {
+    // pan
+    panX.value -= e.deltaX
+    panY.value -= e.deltaY
+    currentPanX.value = panX.value
+    currentPanY.value = panY.value
   }
 }
 

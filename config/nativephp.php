@@ -239,7 +239,7 @@ return [
 
         // Android SDK versions
         'compile_sdk' => 35,
-        'min_sdk' => 24,
+        'min_sdk' => env('NATIVEPHP_ANDROID_MIN_SDK', 26),
         'target_sdk' => 35,
 
         /*

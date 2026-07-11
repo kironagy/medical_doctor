@@ -144,7 +144,7 @@
         <div v-else class="w-full" dir="rtl">
           <!-- Mobile Back Button Header -->
           <div v-if="isMobile" class="sticky top-0 bg-white dark:bg-slate-900 border-b border-teal-100 dark:border-slate-850 z-30 px-4 py-3.5 flex items-center justify-center">
-            <button @click="selectedPatientId = null; mobilePatientListOpen = true" class="flex items-center gap-2 text-teal-800 dark:text-teal-400 font-extrabold text-base hover:text-teal-900 transition-colors">
+            <button @click="closePatient" class="flex items-center gap-2 text-teal-800 dark:text-teal-400 font-extrabold text-base hover:text-teal-900 transition-colors">
               <span>العودة لقائمة المرضى</span>
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
@@ -270,6 +270,7 @@ const props = defineProps({
 const {
   selectedPatient,
   selectedPatientId,
+  closePatient,
   workspaceData,
   loadingPatient,
   isMobile,

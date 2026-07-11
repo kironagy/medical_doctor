@@ -41,6 +41,23 @@ if (typeof window !== "undefined") {
             isMobile.value = window.innerWidth < 768;
         }, 100);
     });
+
+    window.addEventListener("popstate", (e) => {
+        if (showPreview.value) {
+            // Close preview and stay on patient page
+            showPreview.value = false;
+            previewFile.value = null;
+            previewSiblings.value = [];
+            loadMoreSiblings.value = null;
+        } else if (selectedPatientId.value) {
+            // Close patient and go back to list
+            selectedPatientId.value = null;
+            workspaceData.value = null;
+            mobilePatientListOpen.value = true;
+            // Clear URL hash
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+    });
 }
 
 const selectedPatient = computed(() => {
@@ -138,6 +155,11 @@ function setPatients(patientList) {
 
 async function selectPatient(uuid) {
     if (!uuid) return;
+    
+    if (typeof window !== "undefined" && !selectedPatientId.value) {
+        window.history.pushState({ view: "patient", uuid }, "", "#patient");
+    }
+    
     showSettings.value = false;
     selectedPatientId.value = uuid;
     loadingPatient.value = true;
@@ -162,6 +184,9 @@ const previewSiblings = ref([]);
 const loadMoreSiblings = ref(null);
 
 function openPreview(file, siblings = [], loadMoreFn = null) {
+    if (typeof window !== "undefined") {
+        window.history.pushState({ view: "preview" }, "", "#preview");
+    }
     previewFile.value = file;
     previewSiblings.value = siblings;
     loadMoreSiblings.value = loadMoreFn;
@@ -169,10 +194,24 @@ function openPreview(file, siblings = [], loadMoreFn = null) {
 }
 
 function closePreview() {
-    showPreview.value = false;
-    previewFile.value = null;
-    previewSiblings.value = [];
-    loadMoreSiblings.value = null;
+    if (typeof window !== "undefined" && window.location.hash === "#preview") {
+        window.history.back(); // Triggers popstate which closes it
+    } else {
+        showPreview.value = false;
+        previewFile.value = null;
+        previewSiblings.value = [];
+        loadMoreSiblings.value = null;
+    }
+}
+
+function closePatient() {
+    if (typeof window !== "undefined" && window.location.hash === "#patient") {
+        window.history.back(); // Triggers popstate which closes it
+    } else {
+        selectedPatientId.value = null;
+        workspaceData.value = null;
+        mobilePatientListOpen.value = true;
+    }
 }
 
 function refreshWorkspaceData() {
@@ -481,6 +520,7 @@ export function useWorkspace() {
         isCategoryLoaded,
         openPreview,
         closePreview,
+        closePatient,
         refreshWorkspaceData,
         addFileLocally,
         updateFileLocally,
