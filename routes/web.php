@@ -129,3 +129,6 @@ Route::middleware('auth')->group(function () {
         Route::get('/admin/doctors/{doctor}', [App\Http\Controllers\Admin\DoctorController::class, 'apiShow']);
     });
 });
+
+// Added for Native PHP offline sync
+Route::post('/api/native/sync', [\App\Http\Controllers\NativeSyncController::class, 'sync'])->middleware('auth');

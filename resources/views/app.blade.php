@@ -16,10 +16,19 @@
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-        <!-- Fonts -->
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <!-- Local Fonts (offline-ready) -->
+        <style>
+          @font-face { font-family: 'Cairo'; font-style: normal; font-weight: 300; font-display: swap; src: url('/fonts/cairo-300.ttf') format('truetype'); }
+          @font-face { font-family: 'Cairo'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/cairo-400.ttf') format('truetype'); }
+          @font-face { font-family: 'Cairo'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/cairo-500.ttf') format('truetype'); }
+          @font-face { font-family: 'Cairo'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/cairo-600.ttf') format('truetype'); }
+          @font-face { font-family: 'Cairo'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/cairo-700.ttf') format('truetype'); }
+          @font-face { font-family: 'Inter'; font-style: normal; font-weight: 300; font-display: swap; src: url('/fonts/inter-300.ttf') format('truetype'); }
+          @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/inter-400.ttf') format('truetype'); }
+          @font-face { font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/inter-500.ttf') format('truetype'); }
+          @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/inter-600.ttf') format('truetype'); }
+          @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/inter-700.ttf') format('truetype'); }
+        </style>
 
         <link rel="dns-prefetch" href="{{ url('/') }}">
         <link rel="preconnect" href="{{ url('/') }}">

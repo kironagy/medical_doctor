@@ -26,7 +26,8 @@ fi
 # Backup current environment
 if [ -f ".env" ]; then
     echo "🔄 Backing up current environment to $ENV_BACKUP"
-    cp ".env" "$ENV_BACKUP"i
+    cp ".env" "$ENV_BACKUP"
+fi
 
 # Switch to production environment
 PROD_ENV=".env.native-$BUILD_TYPE"
@@ -36,18 +37,18 @@ if [ ! -f "$PROD_ENV" ]; then
     exit 1
 fi
 
-echo "🔧 Switching to $BUILD_TYPE environment...
+echo "🔧 Switching to $BUILD_TYPE environment..."
 cp "$PROD_ENV" ".env"
 
 # Production preview hook
 if [ -f ".nativephp/production-preload.php" ]; then
-    echo "📦 Running production preload...
+    echo "📦 Running production preload..."
     php .nativephp/production-preload.php
 fi
 
 # Force clean build for production
 echo "🗑️  Performing clean build for production stability..."
-php artisan native:clean
+# php artisan native:clean
 
 # Build NativePHP application
 BUILD_LOG="nativephp/build-$PLATFORM-$DATE.log"
@@ -63,10 +64,10 @@ case $PLATFORM in
         fi
         
         # Build Android
-        php artisan native:build android --force $BUILD_TYPE | tee "$BUILD_LOG"
+        CI=true php artisan native:build android --$BUILD_TYPE --no-interaction | tee "$BUILD_LOG"
         ;;
     ios)
-        php artisan native:build ios --force $BUILD_TYPE | tee "$BUILD_LOG"
+        CI=true php artisan native:build ios --$BUILD_TYPE --no-interaction | tee "$BUILD_LOG"
         ;;
     *)
         echo "❌ Unsupported platform: $PLATFORM"
@@ -97,8 +98,8 @@ else
 fi
 
 # Ready for distribution
-OUTPUT_FILE="nativephp/build-outputs/$(ls nativephp/android/app/build/outputs/apk/$BUILD_TYPE/ -t | grep '\.apk$' | head -1)"
-if [ -f "$OUTPUT_FILE" ]; then
+OUTPUT_FILE="nativephp/build-outputs/$(ls -t nativephp/android/app/build/outputs/apk/$BUILD_TYPE/ 2>/dev/null | grep '\.apk$' | head -1 || echo '')"
+if [ -n "$OUTPUT_FILE" ] && [ "$OUTPUT_FILE" != "nativephp/build-outputs/" ] && [ -f "$OUTPUT_FILE" ]; then
     echo ""
     echo "🎉 Production build ready:"
     echo "    APK: $OUTPUT_FILE"

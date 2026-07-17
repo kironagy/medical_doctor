@@ -19,25 +19,31 @@ class NetworkStatusService
             return self::$isOnline;
         }
 
-        // We now ping dynamically at runtime without relying on build flags.
+        // Use a cache key so within the same request cycle we don't ping twice
+        $cacheKey = 'network_online_status';
+        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey);
+        if ($cached !== null) {
+            return self::$isOnline = $cached;
+        }
 
         try {
-            // Ping the mobile API to check connectivity
-            // We use a small timeout to avoid long hangs when offline
             $apiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
             if (!$apiUrl) {
                 return self::$isOnline = false;
             }
 
-            // We can just ping the domain, or a specific fast endpoint if available.
-            // Using a simple GET to the base URL or /api/v1/mobile/ping if it existed.
-            // We will just do a HEAD request to the API root.
-            Http::timeout(3)->head($apiUrl);
+            // Short 1.5s timeout — enough to detect connectivity without blocking page load
+            Http::timeout(2)->head($apiUrl);
             
+            // Cache success for 60 seconds
+            \Illuminate\Support\Facades\Cache::put($cacheKey, true, 60);
             return self::$isOnline = true;
         } catch (ConnectionException $e) {
+            // Cache failure for 15 seconds only so we re-check quickly when connection returns
+            \Illuminate\Support\Facades\Cache::put($cacheKey, false, 15);
             return self::$isOnline = false;
         } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Cache::put($cacheKey, false, 15);
             return self::$isOnline = false;
         }
     }

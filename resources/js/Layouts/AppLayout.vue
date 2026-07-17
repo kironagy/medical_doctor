@@ -211,7 +211,7 @@ const checkOnlineStatus = async () => {
         toast.success('Back online');
         isSyncing.value = true;
         try {
-            const res = await fetch('/api/native/sync', { method: 'POST', headers: { 'Accept': 'application/json' }});
+            const res = await window.axios.post('/api/native/sync', {}, { headers: { 'Accept': 'application/json' }});
             if (res.status === 200) {
                 syncCompleted.value = true;
                 toast.success('Synchronization completed');
@@ -283,7 +283,7 @@ onMounted(() => {
   // Initial Pull Sync when online on startup
   if (navigator.onLine) {
       isSyncing.value = true;
-      fetch('/api/native/sync', { method: 'POST', headers: { 'Accept': 'application/json' }})
+      window.axios.post('/api/native/sync', {}, { headers: { 'Accept': 'application/json' }})
         .then(() => {
             const ws = useWorkspace();
             ws.refreshPatientList();

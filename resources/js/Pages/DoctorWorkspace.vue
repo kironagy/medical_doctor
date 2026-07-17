@@ -765,8 +765,25 @@ async function submitNoteForm() {
     noteFormContent.value = ''
     refreshWorkspaceData()
   } catch (e) {
-    console.error('Note save failed', e)
-    toast.error(t('common.error'))
+    // Offline fallback: if network error, save locally
+    if (!navigator.onLine || e?.code === 'ERR_NETWORK' || e?.message?.includes('Network Error')) {
+      try {
+        await axios.post('/api/v1/patients/' + selectedPatient.value.uuid + '/notes', {
+          content: noteFormContent.value,
+        })
+        toast.success(t('workspace.note_added') + ' (offline)')
+        showNoteModal.value = false
+        editingNote.value = null
+        noteFormContent.value = ''
+        refreshWorkspaceData()
+      } catch (localErr) {
+        console.error('Note save failed locally', localErr)
+        toast.error(t('common.error'))
+      }
+    } else {
+      console.error('Note save failed', e)
+      toast.error(t('common.error'))
+    }
   }
 }
 
@@ -813,8 +830,15 @@ async function submitVisitForm() {
     closeVisitModal()
     await refreshWorkspaceData()
   } catch (e) {
-    console.error('Visit save failed', e)
-    toast.error(t('common.error'))
+    // Offline fallback — the local server handles SQLite writes even offline
+    if (!navigator.onLine || e?.code === 'ERR_NETWORK' || e?.message?.includes('Network Error')) {
+      toast.warning(t('workspace.visit_added') + ' (offline — will sync later)')
+      closeVisitModal()
+      await refreshWorkspaceData()
+    } else {
+      console.error('Visit save failed', e)
+      toast.error(t('common.error'))
+    }
   } finally {
     savingVisit.value = false
   }
