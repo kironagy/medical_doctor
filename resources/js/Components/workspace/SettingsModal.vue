@@ -245,8 +245,15 @@ function handleDownloadApp() {
   }
 }
 
-function logout() {
-  router.post('/logout')
+async function logout() {
+  try {
+      await axios.post('/logout', {}, {
+          headers: { 'X-Inertia': 'false', 'Accept': 'application/json' }
+      });
+  } catch (e) {}
+  setTimeout(() => {
+      window.location.replace('/login');
+  }, 100);
 }
 
 onMounted(() => {

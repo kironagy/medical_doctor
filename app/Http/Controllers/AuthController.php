@@ -45,6 +45,10 @@ class AuthController extends Controller
             // Best-effort remote token (non-blocking for offline)
             $this->acquireRemoteToken($email, $password);
 
+            if ($request->wantsJson() && !$request->header('X-Inertia')) {
+                return response()->json(['redirect' => $this->getRoleBasedUrl($request)]);
+            }
+
             return $this->roleBasedRedirect($request);
         }
 
@@ -69,6 +73,10 @@ class AuthController extends Controller
                         'email'   => $localUser->email,
                     ]);
 
+                    if ($request->wantsJson() && !$request->header('X-Inertia')) {
+                        return response()->json(['redirect' => $this->getRoleBasedUrl($request)]);
+                    }
+
                     return $this->roleBasedRedirect($request);
                 }
             } catch (\Throwable $e) {
@@ -80,6 +88,12 @@ class AuthController extends Controller
         }
 
         // Step 3: both paths failed
+        if ($request->wantsJson() && !$request->header('X-Inertia')) {
+            return response()->json([
+                'errors' => ['email' => ['The provided credentials do not match our records.']]
+            ], 422);
+        }
+
         return back()->withErrors([
             'email' => 'The provided credentials do not match our records.',
         ])->onlyInput('email');
@@ -148,14 +162,21 @@ class AuthController extends Controller
     /**
      * Redirect to the role-appropriate landing page after successful login.
      */
-    private function roleBasedRedirect(Request $request)
+    private function getRoleBasedUrl(Request $request): string
     {
         $user = $request->user();
         if ($user && ($user->role === 'super-admin' || $user->hasRole('super-admin'))) {
-            return redirect('/admin/doctors');
+            return '/admin/doctors';
         }
+        return '/dashboard';
+    }
 
-        return redirect()->intended('/dashboard');
+    /**
+     * Redirect to the role-appropriate landing page after successful login.
+     */
+    private function roleBasedRedirect(Request $request)
+    {
+        return redirect()->intended($this->getRoleBasedUrl($request));
     }
 
     public function logout(Request $request)
@@ -163,6 +184,10 @@ class AuthController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+
+        if ($request->wantsJson() && !$request->header('X-Inertia')) {
+            return response()->json(['success' => true]);
+        }
 
         return redirect('/login');
     }

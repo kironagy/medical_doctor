@@ -50,10 +50,10 @@
         </div>
         
         <div class="border-t border-slate-100 dark:border-slate-800 pt-2">
-          <Link href="/logout" method="post" as="button" class="flex items-center gap-3 w-full text-right text-sm text-rose-600 dark:text-rose-400 font-bold hover:text-rose-700 dark:hover:text-rose-300 p-2.5 bg-rose-50 dark:bg-rose-900/10 hover:bg-rose-100 dark:hover:bg-rose-900/20 rounded-xl transition-colors">
+          <button @click="logout" class="flex items-center gap-3 w-full text-right text-sm text-rose-600 dark:text-rose-400 font-bold hover:text-rose-700 dark:hover:text-rose-300 p-2.5 bg-rose-50 dark:bg-rose-900/10 hover:bg-rose-100 dark:hover:bg-rose-900/20 rounded-xl transition-colors">
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
             خروج
-          </Link>
+          </button>
         </div>
       </div>
     </aside>
@@ -100,9 +100,9 @@
             <p class="text-xs text-slate-500 dark:text-slate-400 truncate">{{ $page.props.auth?.user?.email || '' }}</p>
           </div>
         </div>
-        <Link href="/logout" method="post" as="button" class="w-full text-start text-sm text-rose-600 dark:text-rose-400 font-medium hover:text-rose-700 dark:hover:text-rose-300 p-2 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-colors">
+        <button @click="logout" class="w-full text-start text-sm text-rose-600 dark:text-rose-400 font-medium hover:text-rose-700 dark:hover:text-rose-300 p-2 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-colors">
           {{ $t('nav.sign_out') || 'Sign out' }}
-        </Link>
+        </button>
       </div>
     </aside>
 
@@ -187,6 +187,18 @@ const toast = useToast();
 
 const mobileMenuOpen = ref(false);
 const showSettings = ref(false);
+
+const logout = async () => {
+    try {
+        await window.axios.post('/logout', {}, {
+            headers: { 'X-Inertia': 'false', 'Accept': 'application/json' }
+        });
+    } catch (e) {}
+    // Force a full page reload to flush the Android WebView CookieManager
+    setTimeout(() => {
+        window.location.replace('/login');
+    }, 100);
+};
 
 watch(mobileMenuOpen, (isOpen) => {
   if (isOpen) {

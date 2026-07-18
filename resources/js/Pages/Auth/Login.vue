@@ -90,13 +90,39 @@ const form = useForm({
   remember: true,
 });
 
-const submit = () => {
-  form.post('/login', {
-    replace: true,
-    onSuccess: () => {
-      try { localStorage.setItem('np_persist_login', '1') } catch(e) {}
-    },
-    onFinish: () => form.reset('password'),
-  });
+const submit = async () => {
+  form.clearErrors();
+  form.processing = true;
+
+  try {
+    const response = await window.axios.post('/login', {
+      email: form.email,
+      password: form.password,
+      remember: form.remember
+    }, {
+      headers: {
+        'X-Inertia': 'false',
+        'Accept': 'application/json'
+      }
+    });
+
+    try { localStorage.setItem('np_persist_login', '1') } catch(e) {}
+
+    // Force a full page reload to flush the Android WebView CookieManager
+    setTimeout(() => {
+        window.location.replace(response.data.redirect || '/dashboard');
+    }, 100);
+
+  } catch (error) {
+    form.processing = false;
+    form.reset('password');
+
+    if (error.response?.data?.errors) {
+      // Apply the errors back to the Inertia form object
+      for (const key in error.response.data.errors) {
+        form.setError(key, error.response.data.errors[key][0]);
+      }
+    }
+  }
 };
 </script>
