@@ -169,10 +169,14 @@ class ApiService
     {
         try {
             $loginUrl = str_replace('/mobile', '', config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile')) . '/login';
-            $response = Http::timeout(30)->post(
-                $loginUrl,
-                ['email' => $email, 'password' => $password]
-            );
+            // Short timeout (5s) so offline / unreachable networks fail fast and
+            // don't make the login button spin forever.
+            $response = Http::timeout(5)
+                ->connectTimeout(3)
+                ->post(
+                    $loginUrl,
+                    ['email' => $email, 'password' => $password]
+                );
 
             if ($response->failed()) {
                 $body = $response->json();
