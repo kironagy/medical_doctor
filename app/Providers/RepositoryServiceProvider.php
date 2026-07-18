@@ -24,17 +24,17 @@ class RepositoryServiceProvider extends ServiceProvider
     {
         $isNative = (bool) env('NATIVEPHP_APP_ID');
 
-        // PatientRepository: always Hybrid (syncs to API + local cache)
-        $this->app->bind(PatientRepositoryInterface::class, HybridPatientRepository::class);
         $this->app->bind(UserRepositoryInterface::class, EloquentUserRepository::class);
 
         if ($isNative) {
             // In NativePHP (mobile): use Hybrid repos for offline support + sync
+            $this->app->bind(PatientRepositoryInterface::class, HybridPatientRepository::class);
             $this->app->bind(PatientFileRepositoryInterface::class, HybridPatientFileRepository::class);
             $this->app->bind(PatientNoteRepositoryInterface::class, HybridPatientNoteRepository::class);
             $this->app->bind(PatientVisitRepositoryInterface::class, HybridPatientVisitRepository::class);
         } else {
             // On the web server: use Eloquent directly (no local SQLite cache needed)
+            $this->app->bind(PatientRepositoryInterface::class, EloquentPatientRepository::class);
             $this->app->bind(PatientFileRepositoryInterface::class, EloquentPatientFileRepository::class);
             $this->app->bind(PatientNoteRepositoryInterface::class, EloquentPatientNoteRepository::class);
             $this->app->bind(PatientVisitRepositoryInterface::class, EloquentPatientVisitRepository::class);

@@ -205,16 +205,39 @@ class FullSyncService
      */
     private function syncLocalCache(array $records, string $modelClass): void
     {
+        if (empty($records)) return;
+
+        try {
+            $table = (new $modelClass)->getTable();
+            $validColumns = \Illuminate\Support\Facades\Schema::getColumnListing($table);
+        } catch (\Exception $e) {
+            $validColumns = [];
+        }
+
         foreach ($records as $record) {
             if (empty($record['uuid'])) {
                 continue;
+            }
+
+            $cleanRecord = [];
+            foreach ($record as $key => $value) {
+                if ($key !== 'id' && (empty($validColumns) || in_array($key, $validColumns))) {
+                    // Eloquent casts will handle JSON arrays if the column is valid.
+                    // If the value is an array and the column is valid but no cast exists, it might error,
+                    // but usually valid columns that receive arrays have casts.
+                    if (is_array($value) && !array_key_exists($key, (new $modelClass)->getCasts())) {
+                         $cleanRecord[$key] = json_encode($value);
+                    } else {
+                         $cleanRecord[$key] = $value;
+                    }
+                }
             }
 
             try {
                 $modelClass::unguard();
                 $modelClass::updateOrCreate(
                     ['uuid' => $record['uuid']],
-                    $record
+                    $cleanRecord
                 );
                 $modelClass::reguard();
             } catch (\Exception $e) {

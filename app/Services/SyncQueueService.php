@@ -162,10 +162,20 @@ class SyncQueueService
                 $jsonValue = (string) $value;
             }
 
-            DB::table('sync_states')->updateOrInsert(
-                ['key' => $key],
-                ['value' => $jsonValue, 'updated_at' => now(), 'created_at' => DB::raw('COALESCE(created_at, ?)', [now()])]
-            );
+            $exists = DB::table('sync_states')->where('key', $key)->exists();
+            if ($exists) {
+                DB::table('sync_states')->where('key', $key)->update([
+                    'value' => $jsonValue,
+                    'updated_at' => now(),
+                ]);
+            } else {
+                DB::table('sync_states')->insert([
+                    'key' => $key,
+                    'value' => $jsonValue,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
         }
     }
 }
