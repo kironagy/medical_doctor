@@ -181,6 +181,11 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
+        // Clear the persisted API token from local DB (so startup sync doesn't reuse it)
+        try {
+            app(ApiService::class)->setToken(null);
+        } catch (\Throwable $e) {}
+
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();

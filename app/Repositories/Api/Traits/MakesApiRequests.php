@@ -17,13 +17,19 @@ trait MakesApiRequests
     private function apiCall(string $method, string $path, array $data = []): Response
     {
         $url = $this->baseUrl() . $path;
-        $encryptedToken = session('api_token');
 
+        // Load token via ApiService singleton (reads from session, falls back to local DB)
         $token = null;
-        if ($encryptedToken) {
+        try {
+            $token = app(\App\Services\Mobile\ApiService::class)->getToken();
+        } catch (\Exception $e) {
+            // If ApiService not bound yet, fall back to raw session
             try {
-                $token = decrypt($encryptedToken);
-            } catch (\Exception $e) {
+                $encrypted = session('api_token');
+                if ($encrypted) {
+                    $token = decrypt($encrypted);
+                }
+            } catch (\Exception $se) {
                 session()->forget('api_token');
             }
         }

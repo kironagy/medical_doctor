@@ -22,7 +22,7 @@ class RepositoryServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $isNative = (bool) env('NATIVEPHP_APP_ID');
+        $isNative = (bool) env('NATIVEPHP_RUNNING', false);
 
         $this->app->bind(UserRepositoryInterface::class, EloquentUserRepository::class);
 

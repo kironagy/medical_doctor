@@ -20,12 +20,27 @@ class ApiService
 
     public function __construct()
     {
+        // 1. Try session first (fast, current request)
         try {
             $encrypted = session('api_token');
-            $this->token = $encrypted ? decrypt($encrypted) : null;
+            if ($encrypted) {
+                $this->token = decrypt($encrypted);
+                return;
+            }
         } catch (\Exception $e) {
-            $this->token = null;
             session()->forget('api_token');
+        }
+
+        // 2. Fall back to persistent local DB storage (survives app restarts)
+        $this->token = $this->loadTokenFromDb();
+
+        // 3. If found in DB, restore to session for this request
+        if ($this->token) {
+            try {
+                session(['api_token' => encrypt($this->token)]);
+            } catch (\Exception $e) {
+                // Session unavailable (e.g. CLI context) — token still usable in memory
+            }
         }
     }
 
@@ -33,14 +48,61 @@ class ApiService
     {
         $this->token = $token;
         if ($token) {
+            // Persist to session
             try {
                 session(['api_token' => encrypt($token)]);
             } catch (\Exception $e) {
-                $this->token = null;
-                throw new RuntimeException('Failed to store authentication token.');
+                // Session may not be available (CLI/startup sync context)
             }
+            // Persist to DB so the token survives process restarts
+            $this->saveTokenToDb($token);
         } else {
-            session()->forget('api_token');
+            try {
+                session()->forget('api_token');
+            } catch (\Exception $e) {}
+            $this->saveTokenToDb(null);
+        }
+    }
+
+    /**
+     * Load the API token from the local sync_states table.
+     * Returns null if the table doesn't exist yet or has no token.
+     */
+    private function loadTokenFromDb(): ?string
+    {
+        try {
+            $row = \Illuminate\Support\Facades\DB::table('sync_states')
+                ->where('key', 'api_token')
+                ->first();
+            if (!$row) return null;
+            $value = is_string($row->value) ? json_decode($row->value, true) : $row->value;
+            $encrypted = is_array($value) ? ($value['encrypted'] ?? null) : $value;
+            return $encrypted ? decrypt($encrypted) : null;
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Persist (or clear) the API token in the local sync_states table.
+     */
+    private function saveTokenToDb(?string $token): void
+    {
+        try {
+            $value = $token ? json_encode(['encrypted' => encrypt($token)]) : json_encode(null);
+            $exists = \Illuminate\Support\Facades\DB::table('sync_states')
+                ->where('key', 'api_token')
+                ->exists();
+            if ($exists) {
+                \Illuminate\Support\Facades\DB::table('sync_states')
+                    ->where('key', 'api_token')
+                    ->update(['value' => $value, 'updated_at' => now()]);
+            } else {
+                \Illuminate\Support\Facades\DB::table('sync_states')
+                    ->insert(['key' => 'api_token', 'value' => $value, 'created_at' => now(), 'updated_at' => now()]);
+            }
+        } catch (\Exception $e) {
+            // DB not ready yet (first boot before migrations) — ignore
         }
     }
 

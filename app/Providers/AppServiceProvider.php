@@ -16,7 +16,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Singleton ensures the same API token is shared across all repositories in a request
+        $this->app->singleton(\App\Services\Mobile\ApiService::class);
     }
 
     /**
@@ -28,7 +29,7 @@ class AppServiceProvider extends ServiceProvider
         PatientFile::observe(PatientFileObserver::class);
 
         // Only run on NativePHP (mobile) environment
-        if (env('NATIVEPHP_APP_ID')) {
+        if (env('NATIVEPHP_RUNNING')) {
             $this->runMigrationsIfNeeded();
             $this->scheduleStartupSync();
         }
