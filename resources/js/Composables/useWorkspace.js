@@ -374,6 +374,7 @@ async function updatePatient(uuid, formData) {
 }
 
 const showArchived = ref(false);
+const authError = ref(null);
 
 async function refreshPatientList(page = 1) {
     loadingPatients.value = true;
@@ -388,6 +389,12 @@ async function refreshPatientList(page = 1) {
         if (res.data?.data) {
             patients.value = res.data.data;
             patientsMeta.value = res.data.meta;
+        }
+        if (res.data?.auth_error) {
+            authError.value = res.data?.message || 'Session expired. Please login again.';
+            console.warn("[PatientSidebar] Auth error:", authError.value);
+        } else {
+            authError.value = null;
         }
     } catch (e) {
         console.error("[PatientSidebar] Failed to refresh patient list", e);
@@ -535,5 +542,6 @@ export function useWorkspace() {
         fetchArchivedPatients,
         restorePatient,
         forceDeletePatient,
+        authError,
     };
 }

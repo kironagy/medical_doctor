@@ -62,16 +62,23 @@ class HybridPatientRepository implements PatientRepositoryInterface
         $source = 'local';
         $data = null;
 
-        if (NetworkStatusService::isOnline()) {
+        $online = NetworkStatusService::isOnline();
+        error_log('[PATIENT_DEBUG] HybridPatientRepo::all() - isOnline=' . ($online ? 'true' : 'false') . ' user_id=' . auth()->id());
+
+        if ($online) {
             try {
                 $source = 'api';
+                error_log('[PATIENT_DEBUG] Calling API repo all()');
                 $data = $this->apiRepo->all();
+                error_log('[PATIENT_DEBUG] API repo returned ' . (is_array($data) ? count($data) : 'non-array') . ' patients');
                 $this->syncLocalCache($data);
             } catch (ConnectionException $e) {
+                error_log('[PATIENT_DEBUG] API ConnectionException: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientRepo] all() - API unavailable, falling back to local: ' . $e->getMessage());
                 $source = 'local_fallback';
             } catch (\Throwable $e) {
+                error_log('[PATIENT_DEBUG] API error: ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine());
                 Log::warning('[HybridPatientRepo] all() - API error, falling back to local: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
                 $source = 'local_fallback';
@@ -79,10 +86,13 @@ class HybridPatientRepository implements PatientRepositoryInterface
         }
 
         if ($data === null) {
+            error_log('[PATIENT_DEBUG] Falling back to local repo');
             $data = $this->localRepo->all();
+            error_log('[PATIENT_DEBUG] Local repo returned ' . (is_array($data) ? count($data) : 'non-array') . ' patients');
         }
 
         $elapsed = (microtime(true) - $start) * 1000;
+        error_log('[PATIENT_DEBUG] Finished in ' . round($elapsed, 2) . 'ms source=' . $source . ' count=' . (is_array($data) ? count($data) : 0));
         Log::channel('single')->info('PROFILER_REPO_ALL', [
             'source' => $source,
             'time_ms' => round($elapsed, 2)

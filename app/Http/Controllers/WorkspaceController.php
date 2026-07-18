@@ -9,6 +9,10 @@ use App\Contracts\Repositories\PatientVisitRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientShare;
+use App\Repositories\Api\ApiPatientRepository;
+use App\Repositories\Eloquent\EloquentPatientRepository;
+use App\Services\Mobile\ApiService;
+use App\Services\NetworkStatusService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Log;
@@ -22,6 +26,9 @@ class WorkspaceController extends Controller
         private readonly PatientNoteRepositoryInterface $noteRepo,
         private readonly PatientVisitRepositoryInterface $visitRepo,
         private readonly UserRepositoryInterface $userRepo,
+        private readonly ApiPatientRepository $apiPatientRepo,
+        private readonly EloquentPatientRepository $eloquentPatientRepo,
+        private readonly ApiService $apiService,
     ) {}
 
     private function getCategories($user)
@@ -90,7 +97,30 @@ class WorkspaceController extends Controller
     {
         $user = auth()->user();
         $categories = $this->getCategories($user);
-        $patients = $this->patientRepo->all();
+
+        // ONLINE: Try direct remote API call for initial load
+        $patients = [];
+        if (NetworkStatusService::isOnline()) {
+            try {
+                $token = $this->apiService->getToken();
+                if ($token) {
+                    $patients = $this->apiPatientRepo->all();
+                    // Sync to local SQLite for offline use
+                    $this->syncPatientsLocally($patients);
+                }
+            } catch (\Illuminate\Auth\AuthenticationException $e) {
+                Log::warning('[WorkspaceController] API token expired during index: ' . $e->getMessage());
+                $this->apiService->setToken(null);
+            } catch (\Throwable $e) {
+                Log::warning('[WorkspaceController] API index failed, falling back to local: ' . $e->getMessage());
+                NetworkStatusService::setOnline(false);
+            }
+        }
+
+        // Fallback: use local EloquentPatientRepository
+        if (empty($patients)) {
+            $patients = $this->eloquentPatientRepo->all();
+        }
 
         return Inertia::render('DoctorWorkspace', [
             'patients' => $patients,
@@ -110,9 +140,55 @@ class WorkspaceController extends Controller
     {
         $page = $request->input('page', 1);
         $status = $request->input('status');
+        $result = null;
+        $source = 'local';
+        $authError = false;
 
-        // Try API first, fall back to local DB (HybridPatientRepository handles this transparently)
-        $result = $this->patientRepo->paginated(10, $page, $status);
+        // ONLINE: Try direct remote API call first
+        if (NetworkStatusService::isOnline()) {
+            try {
+                $token = $this->apiService->getToken();
+                if ($token) {
+                    $apiResult = $this->apiPatientRepo->paginated(10, $page, $status);
+                    if (isset($apiResult['data'])) {
+                        $result = $apiResult;
+                        $source = 'api';
+                        // Sync fetched data to local SQLite for offline use
+                        $this->syncPatientsLocally($apiResult['data']);
+                    }
+                }
+            } catch (\Illuminate\Auth\AuthenticationException $e) {
+                Log::warning('[WorkspaceController] API token expired: ' . $e->getMessage());
+                $authError = true;
+                // Clear expired token
+                $this->apiService->setToken(null);
+            } catch (\Throwable $e) {
+                Log::warning('[WorkspaceController] API call failed, falling back to local: ' . $e->getMessage());
+                NetworkStatusService::setOnline(false);
+            }
+        }
+
+        // OFFLINE / Fallback: Use local EloquentPatientRepository (bypasses Hybrid)
+        if ($result === null) {
+            if ($authError) {
+                // Token expired and no local data — return error so frontend can prompt re-login
+                $localResult = $this->eloquentPatientRepo->paginated(10, $page, $status);
+                if (($localResult['meta']['total'] ?? 0) > 0) {
+                    $result = $localResult;
+                    $source = 'local';
+                } else {
+                    return response()->json([
+                        'data' => [],
+                        'meta' => ['current_page' => 1, 'last_page' => 1, 'per_page' => 10, 'total' => 0, 'from' => null, 'to' => null],
+                        'auth_error' => true,
+                        'message' => 'Session expired. Please login again.',
+                    ]);
+                }
+            } else {
+                $result = $this->eloquentPatientRepo->paginated(10, $page, $status);
+                $source = 'local';
+            }
+        }
 
         // Normalize API response format (Laravel paginator format -> { data, meta } format)
         if (isset($result['current_page']) && !isset($result['meta'])) {
@@ -133,12 +209,34 @@ class WorkspaceController extends Controller
             'url'    => $request->fullUrl(),
             'status' => $status ?: 'active',
             'page'   => $page,
+            'source' => $source,
             'count'  => count($result['data'] ?? []),
             'total'  => $result['meta']['total'] ?? 0,
-            'fresh'  => true,
         ]);
 
         return response()->json($result);
+    }
+
+    /**
+     * Sync remote API patient data into local SQLite for offline availability.
+     */
+    private function syncPatientsLocally(array $patients): void
+    {
+        foreach ($patients as $item) {
+            if (is_array($item) && isset($item['uuid'])) {
+                $cleanData = \Illuminate\Support\Arr::except($item, [
+                    'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes'
+                ]);
+                try {
+                    Patient::unguard();
+                    Patient::updateOrCreate(['uuid' => $item['uuid']], $cleanData);
+                    Patient::reguard();
+                } catch (\Exception $e) {
+                    Patient::reguard();
+                    Log::warning("[WorkspaceController] Failed to sync patient {$item['uuid']}: " . $e->getMessage());
+                }
+            }
+        }
     }
 
     public function storePatient(Request $request)
@@ -218,17 +316,57 @@ class WorkspaceController extends Controller
     public function patientData(string $uuid)
     {
         $t0 = microtime(true);
-        $patient = $this->patientRepo->findByUuid($uuid);
+
+        // ONLINE: Try direct remote API call first
+        $patient = null;
+        $source = 'local';
+
+        if (NetworkStatusService::isOnline()) {
+            try {
+                $token = $this->apiService->getToken();
+                if ($token) {
+                    $apiResult = $this->apiPatientRepo->find($uuid);
+                    if ($apiResult) {
+                        $patient = $apiResult;
+                        $source = 'api';
+                        // Sync patient record to local SQLite for offline use
+                        $this->syncPatientsLocally([$apiResult]);
+                    }
+                }
+            } catch (\Illuminate\Auth\AuthenticationException $e) {
+                Log::warning('[WorkspaceController] API token expired for patient data: ' . $e->getMessage());
+                $this->apiService->setToken(null);
+            } catch (\Throwable $e) {
+                Log::warning('[WorkspaceController] API patient data failed, falling back to local: ' . $e->getMessage());
+                NetworkStatusService::setOnline(false);
+            }
+        }
+
+        // Fallback: use local Eloquent repository
+        if ($patient === null) {
+            try {
+                $patient = $this->eloquentPatientRepo->findByUuid($uuid);
+            } catch (\Throwable $e) {
+                return response()->json(['error' => 'Patient not found'], 404);
+            }
+        }
+
         $t1 = microtime(true);
 
-        // Get all files for stats, but only return first 50 initially to prevent large payload
-        $allFiles = $this->fileRepo->forPatient($uuid);
+        // Get files: try API response first (includes visits + files), fall back to local repos
+        $allFiles = $source === 'api' && isset($patient['files'])
+            ? (is_array($patient['files']) ? $patient['files'] : [])
+            : $this->fileRepo->forPatient($uuid);
         $files = array_slice($allFiles, 0, 50);
 
         $t2 = microtime(true);
-        $notes = $this->noteRepo->forPatient($uuid);
+        $notes = $source === 'api' && isset($patient['notes'])
+            ? (is_array($patient['notes']) ? $patient['notes'] : [])
+            : $this->noteRepo->forPatient($uuid);
         $t3 = microtime(true);
-        $visits = $this->visitRepo->forPatient($uuid);
+        $visits = $source === 'api' && isset($patient['visits'])
+            ? (is_array($patient['visits']) ? $patient['visits'] : [])
+            : $this->visitRepo->forPatient($uuid);
         $t4 = microtime(true);
 
         $today = now()->toDateString();

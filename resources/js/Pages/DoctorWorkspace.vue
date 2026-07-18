@@ -346,6 +346,11 @@ const ptrContentStyle = computed(() => ({
 let refreshPromise = null
 
 onMounted(() => {
+  // Load initial patients from Inertia props so the sidebar is populated
+  // immediately, before the async API call completes.
+  if (props.patients?.length) {
+    patients.value = props.patients
+  }
   refreshPatientList()
   if (isMobile.value && !selectedPatientId.value) {
     mobilePatientListOpen.value = true

@@ -56,7 +56,14 @@
         </button>
       </div>
 
-      <div v-if="filteredPatients.length === 0" class="flex flex-col items-center justify-center h-40 text-slate-400 dark:text-slate-500 px-4">
+      <div v-if="authError && patients.length === 0" class="flex flex-col items-center justify-center h-48 text-slate-400 dark:text-slate-500 px-6 gap-3">
+        <svg class="w-12 h-12 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m0 0v2m0-2h2m-2 0H10m9.364-7.364A9 9 0 1112 3a9 9 0 017.364 4.636z" /></svg>
+        <p class="text-sm font-bold text-amber-600 dark:text-amber-400 text-center">{{ authError }}</p>
+        <button @click="handleReLogin" class="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm">
+          Login Again
+        </button>
+      </div>
+      <div v-else-if="filteredPatients.length === 0" class="flex flex-col items-center justify-center h-40 text-slate-400 dark:text-slate-500 px-4">
         <svg class="w-10 h-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
         <p class="text-sm">{{ $t('patients.no_patients_short') }}</p>
       </div>
@@ -144,6 +151,7 @@ const {
   loadingPatients,
   loadingArchived,
   openSettings,
+  authError,
 } = useWorkspace()
 
 function toggleArchived() {
@@ -194,6 +202,10 @@ async function handleForceDelete(uuid) {
 function selectAndClose(uuid) {
   selectPatient(uuid)
   emit('close')
+}
+
+function handleReLogin() {
+  router.post('/logout')
 }
 
 function handleLogout() {

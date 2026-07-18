@@ -145,6 +145,7 @@ class AuthController extends Controller
         if ($localUser) {
             $localUser->update($attributes);
         } else {
+            // Create with the remote ID to keep primary_doctor_id matching across sync
             $localUser = User::create($attributes);
 
             // Assign role via Spatie if the role name is a known role.
@@ -154,6 +155,15 @@ class AuthController extends Controller
             } else {
                 $localUser->assignRole('doctor');
             }
+        }
+
+        // Force the local user ID to match the remote ID so DoctorIsolationScope
+        // (which filters patients by auth()->id()) finds the correct records.
+        // Patients synced from the remote API store primary_doctor_id as the
+        // remote user ID, so local and remote IDs must be identical.
+        if (!empty($remoteUser['id'])) {
+            $localUser->id = $remoteUser['id'];
+            $localUser->saveQuietly();
         }
 
         return $localUser->fresh();

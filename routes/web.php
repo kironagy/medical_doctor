@@ -18,6 +18,32 @@ Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
+// Debug endpoint — no auth required, shows connectivity & user state
+Route::get('/debug-state', function () {
+    $info = [
+        'user_id' => auth()->id(),
+        'user_email' => auth()->user()?->email ?? 'guest',
+        'is_online' => \App\Services\NetworkStatusService::isOnline(),
+        'time' => now()->toIso8601String(),
+    ];
+    try {
+        $info['local_patient_count'] = \App\Models\Patient::count();
+    } catch (\Throwable $e) {
+        $info['local_patient_count'] = 'ERROR: ' . $e->getMessage();
+    }
+    try {
+        $remoteId = auth()->user()?->remote_id;
+        $info['user_remote_id'] = $remoteId;
+    } catch (\Throwable $e) {
+        $info['user_remote_id'] = 'ERROR: ' . $e->getMessage();
+    }
+    $out = '';
+    foreach ($info as $k => $v) {
+        $out .= "$k: " . (is_string($v) ? $v : json_encode($v)) . "\n";
+    }
+    return response($out, 200)->header('Content-Type', 'text/plain');
+});
+
 use App\Http\Controllers\PatientController;
 
 Route::middleware('auth')->group(function () {

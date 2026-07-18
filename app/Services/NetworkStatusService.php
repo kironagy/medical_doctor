@@ -26,19 +26,27 @@ class NetworkStatusService
             return self::$isOnline = $cached;
         }
 
-        try {
-            $apiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
-            if (!$apiUrl) {
-                return self::$isOnline = false;
-            }
+    try {
+        $apiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+        if (!$apiUrl) {
+            return self::$isOnline = false;
+        }
 
-            // Short 1.5s timeout — enough to detect connectivity without blocking page load
-            Http::timeout(2)->head($apiUrl);
-            
-            // Cache success for 60 seconds
-            \Illuminate\Support\Facades\Cache::put($cacheKey, true, 60);
-            return self::$isOnline = true;
-        } catch (ConnectionException $e) {
+        // Check the API base URL directly instead of a specific endpoint.
+        // The /api/v1/mobile prefix is a route group — Laravel returns 404
+        // for GET /api/v1/mobile because no GET route matches the prefix itself,
+        // but any response (including 404) proves the server is reachable.
+        // We specifically exclude 5xx which indicates a server-side failure.
+        error_log('[NETWORK_DEBUG] Checking connectivity to ' . $apiUrl);
+        $response = Http::timeout(3)->get($apiUrl);
+        $online = $response->status() < 500;
+
+        error_log('[NETWORK_DEBUG] Connectivity check result: ' . ($online ? 'ONLINE' : 'OFFLINE') . ' (status: ' . $response->status() . ')');
+
+        // Cache success for 60 seconds
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $online, $online ? 60 : 15);
+        return self::$isOnline = $online;
+    } catch (ConnectionException $e) {
             // Cache failure for 15 seconds only so we re-check quickly when connection returns
             \Illuminate\Support\Facades\Cache::put($cacheKey, false, 15);
             return self::$isOnline = false;
