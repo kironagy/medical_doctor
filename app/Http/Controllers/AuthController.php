@@ -45,7 +45,7 @@ class AuthController extends Controller
             // Best-effort remote token (non-blocking for offline)
             $this->acquireRemoteToken($email, $password);
 
-            if ($request->wantsJson() && !$request->header('X-Inertia')) {
+            if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
                 return response()->json(['redirect' => $this->getRoleBasedUrl($request)]);
             }
 
@@ -73,7 +73,7 @@ class AuthController extends Controller
                         'email'   => $localUser->email,
                     ]);
 
-                    if ($request->wantsJson() && !$request->header('X-Inertia')) {
+                    if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
                         return response()->json(['redirect' => $this->getRoleBasedUrl($request)]);
                     }
 
@@ -88,7 +88,7 @@ class AuthController extends Controller
         }
 
         // Step 3: both paths failed
-        if ($request->wantsJson() && !$request->header('X-Inertia')) {
+        if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
             return response()->json([
                 'errors' => ['email' => ['The provided credentials do not match our records.']]
             ], 422);
@@ -185,7 +185,7 @@ class AuthController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        if ($request->wantsJson() && !$request->header('X-Inertia')) {
+        if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
             return response()->json(['success' => true]);
         }
 
