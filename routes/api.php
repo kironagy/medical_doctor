@@ -89,6 +89,26 @@ Route::prefix('v1')->group(function () {
     });
 });
 
-Route::post('/native/sync', function () {
-    return response()->json(['error' => 'Not available'], 403);
+// NativePHP offline sync endpoints (authenticated mobile routes)
+Route::prefix('native/sync')->middleware('auth')->group(function () {
+Route::post('/sync', [\App\Http\Controllers\NativeSyncController::class, 'sync']);
+
+Route::get('/status', [\App\Http\Controllers\NativeSyncController::class, 'getStatus'])
+->name('native.sync.status');
+
+Route::post('/force', [\App\Http\Controllers\NativeSyncController::class, 'forceSync'])
+->name('native.sync.force');
+
+Route::post('/clear', function () {
+\Illuminate\Support\Facades\Log::info('Native sync clear endpoint called.');
+
+$count = app(\App\Services\SyncQueueService::class)->clearSyncedOperations(7);
+
+return response()->json([
+'success' => true,
+'cleared' => $count,
+'message' => "{$count} fully synced operations removed.",
+]);
+})->name('native.sync.clear');
 });
+

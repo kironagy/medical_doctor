@@ -7,25 +7,53 @@ use App\Contracts\Repositories\PatientFileRepositoryInterface;
 use App\Contracts\Repositories\PatientNoteRepositoryInterface;
 use App\Contracts\Repositories\PatientVisitRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
+use App\Models\SyncQueueItem;
+use App\Services\SyncQueueService;
 use Illuminate\Support\Facades\Log;
 
 class FullSyncService
 {
-    public function __construct(
-        private readonly PatientRepositoryInterface $patientRepo,
-        private readonly PatientFileRepositoryInterface $fileRepo,
-        private readonly PatientNoteRepositoryInterface $noteRepo,
-        private readonly PatientVisitRepositoryInterface $visitRepo,
-        private readonly UserRepositoryInterface $userRepo
-    ) {}
+public function __construct(
+private PatientRepositoryInterface $patientRepo,
+private PatientFileRepositoryInterface $fileRepo,
+private PatientNoteRepositoryInterface $noteRepo,
+private PatientVisitRepositoryInterface $visitRepo,
+private UserRepositoryInterface $userRepo,
+private SyncQueueService $syncQueue
+) {}
 
-    /**
-     * Pulls all patients, patient files, notes, visits, and users from the remote API
-     * and caches them into the local SQLite database.
-     */
-    public function syncAll(): void
-    {
-        Log::info('[FullSyncService] Starting full database synchronization...');
+/**
+ * Push all currently pending SyncQueueItem records to the remote API via the
+ * API repositories, then pull all remote data into the local SQLite database.
+ *
+ * Called by NativeSyncController::sync() as part of the full sync cycle.
+ */
+public function syncPendingOperations(): void
+{
+Log::info('[FullSyncService] Pushing pending sync_queue operations to remote.');
+
+$items = $this->syncQueue->processPendingOperations();
+
+foreach ($items as $item) {
+try {
+$this->pushQueueItem($item);
+
+$this->syncQueue->markItemResult($item, true);
+} catch (\Exception $e) {
+$this->syncQueue->markItemResult($item, false, $e->getMessage());
+}
+}
+}
+
+/**
+ * Pulls all patients, patient files, notes, visits, and users from the remote API
+ * and caches them into the local SQLite database.
+ */
+public function syncAll(): void
+{
+$this->syncPendingOperations();
+
+Log::info('[FullSyncService] Starting full database synchronization...');
 
         try {
             // 1. Sync all patients (this automatically runs syncLocalCache in Hybrid Patient Repo)
@@ -84,10 +112,70 @@ class FullSyncService
                 }
             }
 
-            // 3. Sync doctors
-            $this->userRepo->doctors();
+// 3. Sync doctors
+$this->userRepo->doctors();
 
-            Log::info('[FullSyncService] Full database synchronization completed successfully.');
+Log::info('[FullSyncService] Full database synchronization completed successfully.');
+}
+
+/**
+ * Push a single SyncQueueItem to the remote using the appropriate API repository.
+ */
+private function pushQueueItem(SyncQueueItem $item): void
+{
+$payload = $item->payload ?? [];
+
+match ($item->entity) {
+'Patient' => $this->pushPatientToRemote($item, $payload),
+'PatientVisit' => $this->pushVisitToRemote($item, $payload),
+'PatientNote' => $this->pushNoteToRemote($item, $payload),
+default => Log::warning("[FullSyncService] Unsupported queue entity: {$item->entity}"),
+};
+}
+
+private function pushPatientToRemote(SyncQueueItem $item, array $payload): void
+{
+if ($item->operation === 'create') {
+$this->patientRepo->create($payload);
+} elseif ($item->operation === 'update') {
+$this->patientRepo->update($item->record_uuid, $payload);
+} elseif ($item->operation === 'delete' && $item->record_uuid) {
+$this->patientRepo->delete($item->record_uuid);
+}
+}
+
+private function pushVisitToRemote(SyncQueueItem $item, array $payload): void
+{
+$patientUuid = $payload['patient_uuid'] ?? null;
+if (! $patientUuid) {
+return;
+}
+
+if ($item->operation === 'create') {
+$this->visitRepo->create($patientUuid, $payload);
+} elseif ($item->operation === 'update' && $item->record_uuid) {
+$this->visitRepo->update((int) $item->record_uuid, $payload);
+} elseif ($item->operation === 'delete' && $item->record_uuid) {
+$this->visitRepo->delete((int) $item->record_uuid);
+}
+}
+
+private function pushNoteToRemote(SyncQueueItem $item, array $payload): void
+{
+$patientUuid = $payload['patient_uuid'] ?? null;
+if (! $patientUuid) {
+return;
+}
+
+if ($item->operation === 'create') {
+$this->noteRepo->create($patientUuid, $payload);
+} elseif ($item->operation === 'update' && $item->record_uuid) {
+$this->noteRepo->update($patientUuid, $item->record_uuid, $payload);
+} elseif ($item->operation === 'delete' && $item->record_uuid) {
+$this->noteRepo->delete($patientUuid, $item->record_uuid);
+}
+}
+
         } catch (\Throwable $e) {
             Log::error('[FullSyncService] Full database synchronization failed: ' . $e->getMessage());
         }

@@ -24,21 +24,24 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
-    ->withMiddleware(function (Middleware $middleware): void {
-        if (env('APP_DEBUG', false)) {
-            $middleware->append(\App\Http\Middleware\NativePHPProfilerMiddleware::class);
-        }
-        $middleware->trustProxies(at: '*');
-        $middleware->web(append: [
-            \App\Http\Middleware\HandleInertiaRequests::class,
-            \App\Http\Middleware\PreventBackHistory::class,
-        ]);
-        $middleware->alias([
-            'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
-            'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
-            'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
-        ]);
-    })
+->withMiddleware(function (Middleware $middleware): void {
+if (env('APP_DEBUG', false)) {
+$middleware->append(\App\Http\Middleware\NativePHPProfilerMiddleware::class);
+}
+$middleware->trustProxies(at: '*');
+$middleware->web(append: [
+\App\Http\Middleware\HandleInertiaRequests::class,
+\App\Http\Middleware\PreventBackHistory::class,
+]);
+$middleware->api(append: [
+\App\Http\Middleware\SyncMiddleware::class,
+]);
+$middleware->alias([
+'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
+'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
+'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
+]);
+})
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
