@@ -30,6 +30,7 @@ class AppServiceProvider extends ServiceProvider
         // Only run on NativePHP (mobile) environment
         if (env('NATIVEPHP_APP_ID')) {
             $this->runMigrationsIfNeeded();
+            $this->scheduleStartupSync();
         }
     }
 
@@ -58,5 +59,34 @@ class AppServiceProvider extends ServiceProvider
         } catch (Throwable $e) {
             logger()->error('Mobile migration failed: ' . $e->getMessage(), ['exception' => $e]);
         }
+    }
+
+    /**
+     * Schedule a one-time background sync when the app first opens each session.
+     *
+     * We defer this to the `booted` event so all services are bound first.
+     * The sync runs in a try/catch so it never blocks page load.
+     */
+    protected function scheduleStartupSync(): void
+    {
+        $this->app->booted(function () {
+            try {
+                // Only run once per PHP process (in-memory flag), not once per request.
+                // NativePHP spawns a new PHP process for each app launch, so this
+                // effectively runs once per app open — exactly what we want.
+                static $synced = false;
+                if ($synced) {
+                    return;
+                }
+                $synced = true;
+
+                $syncService = $this->app->make(\App\Services\FullSyncService::class);
+                $syncService->syncAll();
+
+                logger()->info('[AppServiceProvider] Startup sync completed.');
+            } catch (Throwable $e) {
+                logger()->warning('[AppServiceProvider] Startup sync failed: ' . $e->getMessage());
+            }
+        });
     }
 }

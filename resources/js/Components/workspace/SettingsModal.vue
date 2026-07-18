@@ -207,6 +207,11 @@ async function runSync() {
   try {
     await axios.post('/api/native/sync')
     toast.success('تم مزامنة السجلات الطبية بنجاح')
+    // Close settings modal and reload page to show updated data
+    emit('update:modelValue', false)
+    setTimeout(() => {
+      router.reload({ only: [] })
+    }, 500)
   } catch (e) {
     toast.error('حدث خطأ أثناء مزامنة السجلات')
   } finally {

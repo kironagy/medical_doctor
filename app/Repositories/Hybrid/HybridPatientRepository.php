@@ -7,6 +7,7 @@ use App\Models\PendingOperation;
 use App\Repositories\Api\ApiPatientRepository;
 use App\Repositories\Eloquent\EloquentPatientRepository;
 use App\Services\NetworkStatusService;
+use App\Services\SyncQueueService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Log;
 
@@ -14,7 +15,8 @@ class HybridPatientRepository implements PatientRepositoryInterface
 {
     public function __construct(
         private ApiPatientRepository $apiRepo,
-        private EloquentPatientRepository $localRepo
+        private EloquentPatientRepository $localRepo,
+        private SyncQueueService $syncQueue,
     ) {}
 
     private function syncLocalCache(array $data): void
@@ -134,30 +136,32 @@ class HybridPatientRepository implements PatientRepositoryInterface
 
     public function create(array $data): array
     {
-        $localData = $this->localRepo->create($data); // Save to local SQLite cache
+        // 1. Save to local SQLite immediately (offline-first)
+        $localData = $this->localRepo->create($data);
 
         if (NetworkStatusService::isOnline()) {
             try {
-                // Ensure UUID is sent to API to avoid duplication
+                // 2. Ensure the same UUID is sent to the API to avoid duplication
                 $data['uuid'] = $localData['uuid'];
-                return $this->apiRepo->create($data);
+                $apiData = $this->apiRepo->create($data);
+
+                // 3. Sync the API response back into local SQLite so the phone shows it
+                $this->syncLocalCache($apiData);
+
+                return $apiData;
             } catch (\Illuminate\Validation\ValidationException $e) {
-                // If the remote server rejected the data as invalid, let the UI show the error!
+                // Validation error: delete the locally-created record and surface the error to UI
+                \App\Domains\Patients\Models\Patient::where('uuid', $localData['uuid'])->forceDelete();
                 throw $e;
             } catch (\Exception $e) {
-                // Any other API error (500, network, etc) means we fallback to offline mode
+                // Any other API error → fallback to offline mode, keep local record
                 NetworkStatusService::setOnline(false);
-                Log::warning('Create failed online, queueing offline operation. Error: ' . $e->getMessage());
+                Log::warning('[HybridPatientRepo] create() - API failed, queuing offline. Error: ' . $e->getMessage());
             }
         }
 
-        // Queue for sync
-        PendingOperation::create([
-            'uuid' => $localData['uuid'],
-            'entity_type' => 'Patient',
-            'action' => 'create',
-            'payload' => $localData,
-        ]);
+        // Offline: queue for next sync
+        $this->syncQueue->enqueueOperation('Patient', 'create', $localData['uuid'], $localData);
 
         return $localData;
     }
@@ -168,7 +172,9 @@ class HybridPatientRepository implements PatientRepositoryInterface
 
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->update($uuid, $data);
+                $apiData = $this->apiRepo->update($uuid, $data);
+                $this->syncLocalCache($apiData);
+                return $apiData;
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientRepo] update() - API unavailable: ' . $e->getMessage());
@@ -178,12 +184,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => $uuid,
-            'entity_type' => 'Patient',
-            'action' => 'update',
-            'payload' => $data,
-        ]);
+        $this->syncQueue->enqueueOperation('Patient', 'update', $uuid, $data);
 
         return $localData;
     }
@@ -205,12 +206,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => $uuid,
-            'entity_type' => 'Patient',
-            'action' => 'delete',
-            'payload' => null,
-        ]);
+        $this->syncQueue->enqueueOperation('Patient', 'delete', $uuid, null);
     }
 
     public function search(string $term): array
@@ -355,12 +351,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => $uuid,
-            'entity_type' => 'Patient',
-            'action' => 'restore',
-            'payload' => null,
-        ]);
+        $this->syncQueue->enqueueOperation('Patient', 'restore', $uuid, null);
     }
 
     public function forceDelete(string $uuid): void
@@ -380,11 +371,6 @@ class HybridPatientRepository implements PatientRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => $uuid,
-            'entity_type' => 'Patient',
-            'action' => 'forceDelete',
-            'payload' => null,
-        ]);
+        $this->syncQueue->enqueueOperation('Patient', 'forceDelete', $uuid, null);
     }
 }

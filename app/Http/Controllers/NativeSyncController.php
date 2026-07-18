@@ -79,12 +79,13 @@ return response()->json(['error' => $e->getMessage()], 500);
  */
 private function pushItemToRemote(SyncQueueItem $item): void
 {
-match ($item->entity) {
-'Patient'     => $this->pushPatientItem($item),
-'PatientVisit'=> $this->pushVisitItem($item),
-'PatientNote' => $this->pushNoteItem($item),
-default => Log::warning("[NativeSyncController] Unsupported entity: {$item->entity}"),
-};
+    match ($item->entity) {
+        'Patient'      => $this->pushPatientItem($item),
+        'PatientVisit' => $this->pushVisitItem($item),
+        'PatientNote'  => $this->pushNoteItem($item),
+        'PatientFile'  => $this->pushFileItem($item),
+        default => Log::warning("[NativeSyncController] Unsupported entity: {$item->entity}"),
+    };
 }
 
 /**
@@ -154,20 +155,78 @@ $this->apiVisit->delete((int) $item->record_uuid);
 }
 }
 
-private function pushNoteItem(SyncQueueItem $item): void
-{
-$patientUuid = $item->payload['patient_uuid'] ?? null;
-if (! $patientUuid) {
-return;
-}
-if ($item->operation === 'create') {
-$this->apiNote->create($patientUuid, $item->payload);
-} elseif ($item->operation === 'update' && $item->record_uuid) {
-$this->apiNote->update($patientUuid, $item->record_uuid, $item->payload);
-} elseif ($item->operation === 'delete' && $item->record_uuid) {
-$this->apiNote->delete($patientUuid, $item->record_uuid);
-}
-}
+    private function pushNoteItem(SyncQueueItem $item): void
+    {
+        $patientUuid = $item->payload['patient_uuid'] ?? null;
+        if (! $patientUuid) {
+            return;
+        }
+        if ($item->operation === 'create') {
+            $this->apiNote->create($patientUuid, $item->payload);
+        } elseif ($item->operation === 'update' && $item->record_uuid) {
+            $this->apiNote->update($patientUuid, $item->record_uuid, $item->payload);
+        } elseif ($item->operation === 'delete' && $item->record_uuid) {
+            $this->apiNote->delete($patientUuid, $item->record_uuid);
+        }
+    }
+
+    /**
+     * Push a PatientFile sync item to the remote API.
+     * For offline-created files the binary is read from local storage.
+     */
+    private function pushFileItem(SyncQueueItem $item): void
+    {
+        $patientUuid = $item->payload['patient_uuid'] ?? null;
+
+        if ($item->operation === 'delete' && $item->record_uuid) {
+            $this->apiFile->delete($item->record_uuid);
+            return;
+        }
+
+        if ($item->operation === 'create' && $patientUuid) {
+            $localPath = $item->payload['local_path'] ?? null;
+            if (! $localPath) {
+                Log::warning("[NativeSyncController] PatientFile create: no local_path for {$item->record_uuid}");
+                return;
+            }
+
+            $fullPath = \Illuminate\Support\Facades\Storage::disk('local')->path($localPath);
+            if (! file_exists($fullPath)) {
+                Log::warning("[NativeSyncController] PatientFile create: file not found at {$fullPath}");
+                return;
+            }
+
+            // Use Http::attach() for multipart upload
+            $apiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+            $url = $apiUrl . '/patients/' . $patientUuid . '/files';
+
+            $encryptedToken = session('api_token');
+            $token = null;
+            if ($encryptedToken) {
+                try { $token = decrypt($encryptedToken); } catch (\Exception $e) {}
+            }
+
+            $mimeType = $item->payload['mime_type'] ?? (mime_content_type($fullPath) ?: 'application/octet-stream');
+            $fileName = $item->payload['file_name'] ?? basename($fullPath);
+
+            $http = \Illuminate\Support\Facades\Http::timeout(120)
+                ->when($token, fn($c) => $c->withToken($token))
+                ->attach('file', file_get_contents($fullPath), $fileName, ['Content-Type' => $mimeType]);
+
+            $data = \Illuminate\Support\Arr::except($item->payload, ['patient_uuid', 'local_path', 'file', 'file_path', 'file_name', 'mime_type', 'size', 'upload_status']);
+            foreach ($data as $k => $v) {
+                if ($v !== null) $http = $http->attach($k, (string) $v);
+            }
+
+            $response = $http->post($url);
+            if ($response->failed()) {
+                throw new \RuntimeException("File upload failed: " . ($response->json('message') ?? $response->body()));
+            }
+
+            Log::info("[NativeSyncController] Uploaded offline file {$fileName} for patient {$patientUuid}");
+        }
+    }
+
 
 /**
  * GET /api/native/sync/status

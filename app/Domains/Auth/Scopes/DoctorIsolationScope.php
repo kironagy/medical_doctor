@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Scope;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class DoctorIsolationScope implements Scope
 {
@@ -26,7 +27,7 @@ class DoctorIsolationScope implements Scope
         // Apply isolation for doctors
         if ($user->hasRole('doctor')) {
             $table = $model->getTable();
-            
+
             if ($table === 'patients') {
                 $builder->where(function ($q) use ($user) {
                     $q->where('primary_doctor_id', $user->id)
@@ -40,17 +41,22 @@ class DoctorIsolationScope implements Scope
                       });
                 });
             } else {
-                // For tables like patient_files, patient_visits which have a patient_id
-                $builder->whereHas('patient', function ($q) use ($user) {
-                    $q->where('primary_doctor_id', $user->id)
-                      ->orWhereIn('id', function ($query) use ($user) {
-                          $query->select('patient_id')
-                                ->from('patient_shares')
-                                ->where('doctor_id', $user->id)
-                                ->where(function($q2) {
-                                    $q2->whereNull('expires_at')->orWhere('expires_at', '>', now());
-                                });
-                      });
+                // For related tables (patient_files, patient_visits, patient_notes) that have patient_id:
+                // Use direct whereIn on patient_id instead of whereHas('patient', ...) to avoid
+                // nested correlated subqueries which cause issues on SQLite
+                $builder->whereIn('patient_id', function ($query) use ($user) {
+                    // Query patients directly without applying DoctorIsolationScope again
+                    $query->select('id')
+                          ->from('patients')
+                          ->where('primary_doctor_id', $user->id);
+                })->orWhereIn('patient_id', function ($query) use ($user) {
+                    // Also include patients shared with this doctor
+                    $query->select('patient_id')
+                          ->from('patient_shares')
+                          ->where('doctor_id', $user->id)
+                          ->where(function($q2) {
+                              $q2->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                          });
                 });
             }
         }

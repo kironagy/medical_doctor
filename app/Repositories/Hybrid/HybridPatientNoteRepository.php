@@ -3,10 +3,10 @@
 namespace App\Repositories\Hybrid;
 
 use App\Contracts\Repositories\PatientNoteRepositoryInterface;
-use App\Models\PendingOperation;
 use App\Repositories\Api\ApiPatientNoteRepository;
 use App\Repositories\Eloquent\EloquentPatientNoteRepository;
 use App\Services\NetworkStatusService;
+use App\Services\SyncQueueService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Log;
 
@@ -14,7 +14,8 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
 {
     public function __construct(
         private ApiPatientNoteRepository $apiRepo,
-        private EloquentPatientNoteRepository $localRepo
+        private EloquentPatientNoteRepository $localRepo,
+        private SyncQueueService $syncQueue,
     ) {}
 
     private function syncLocalCache(array $data): void
@@ -73,7 +74,10 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
 
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->create($patientUuid, $data);
+                $apiData = $this->apiRepo->create($patientUuid, $data);
+                // Sync API response back to local SQLite
+                $this->syncLocalCache($apiData);
+                return $apiData;
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientNoteRepo] create() - API unavailable: ' . $e->getMessage());
@@ -83,12 +87,11 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => $localData['uuid'] ?? \Illuminate\Support\Str::uuid()->toString(),
-            'entity_type' => 'PatientNote',
-            'action' => 'create',
-            'payload' => array_merge($data, ['patient_uuid' => $patientUuid]),
-        ]);
+        $this->syncQueue->enqueueOperation(
+            'PatientNote', 'create',
+            $localData['uuid'] ?? \Illuminate\Support\Str::uuid()->toString(),
+            array_merge($data, ['patient_uuid' => $patientUuid])
+        );
 
         return $localData;
     }
@@ -99,7 +102,9 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
 
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->update($patientUuid, $noteUuid, $data);
+                $apiData = $this->apiRepo->update($patientUuid, $noteUuid, $data);
+                $this->syncLocalCache($apiData);
+                return $apiData;
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientNoteRepo] update() - API unavailable: ' . $e->getMessage());
@@ -109,12 +114,10 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => $noteUuid,
-            'entity_type' => 'PatientNote',
-            'action' => 'update',
-            'payload' => array_merge($data, ['patient_uuid' => $patientUuid]),
-        ]);
+        $this->syncQueue->enqueueOperation(
+            'PatientNote', 'update', $noteUuid,
+            array_merge($data, ['patient_uuid' => $patientUuid])
+        );
 
         return $localData;
     }
@@ -136,11 +139,9 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => $noteUuid,
-            'entity_type' => 'PatientNote',
-            'action' => 'delete',
-            'payload' => ['patient_uuid' => $patientUuid],
-        ]);
+        $this->syncQueue->enqueueOperation(
+            'PatientNote', 'delete', $noteUuid,
+            ['patient_uuid' => $patientUuid]
+        );
     }
 }

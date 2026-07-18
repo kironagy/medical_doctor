@@ -3,10 +3,10 @@
 namespace App\Repositories\Hybrid;
 
 use App\Contracts\Repositories\PatientFileRepositoryInterface;
-use App\Models\PendingOperation;
 use App\Repositories\Api\ApiPatientFileRepository;
 use App\Repositories\Eloquent\EloquentPatientFileRepository;
 use App\Services\NetworkStatusService;
+use App\Services\SyncQueueService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -15,7 +15,8 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
 {
     public function __construct(
         private ApiPatientFileRepository $apiRepo,
-        private EloquentPatientFileRepository $localRepo
+        private EloquentPatientFileRepository $localRepo,
+        private SyncQueueService $syncQueue,
     ) {}
 
     private function syncLocalCache(array $data, ?string $patientUuid = null): void
@@ -141,6 +142,8 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
         if (NetworkStatusService::isOnline()) {
             try {
                 $apiData = $this->apiRepo->upload($patientUuid, $file, $data);
+                // Sync API response back into local SQLite
+                $this->syncLocalCache([$apiData], $patientUuid);
                 return $this->rewriteUrls($apiData);
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
@@ -151,12 +154,14 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => $localData['uuid'] ?? \Illuminate\Support\Str::uuid()->toString(),
-            'entity_type' => 'PatientFile',
-            'action' => 'create',
-            'payload' => array_merge($data, ['patient_uuid' => $patientUuid, 'file' => $file]),
-        ]);
+        // Queue for offline sync — note: binary file cannot be re-uploaded from queue easily;
+        // the file is already stored locally, so we mark it for upload when online
+        $this->syncQueue->enqueueOperation(
+            'PatientFile', 'create',
+            $localData['uuid'] ?? \Illuminate\Support\Str::uuid()->toString(),
+            array_merge($data, ['patient_uuid' => $patientUuid, 'local_path' => $localData['file_path'] ?? null]),
+            3 // higher priority so files upload before other operations
+        );
 
         return $localData;
     }
@@ -178,12 +183,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => $uuid,
-            'entity_type' => 'PatientFile',
-            'action' => 'delete',
-            'payload' => null,
-        ]);
+        $this->syncQueue->enqueueOperation('PatientFile', 'delete', $uuid, null);
     }
 
     public function byCategory(string $patientUuid, string $categorySlug): array
