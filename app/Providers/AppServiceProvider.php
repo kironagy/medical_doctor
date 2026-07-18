@@ -50,8 +50,16 @@ class AppServiceProvider extends ServiceProvider
                 $storedVersion = (int) trim($content);
             }
 
-            // If stored version differs from current app version, run migrations
             if ($storedVersion !== $currentVersion) {
+                if (config('database.default') === 'sqlite') {
+                    $dbPath = config('database.connections.sqlite.database');
+                    if ($dbPath && $dbPath !== ':memory:') {
+                        if (!File::exists($dbPath)) {
+                            File::ensureDirectoryExists(dirname($dbPath));
+                            File::put($dbPath, '');
+                        }
+                    }
+                }
                 Artisan::call('migrate', ['--force' => true]);
                 File::put($versionFile, (string) $currentVersion);
                 logger()->info('Mobile database migrated to version ' . $currentVersion);
