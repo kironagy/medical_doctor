@@ -44,17 +44,10 @@ class SyncMiddleware
         $payload = $request->except(['_token', '_method']);
 
         if (NetworkStatusService::isOnline()) {
-            // ONLINE: let the request hit the controller, then record for audit/sync.
-            $response = $next($request);
-
-            $this->syncQueue->enqueueOperation(
-                $entity,
-                $operation,
-                $recordUuid,
-                $payload
-            );
-
-            return $response;
+            // ONLINE: let the request hit the controller directly.
+            // The Hybrid repos handle their own sync-queue enqueue on API failure,
+            // so we do NOT double-enqueue here on success.
+            return $next($request);
         }
 
         // OFFLINE: skip controller execution, store in queue, return success.

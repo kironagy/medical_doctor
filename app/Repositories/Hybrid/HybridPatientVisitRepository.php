@@ -3,10 +3,10 @@
 namespace App\Repositories\Hybrid;
 
 use App\Contracts\Repositories\PatientVisitRepositoryInterface;
-use App\Models\PendingOperation;
 use App\Repositories\Api\ApiPatientVisitRepository;
 use App\Repositories\Eloquent\EloquentPatientVisitRepository;
 use App\Services\NetworkStatusService;
+use App\Services\SyncQueueService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Log;
 
@@ -14,7 +14,8 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
 {
     public function __construct(
         private ApiPatientVisitRepository $apiRepo,
-        private EloquentPatientVisitRepository $localRepo
+        private EloquentPatientVisitRepository $localRepo,
+        private SyncQueueService $syncQueue,
     ) {}
 
     private function syncLocalCache(array $data): void
@@ -83,12 +84,11 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => $localData['uuid'] ?? \Illuminate\Support\Str::uuid()->toString(),
-            'entity_type' => 'PatientVisit',
-            'action' => 'create',
-            'payload' => array_merge($data, ['patient_uuid' => $patientUuid]),
-        ]);
+        $this->syncQueue->enqueueOperation(
+            'PatientVisit', 'create',
+            $localData['uuid'] ?? \Illuminate\Support\Str::uuid()->toString(),
+            array_merge($data, ['patient_uuid' => $patientUuid])
+        );
 
         return $localData;
     }
@@ -109,12 +109,11 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => (string) $visitId, // Using ID as UUID for queueing
-            'entity_type' => 'PatientVisit',
-            'action' => 'update',
-            'payload' => $data,
-        ]);
+        $this->syncQueue->enqueueOperation(
+            'PatientVisit', 'update',
+            (string) $visitId,
+            $data
+        );
 
         return $localData;
     }
@@ -136,11 +135,10 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
             }
         }
 
-        PendingOperation::create([
-            'uuid' => (string) $visitId,
-            'entity_type' => 'PatientVisit',
-            'action' => 'delete',
-            'payload' => null,
-        ]);
+        $this->syncQueue->enqueueOperation(
+            'PatientVisit', 'delete',
+            (string) $visitId,
+            null
+        );
     }
 }

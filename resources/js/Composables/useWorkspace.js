@@ -173,22 +173,22 @@ async function selectPatient(uuid) {
             expandedCategories.value[c.slug] = true;
         });
         
-        // Trigger background sync to fetch latest files for this patient
-        console.log('[selectPatient] Triggering background sync for patient', uuid);
-        try {
-            await axios.post('/api/native/sync').catch(e => {
+        // Trigger background sync AFTER patient data loads (non-blocking)
+        // This syncs files, notes, and visits from the remote API into local SQLite
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+            axios.post('/api/native/sync').then(() => {
+                console.log('[selectPatient] Background sync completed for patient', uuid);
+                // Refresh workspace data after sync to pick up newly synced files/notes
+                if (selectedPatientId.value === uuid) {
+                    axios.get(`/api/v1/workspace/${uuid}`).then(refreshRes => {
+                        if (refreshRes.data && selectedPatientId.value === uuid) {
+                            workspaceData.value = refreshRes.data;
+                        }
+                    }).catch(() => {});
+                }
+            }).catch(e => {
                 console.warn('[selectPatient] Background sync warning:', e?.message || e);
             });
-            console.log('[selectPatient] Background sync completed');
-            
-            // Refresh workspace data after sync to get latest files
-            const refreshRes = await axios.get(`/api/v1/workspace/${uuid}`);
-            if (refreshRes.data) {
-                workspaceData.value = refreshRes.data;
-                console.log('[selectPatient] Workspace data refreshed after sync');
-            }
-        } catch (syncErr) {
-            console.warn('[selectPatient] Sync error (non-fatal):', syncErr?.message || syncErr);
         }
     } catch (e) {
         console.error("Failed to load patient data", e);
@@ -234,17 +234,25 @@ function closePatient() {
 
 function refreshWorkspaceData() {
     if (selectedPatientId.value) {
+        const patientUuid = selectedPatientId.value;
         loadingPatient.value = true;
         axios
-            .get(`/api/v1/workspace/${selectedPatientId.value}`)
+            .get(`/api/v1/workspace/${patientUuid}`)
             .then((res) => {
-                workspaceData.value = res.data;
+                // Only update if still viewing the same patient
+                if (selectedPatientId.value === patientUuid) {
+                    workspaceData.value = res.data;
+                }
             })
             .catch(() => {
-                workspaceData.value = null;
+                if (selectedPatientId.value === patientUuid) {
+                    workspaceData.value = null;
+                }
             })
             .finally(() => {
-                loadingPatient.value = false;
+                if (selectedPatientId.value === patientUuid) {
+                    loadingPatient.value = false;
+                }
             });
     }
 }
@@ -361,13 +369,15 @@ async function addPatient(formData) {
             workspaceData.value = {
                 ...(workspaceData.value || {}),
                 patient,
-                files: workspaceData.value?.files || [],
-                notes: workspaceData.value?.notes || [],
-                visits: workspaceData.value?.visits || [],
-                shares: workspaceData.value?.shares || [],
+                files: [],
+                notes: [],
+                visits: [],
+                shares: [],
                 categories: workspaceData.value?.categories || [],
-                stats: workspaceData.value?.stats || {},
+                stats: { total_files: 0, total_notes: 0, total_visits: 0 },
             };
+            // Refresh patient list in background to ensure consistency with server
+            refreshPatientList(patientsMeta.value?.current_page || 1);
         }
         return { success: true, patient };
     } catch (e) {

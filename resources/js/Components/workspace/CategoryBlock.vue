@@ -293,8 +293,16 @@
         <div v-else-if="loading" class="p-6 text-center">
           <div class="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
         </div>
-        <div v-else class="p-6 text-center">
-          <div class="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+        <div v-else-if="loadError" class="p-6 text-center">
+          <div class="w-12 h-12 mx-auto mb-3 bg-amber-100 dark:bg-amber-900/20 rounded-xl flex items-center justify-center">
+            <svg class="w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+          </div>
+          <p class="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">{{ $t('category.load_error') || 'Unable to load files' }}</p>
+          <p class="text-xs text-slate-400 dark:text-slate-500 mb-3">{{ $t('category.load_error_desc') || 'Check your connection and try again' }}</p>
+          <button @click="loadCategoryData(currentPage)" class="inline-flex items-center gap-1.5 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-medium transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            {{ $t('category.retry') || 'Retry' }}
+          </button>
         </div>
       </div>
     </Transition>
@@ -442,6 +450,7 @@ const customTimeFrom = ref('')
 const customTimeTo = ref('')
 const initialLoadDone = ref(false)
 const loading = ref(false)
+const loadError = ref(false)
 const serverFiles = ref([])
 const serverNotes = ref([])
 const serverMeta = ref({ total: 0, current_page: 1, last_page: 1 })
@@ -449,8 +458,8 @@ const serverMeta = ref({ total: 0, current_page: 1, last_page: 1 })
 // Lazy load category data when expanded
 async function loadCategoryData(page = 1) {
   if (!selectedPatient.value?.uuid) return
-
   loading.value = true
+  loadError.value = false
   try {
     const params = {
       page,
@@ -465,13 +474,24 @@ async function loadCategoryData(page = 1) {
     if (timeFilter.value && customTimeTo.value) params.time_to = customTimeTo.value
 
     const response = await axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params })
-    serverFiles.value = response.data.data
-    serverNotes.value = response.data.notes
-    serverMeta.value = response.data.meta
-    currentPage.value = response.data.meta.current_page
+    serverFiles.value = response.data.data || []
+    serverNotes.value = response.data.notes || []
+    serverMeta.value = response.data.meta || { total: 0, current_page: 1, last_page: 1 }
+    currentPage.value = (response.data.meta || {}).current_page || 1
+    loadError.value = false
   } catch (e) {
-    console.error('Failed to load category data', e)
-    toast.error('Failed to load files')
+    const isNetworkError = !navigator.onLine || e?.code === 'ERR_NETWORK' || e?.message?.includes('Network Error') || e?.response?.status >= 500;
+    if (isNetworkError) {
+      console.warn('[CategoryBlock] Network error loading category data (offline fallback):', e?.message || e)
+    } else {
+      console.error('[CategoryBlock] Failed to load category data', e)
+    }
+    // Keep existing data if we had it, only clear if this is the first load
+    if (serverFiles.value.length === 0 && serverNotes.value.length === 0) {
+      serverFiles.value = []
+      serverNotes.value = []
+    }
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -858,6 +878,7 @@ watch(() => selectedPatient.value?.uuid, (newUuid, oldUuid) => {
     serverFiles.value = []
     serverNotes.value = []
     serverMeta.value = { total: 0, current_page: 1, last_page: 1 }
+    loadError.value = false
     currentPage.value = 1
     if (expanded.value) {
       loadCategoryData(1)

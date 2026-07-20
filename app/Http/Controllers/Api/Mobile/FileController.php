@@ -101,7 +101,7 @@ class FileController extends Controller
             'file_name' => $file->file_name,
         ]);
 
-        return response()->json(new FileResource($file), 201);
+        return response()->json(new MobilePatientFileResource($file), 201);
     }
 
     public function stream(Request $request, string $fileUuid)

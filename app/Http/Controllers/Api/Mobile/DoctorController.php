@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Domains\Users\Models\User;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
 use App\Domains\Mobile\Resources\MobileDoctorResource;
+use App\Domains\Mobile\Resources\MobileUserResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;

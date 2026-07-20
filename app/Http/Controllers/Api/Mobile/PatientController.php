@@ -8,6 +8,7 @@ use App\Domains\Mobile\Resources\MobilePatientResource;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 
 class PatientController extends Controller
 {

@@ -214,35 +214,13 @@ const isSyncing = ref(false);
 const syncCompleted = ref(false);
 const syncError = ref(false);
 
-const checkOnlineStatus = async () => {
+const checkOnlineStatus = () => {
     const wasOffline = isOffline.value;
     isOffline.value = !navigator.onLine;
 
     if (wasOffline && !isOffline.value) {
-        // Back online! Trigger sync
         toast.success('Back online');
-        isSyncing.value = true;
-        try {
-            const res = await window.axios.post('/api/native/sync', {}, { headers: { 'Accept': 'application/json' }});
-            if (res.status === 200) {
-                syncCompleted.value = true;
-                toast.success('Synchronization completed');
-                setTimeout(() => { syncCompleted.value = false; }, 3000);
-            } else {
-                syncError.value = true;
-                setTimeout(() => { syncError.value = false; }, 3000);
-            }
-            
-            // Reactive updates without page reload
-            const ws = useWorkspace();
-            ws.refreshPatientList();
-            ws.refreshWorkspaceData();
-        } catch (e) {
-            syncError.value = true;
-            setTimeout(() => { syncError.value = false; }, 3000);
-        } finally {
-            isSyncing.value = false;
-        }
+        triggerSync();
     }
 };
 
@@ -285,6 +263,8 @@ function syncStatusBar(t) {
   }
 }
 
+const periodicSyncTimer = ref(null);
+
 onMounted(() => {
   syncStatusBar(theme.value);
   watch(theme, (val) => syncStatusBar(val), { immediate: false });
@@ -294,25 +274,42 @@ onMounted(() => {
 
   // Initial Pull Sync when online on startup
   if (navigator.onLine) {
-      isSyncing.value = true;
-      window.axios.post('/api/native/sync', {}, { headers: { 'Accept': 'application/json' }})
-        .then(() => {
-            const ws = useWorkspace();
-            ws.refreshPatientList();
-            ws.refreshWorkspaceData();
-        })
-        .catch(() => {})
-        .finally(() => {
-            isSyncing.value = false;
-        });
+      triggerSync();
   }
+
+  // Periodic background sync every 3 minutes when online
+  // Keeps the patient list up-to-date without requiring manual refresh
+  periodicSyncTimer.value = setInterval(() => {
+    if (navigator.onLine && !isSyncing.value) {
+      triggerSync();
+    }
+  }, 3 * 60 * 1000);
 });
 
 onUnmounted(() => {
   window.removeEventListener('online', checkOnlineStatus);
   window.removeEventListener('offline', checkOnlineStatus);
+  if (periodicSyncTimer.value) {
+    clearInterval(periodicSyncTimer.value);
+    periodicSyncTimer.value = null;
+  }
   document.body.style.overflow = '';
 });
+
+async function triggerSync() {
+  if (isSyncing.value) return;
+  isSyncing.value = true;
+  try {
+    await window.axios.post('/api/native/sync', {}, { headers: { 'Accept': 'application/json' }});
+    const ws = useWorkspace();
+    ws.refreshPatientList();
+    ws.refreshWorkspaceData();
+  } catch (e) {
+    // Silent fail for background sync
+  } finally {
+    isSyncing.value = false;
+  }
+}
 
 defineProps({
   title: {
