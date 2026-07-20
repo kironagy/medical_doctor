@@ -1,0 +1,13 @@
+DEBUG TODO LIST
+===============
+
+HIGH PRIORITY:
+1. Examine AuthController, login flow, token storage
+2. Examine Patient API controller and routes
+3. Examine mobile API resources (Phase 17 blocker)
+4. Examine HybridPatientRepository and data source selection
+5. Examine SQLite database tables, migrations, indexes
+6. Examine Vue patient list component and state management
+7. Examine NativePHP bridge and network detection
+8. Implement fixes for all identified root causes
+9. End-to-end verification: patients visible in UI

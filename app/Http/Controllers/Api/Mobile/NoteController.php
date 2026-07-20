@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Mobile;
 use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
+use App\Domains\Mobile\Resources\MobilePatientNoteResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 
@@ -15,12 +16,12 @@ class NoteController extends Controller
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('view', $patient);
 
-        $notes = $patient->notes()
-            ->with('author:id,name,email')
-            ->latest()
-            ->paginate(50);
+$notes = $patient->notes()
+->with('author:id,name,email')
+->latest()
+->paginate(50);
 
-        return response()->json($notes);
+return MobilePatientNoteResource::collection($notes);
     }
 
     public function store(Request $request, string $uuid)
@@ -40,9 +41,9 @@ class NoteController extends Controller
             'content' => $validated['content'],
         ]);
 
-        $note->load('author:id,name,email');
+$note->load('author:id,name,email');
 
-        return response()->json($note, 201);
+return response()->json(new MobilePatientNoteResource($note), 201);
     }
 
     public function update(Request $request, string $uuid, string $noteUuid)
@@ -63,9 +64,9 @@ class NoteController extends Controller
         ]);
 
         $note->update($validated);
-        $note->load('author:id,name,email');
+$note->load('author:id,name,email');
 
-        return response()->json($note);
+return response()->json(new MobilePatientNoteResource($note));
     }
 
     public function destroy(Request $request, string $uuid, string $noteUuid)

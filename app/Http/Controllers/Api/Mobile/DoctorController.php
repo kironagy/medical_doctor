@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Mobile;
 use App\Http\Controllers\Controller;
 use App\Domains\Users\Models\User;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
+use App\Domains\Mobile\Resources\MobileDoctorResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -17,38 +18,22 @@ class DoctorController extends Controller
 
     public function index(Request $request)
     {
-        $doctors = User::role('doctor')
-            ->select(['id', 'name', 'email', 'phone', 'specialization', 'code', 'status', 'avatar_path'])
-            ->where('status', 'active')
-            ->orderBy('name')
-            ->get()
-            ->map(fn($d) => [
-                'id' => $d->id,
-                'name' => $d->name,
-                'email' => $d->email,
-                'phone' => $d->phone,
-                'specialization' => $d->specialization,
-                'code' => $d->code,
-                'avatar_url' => $d->avatar_url,
-            ]);
+$doctors = User::role('doctor')
+->select(['id', 'name', 'email', 'phone', 'specialization', 'code', 'status', 'avatar_path'])
+->where('status', 'active')
+->orderBy('name')
+->get();
 
-        return response()->json($doctors);
+return MobileDoctorResource::collection($doctors);
     }
 
     public function show(int $doctorId)
     {
         $doctor = User::role('doctor')->findOrFail($doctorId);
 
-        return response()->json([
-            'id' => $doctor->id,
-            'name' => $doctor->name,
-            'email' => $doctor->email,
-            'phone' => $doctor->phone,
-            'specialization' => $doctor->specialization,
-            'code' => $doctor->code,
-            'avatar_url' => $doctor->avatar_url,
-            'patient_count' => $doctor->patients()->count(),
-        ]);
+$doctor->patient_count = $doctor->patients()->count();
+
+return response()->json(new MobileDoctorResource($doctor));
     }
 
     public function search(Request $request)
@@ -59,24 +44,18 @@ class DoctorController extends Controller
             return response()->json([]);
         }
 
-        $doctors = User::role('doctor')
-            ->where('status', 'active')
-            ->where(function ($q) use ($query) {
-                $q->where('name', 'like', "%{$query}%")
-                  ->orWhere('email', 'like', "%{$query}%")
-                  ->orWhere('specialization', 'like', "%{$query}%")
-                  ->orWhere('code', 'like', "%{$query}%");
-            })
-            ->limit(10)
-            ->get()
-            ->map(fn($d) => [
-                'id' => $d->id,
-                'name' => $d->name,
-                'email' => $d->email,
-                'specialization' => $d->specialization,
-            ]);
+$doctors = User::role('doctor')
+->where('status', 'active')
+->where(function ($q) use ($query) {
+    $q->where('name', 'like', "%{$query}%")
+    ->orWhere('email', 'like', "%{$query}%")
+    ->orWhere('specialization', 'like', "%{$query}%")
+    ->orWhere('code', 'like', "%{$query}%");
+})
+->limit(10)
+->get();
 
-        return response()->json($doctors);
+return MobileDoctorResource::collection($doctors);
     }
 
     public function updateProfile(Request $request)
@@ -94,17 +73,10 @@ class DoctorController extends Controller
 
         $this->logger->log('profile_updated', 'User', $user->uuid);
 
-        return response()->json([
-            'message' => 'Profile updated successfully',
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'phone' => $user->phone,
-                'specialization' => $user->specialization,
-                'avatar_url' => $user->avatar_url,
-            ],
-        ]);
+return response()->json([
+    'message' => 'Profile updated successfully',
+    'user' => (new MobileUserResource($user->fresh()))->toArray($request),
+]);
     }
 
     public function updatePassword(Request $request)

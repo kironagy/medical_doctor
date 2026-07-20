@@ -15,8 +15,30 @@ class CategoryFileController extends Controller
 {
     public function files(Request $request, string $patientUuid, string $slug)
     {
+        // Gracefully handle missing patient — return empty results instead of 404
+        // This prevents 'Load Files Error' on mobile when patient data hasn't synced yet
         $patient = Patient::withoutGlobalScope(DoctorIsolationScope::class)
-            ->where('uuid', $patientUuid)->firstOrFail();
+            ->where('uuid', $patientUuid)->first();
+        
+        if (!$patient) {
+            \Illuminate\Support\Facades\Log::warning('[CategoryFileController] Patient not found locally', [
+                'uuid' => $patientUuid,
+                'slug' => $slug,
+            ]);
+            return response()->json([
+                'data' => [],
+                'meta' => [
+                    'current_page' => 1,
+                    'last_page' => 1,
+                    'per_page' => $request->input('per_page', 6),
+                    'total' => 0,
+                    'from' => null,
+                    'to' => null,
+                ],
+                'notes' => [],
+                'notes_count' => 0,
+            ]);
+        }
 
         $page = (int) $request->input('page', 1);
         $perPage = (int) $request->input('per_page', 6);

@@ -18,16 +18,16 @@
 
         <!-- Local Fonts (offline-ready) -->
         <style>
-          @font-face { font-family: 'Cairo'; font-style: normal; font-weight: 300; font-display: swap; src: url('/fonts/cairo-300.ttf') format('truetype'); }
-          @font-face { font-family: 'Cairo'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/cairo-400.ttf') format('truetype'); }
-          @font-face { font-family: 'Cairo'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/cairo-500.ttf') format('truetype'); }
-          @font-face { font-family: 'Cairo'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/cairo-600.ttf') format('truetype'); }
-          @font-face { font-family: 'Cairo'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/cairo-700.ttf') format('truetype'); }
-          @font-face { font-family: 'Inter'; font-style: normal; font-weight: 300; font-display: swap; src: url('/fonts/inter-300.ttf') format('truetype'); }
-          @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/inter-400.ttf') format('truetype'); }
-          @font-face { font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/inter-500.ttf') format('truetype'); }
-          @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/inter-600.ttf') format('truetype'); }
-          @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/inter-700.ttf') format('truetype'); }
+@font-face { font-family: 'Cairo'; font-style: normal; font-weight: 300; font-display: swap; src: url('/fonts/cairo-300.woff2') format('woff2'); }
+@font-face { font-family: 'Cairo'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/cairo-400.woff2') format('woff2'); }
+@font-face { font-family: 'Cairo'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/cairo-500.woff2') format('woff2'); }
+@font-face { font-family: 'Cairo'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/cairo-600.woff2') format('woff2'); }
+@font-face { font-family: 'Cairo'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/cairo-700.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 300; font-display: swap; src: url('/fonts/inter-300.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/inter-400.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/inter-500.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/inter-600.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/inter-700.woff2') format('woff2'); }
         </style>
 
         <link rel="dns-prefetch" href="{{ url('/') }}">

@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\Mobile;
 
 use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
-use App\Domains\Patients\Resources\PatientResource;
+use App\Domains\Mobile\Resources\MobilePatientResource;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -19,23 +19,46 @@ class PatientController extends Controller
     {
         $perPage = min($request->integer('per_page', 20), 100);
         $user = $request->user();
+        $search = $request->get('search');
 
         $query = Patient::query()
             ->with('primaryDoctor:id,name,email')
             ->orderBy('created_at', 'desc');
 
-        if ($search = $request->get('search')) {
+        // Clone query for counting total (without pagination limits)
+        $totalQuery = clone $query;
+
+        if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('code', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%")
-                  ->orWhere('diagnosis', 'like', "%{$search}%");
+                    ->orWhere('code', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%")
+                    ->orWhere('diagnosis', 'like', "%{$search}%");
             });
         }
 
+        // Count ALL patients without search filter
+        $totalAll = Patient::count();
+        $totalFiltered = $totalQuery->count();
+
         $patients = $query->paginate($perPage);
 
-        return response()->json($patients);
+        $result = MobilePatientResource::collection($patients);
+
+        // Detailed diagnostic log
+        $patientUuids = $patients->items()->map(fn($p) => $p->uuid . ':' . $p->name . ':' . $p->code);
+        Log::channel('single')->info('[PATIENT_DEBUG] PatientController::index()', [
+            'search' => $search,
+            'per_page' => $perPage,
+            'page' => $patients->currentPage(),
+            'total_db' => $totalAll,
+            'total_filtered' => $totalFiltered,
+            'returned_count' => $patients->count(),
+            'returned_uuids' => $patientUuids->toArray(),
+            'resource_format' => is_a($result, \Illuminate\Http\Resources\Json\ResourceCollection::class) ? 'ResourceCollection' : get_class($result),
+        ]);
+
+        return $result;
     }
 
     public function show(string $uuid)
@@ -48,7 +71,7 @@ class PatientController extends Controller
 
         Gate::authorize('view', $patient);
 
-        return response()->json(new PatientResource($patient));
+        return response()->json(new MobilePatientResource($patient));
     }
 
     public function store(Request $request)
@@ -85,7 +108,7 @@ class PatientController extends Controller
             'patient_name' => $patient->name,
         ]);
 
-        return response()->json(new PatientResource($patient), 201);
+        return response()->json(new MobilePatientResource($patient), 201);
     }
 
     public function update(Request $request, string $uuid)
@@ -117,7 +140,7 @@ class PatientController extends Controller
             'patient_name' => $patient->name,
         ]);
 
-        return response()->json(new PatientResource($patient->fresh()));
+        return response()->json(new MobilePatientResource($patient->fresh()));
     }
 
     public function destroy(string $uuid)

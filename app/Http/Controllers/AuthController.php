@@ -140,31 +140,33 @@ class AuthController extends Controller
             $attributes['uuid'] = $remoteUser['uuid'];
         }
 
-        $localUser = User::where('email', $attributes['email'])->first();
+ $localUser = User::where('email', $attributes['email'])->first();
 
-        if ($localUser) {
-            $localUser->update($attributes);
-        } else {
-            // Create with the remote ID to keep primary_doctor_id matching across sync
-            $localUser = User::create($attributes);
+ if ($localUser) {
+     $localUser->update($attributes);
+ } else {
+     // Create with the remote ID to keep primary_doctor_id matching across sync
+     $localUser = User::create($attributes);
+ }
 
-            // Assign role via Spatie if the role name is a known role.
-            $roleName = $attributes['role'];
-            if (in_array($roleName, ['super-admin', 'doctor'], true)) {
-                $localUser->assignRole($roleName);
-            } else {
-                $localUser->assignRole('doctor');
-            }
-        }
+ // Assign role via Spatie — always, whether user was just created or already existed.
+ // Without this, hasRole('doctor') returns false on subsequent logins and the
+ // doctor lands on the admin dashboard instead of the workspace.
+ $roleName = $attributes['role'] ?? 'doctor';
+ if (in_array($roleName, ['super-admin', 'doctor'], true)) {
+     $localUser->syncRoles([$roleName]);
+ } else {
+     $localUser->syncRoles(['doctor']);
+ }
 
-        // Force the local user ID to match the remote ID so DoctorIsolationScope
-        // (which filters patients by auth()->id()) finds the correct records.
-        // Patients synced from the remote API store primary_doctor_id as the
-        // remote user ID, so local and remote IDs must be identical.
-        if (!empty($remoteUser['id'])) {
-            $localUser->id = $remoteUser['id'];
-            $localUser->saveQuietly();
-        }
+ // Force the local user ID to match the remote ID so DoctorIsolationScope
+ // (which filters patients by auth()->id()) finds the correct records.
+ // Patients synced from the remote API store primary_doctor_id as the
+ // remote user ID, so local and remote IDs must be identical.
+ if (!empty($remoteUser['id'])) {
+     $localUser->id = $remoteUser['id'];
+     $localUser->saveQuietly();
+ }
 
         return $localUser->fresh();
     }
@@ -178,11 +180,11 @@ class AuthController extends Controller
         if ($user && ($user->role === 'super-admin' || $user->hasRole('super-admin'))) {
             return '/admin/doctors';
         }
-        return '/dashboard';
-    }
+    return '/workspace';
+}
 
-    /**
-     * Redirect to the role-appropriate landing page after successful login.
+/**
+ * Redirect to the role-appropriate landing page after successful login.
      */
     private function roleBasedRedirect(Request $request)
     {

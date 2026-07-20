@@ -16,8 +16,12 @@ use App\Repositories\Api\ApiPatientFileRepository;
 use App\Repositories\Api\ApiPatientNoteRepository;
 use App\Repositories\Api\ApiPatientRepository;
 use App\Repositories\Api\ApiPatientVisitRepository;
+use App\Repositories\Api\ApiUserRepository;
 use App\Services\SyncQueueService;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class FullSyncService
 {
@@ -31,13 +35,10 @@ class FullSyncService
         private ApiPatientRepository $apiPatientRepo,
         private ApiPatientFileRepository $apiFileRepo,
         private ApiPatientNoteRepository $apiNoteRepo,
-        private ApiPatientVisitRepository $apiVisitRepo
+        private ApiPatientVisitRepository $apiVisitRepo,
+        private ApiUserRepository $apiUserRepo
     ) {}
 
-    /**
-     * Push pending SyncQueueItem records to the remote API,
-     * then pull fresh remote data into the local SQLite database.
-     */
     public function syncPendingOperations(): void
     {
         Log::info('[FullSyncService] Pushing pending sync_queue operations to remote.');
@@ -47,7 +48,6 @@ class FullSyncService
         foreach ($items as $item) {
             try {
                 $this->pushQueueItem($item);
-
                 $this->syncQueue->markItemResult($item, true);
             } catch (\Exception $e) {
                 $this->syncQueue->markItemResult($item, false, $e->getMessage());
@@ -55,13 +55,6 @@ class FullSyncService
         }
     }
 
-    /**
-     * Pull all patients and their child resources from the remote API
-     * and cache them into the local SQLite database.
-     *
-     * Uses dedicated API repositories (not Hybrid) so the pull path
-     * always hits the remote server directly with the API token.
-     */
     public function syncAll(): void
     {
         $this->syncPendingOperations();
@@ -69,20 +62,35 @@ class FullSyncService
         Log::info('[FullSyncService] Starting full database synchronization...');
 
         try {
-            // 1. Pull all patients from remote API and cache them locally
-            $patients = $this->apiPatientRepo->all();
-            $this->syncLocalCache($patients, Patient::class);
-            Log::info('[FullSyncService] Synchronized ' . count($patients) . ' patients.');
+            DB::statement('PRAGMA foreign_keys = OFF');
 
-            // 2. Sync child resources for each patient
+            // Step A: Sync doctors FIRST so FK references from patients -> users work.
+            // Must use ApiUserRepository to fetch remote data.
+            Log::info('[FullSyncService] Syncing users...');
+            $remoteDoctors = $this->apiUserRepo->doctors();
+            $this->syncUsersLocally($remoteDoctors);
+            Log::info('[FullSyncService] Users sync completed. ' . count($remoteDoctors) . ' doctors.');
+
+        // Step B: Pull all patients from remote API and cache them locally
+        Log::info('[FullSyncService] Syncing patients...');
+        $patients = $this->apiPatientRepo->all();
+        $uuids_before = collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
+        Log::channel('single')->info('[PATIENT_DEBUG] FullSyncService::syncAll() - patients from remote', [
+            'remote_count' => count($patients),
+            'uuids' => $uuids_before,
+        ]);
+        $this->syncLocalCache($patients, Patient::class);
+        Log::info('[FullSyncService] Synchronized ' . count($patients) . ' patients.');
+
+            // Step C: Sync child resources for each patient
             foreach ($patients as $p) {
                 if (empty($p['uuid'])) {
                     continue;
                 }
 
                 try {
-                    $files  = $this->apiFileRepo->forPatient($p['uuid']);
-                    $notes  = $this->apiNoteRepo->forPatient($p['uuid']);
+                    $files = $this->apiFileRepo->forPatient($p['uuid']);
+                    $notes = $this->apiNoteRepo->forPatient($p['uuid']);
                     $visits = $this->apiVisitRepo->forPatient($p['uuid']);
 
                     $this->syncLocalCache($files, PatientFile::class);
@@ -133,27 +141,35 @@ class FullSyncService
                 }
             }
 
-            // 3. Sync doctors
-            $this->userRepo->doctors();
-
-            Log::info('[FullSyncService] Full database synchronization completed successfully.');
-        } catch (\Throwable $e) {
+        // Post-sync verification: count patients in local SQLite
+        $localCount = Patient::count();
+        $localAll = Patient::latest()->get();
+        $localUuids = $localAll->map(fn($p) => $p->uuid . ':' . $p->name . ':' . $p->code)->toArray();
+        Log::channel('single')->info('[PATIENT_DEBUG] FullSyncService::syncAll() - LOCAL SQLite after sync', [
+            'local_count' => $localCount,
+            'local_uuids' => $localUuids,
+        ]);
+        Log::info('[FullSyncService] Full database synchronization completed successfully.');
+    } catch (\Throwable $e) {
             Log::error('[FullSyncService] Full database synchronization failed: ' . $e->getMessage());
+        } finally {
+            try {
+                DB::statement('PRAGMA foreign_keys = ON');
+            } catch (\Throwable $e) {
+                // Ignore
+            }
         }
     }
 
-    /**
-     * Push a single SyncQueueItem to the remote using the appropriate API repository.
-     */
     private function pushQueueItem(SyncQueueItem $item): void
     {
         $payload = $item->payload ?? [];
 
         match ($item->entity) {
-            'Patient'      => $this->pushPatientToRemote($item, $payload),
+            'Patient' => $this->pushPatientToRemote($item, $payload),
             'PatientVisit' => $this->pushVisitToRemote($item, $payload),
-            'PatientNote'  => $this->pushNoteToRemote($item, $payload),
-            default        => Log::warning("[FullSyncService] Unsupported queue entity: {$item->entity}"),
+            'PatientNote' => $this->pushNoteToRemote($item, $payload),
+            default => Log::warning("[FullSyncService] Unsupported queue entity: {$item->entity}"),
         };
     }
 
@@ -171,7 +187,7 @@ class FullSyncService
     private function pushVisitToRemote(SyncQueueItem $item, array $payload): void
     {
         $patientUuid = $payload['patient_uuid'] ?? null;
-        if (! $patientUuid) {
+        if (!$patientUuid) {
             return;
         }
 
@@ -180,14 +196,14 @@ class FullSyncService
         } elseif ($item->operation === 'update' && $item->record_uuid) {
             $this->apiVisitRepo->update((int) $item->record_uuid, $item->payload);
         } elseif ($item->operation === 'delete' && $item->record_uuid) {
-            $this->apiVisitRepo->delete((int) $item->record_uuid, $item->payload);
+            $this->apiVisitRepo->delete((int) $item->record_uuid);
         }
     }
 
     private function pushNoteToRemote(SyncQueueItem $item, array $payload): void
     {
         $patientUuid = $payload['patient_uuid'] ?? null;
-        if (! $patientUuid) {
+        if (!$patientUuid) {
             return;
         }
 
@@ -196,16 +212,15 @@ class FullSyncService
         } elseif ($item->operation === 'update' && $item->record_uuid) {
             $this->apiNoteRepo->update($patientUuid, $item->record_uuid, $item->payload);
         } elseif ($item->operation === 'delete' && $item->record_uuid) {
-            $this->apiNoteRepo->delete($patientUuid, $item->record_uuid, $item->payload);
+            $this->apiNoteRepo->delete($patientUuid, $item->record_uuid);
         }
     }
 
-    /**
-     * Upsert remote API data into the local Eloquent model table by uuid.
-     */
     private function syncLocalCache(array $records, string $modelClass): void
     {
-        if (empty($records)) return;
+        if (empty($records)) {
+            return;
+        }
 
         try {
             $modelInstance = new $modelClass;
@@ -217,6 +232,8 @@ class FullSyncService
             $validColumns = [];
         }
 
+        $query = $modelClass::withoutGlobalScopes();
+
         foreach ($records as $record) {
             if (empty($record['uuid'])) {
                 continue;
@@ -226,16 +243,16 @@ class FullSyncService
             foreach ($record as $key => $value) {
                 if (empty($validColumns) || in_array($key, $validColumns)) {
                     if (is_array($value) && !array_key_exists($key, (new $modelClass)->getCasts())) {
-                         $cleanRecord[$key] = json_encode($value);
+                        $cleanRecord[$key] = json_encode($value);
                     } else {
-                         $cleanRecord[$key] = $value;
+                        $cleanRecord[$key] = $value;
                     }
                 }
             }
 
             try {
                 $modelClass::unguard();
-                $modelClass::updateOrCreate(
+                $query->updateOrCreate(
                     ['uuid' => $record['uuid']],
                     $cleanRecord
                 );
@@ -249,6 +266,55 @@ class FullSyncService
                     "[FullSyncService] Failed to cache " . class_basename($modelClass) .
                     " {$record['uuid']}: " . $e->getMessage()
                 );
+            }
+        }
+    }
+
+    private function syncUsersLocally(array $remoteDoctors): void
+    {
+        foreach ($remoteDoctors as $doctorData) {
+            $userId = $doctorData['id'] ?? null;
+            if (!$userId) {
+                continue;
+            }
+
+            $email = $doctorData['email'] ?? '';
+            $name = $doctorData['name'] ?? 'Unknown';
+            $role = $doctorData['role'] ?? 'doctor';
+
+            try {
+                \App\Domains\Users\Models\User::unguard();
+                $user = \App\Domains\Users\Models\User::withoutGlobalScopes()->updateOrCreate(
+                    ['id' => $userId],
+                    [
+                        'name' => $name,
+                        'email' => $email,
+                        'password' => Hash::make(Str::random(32)),
+                        'role' => $role,
+                        'uuid' => $doctorData['uuid'] ?? null,
+                        'phone' => $doctorData['phone'] ?? null,
+                        'specialization' => $doctorData['specialization'] ?? null,
+                        'status' => $doctorData['status'] ?? 'active',
+                        'preferences' => $doctorData['preferences'] ?? null,
+                    ]
+                );
+                \App\Domains\Users\Models\User::reguard();
+
+                $roleName = is_array($role) ? ($role['name'] ?? 'doctor') : $role;
+                if (empty($roleName)) {
+                    $roleName = 'doctor';
+                }
+
+                try {
+                    $spatieRole = \Spatie\Permission\Models\Role::findByName($roleName);
+                    if ($spatieRole && !$user->hasRole($roleName)) {
+                        $user->syncRoles([$roleName]);
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("[FullSyncService] Failed to sync role '{$roleName}' for user {$userId}: " . $e->getMessage());
+                }
+            } catch (\Exception $e) {
+                Log::warning("[FullSyncService] Failed to sync user {$userId}: " . $e->getMessage());
             }
         }
     }

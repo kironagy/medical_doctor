@@ -204,6 +204,7 @@ return [
         'storage/app/native-build',
         'storage/app/private',
         'storage/app/public',
+        'storage/app/mobile-cache',
         'nativephp/resources',
         'nativephp/android/build',
         'nativephp/android/.gradle',

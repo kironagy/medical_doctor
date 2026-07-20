@@ -8,7 +8,7 @@ $kernel->bootstrap();
 $doctor = \App\Domains\Users\Models\User::where('role', 'doctor')->first();
 if ($doctor) {
     echo "Testing API with {$doctor->email}\n";
-    $response = Illuminate\Support\Facades\Http::post('https://prof-hosam-fekry.online/api/v1/mobile/auth/login', [
+    $response = Illuminate\Support\Facades\Http::post('https://prof-hosam-fekry.online/api/v1/login', [
         'email' => $doctor->email,
         'password' => 'password', // or whatever
         'device_name' => 'test'

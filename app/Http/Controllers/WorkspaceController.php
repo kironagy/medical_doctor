@@ -98,29 +98,54 @@ class WorkspaceController extends Controller
         $user = auth()->user();
         $categories = $this->getCategories($user);
 
-        // ONLINE: Try direct remote API call for initial load
-        $patients = [];
-        if (NetworkStatusService::isOnline()) {
-            try {
-                $token = $this->apiService->getToken();
-                if ($token) {
-                    $patients = $this->apiPatientRepo->all();
-                    // Sync to local SQLite for offline use
-                    $this->syncPatientsLocally($patients);
-                }
-            } catch (\Illuminate\Auth\AuthenticationException $e) {
-                Log::warning('[WorkspaceController] API token expired during index: ' . $e->getMessage());
-                $this->apiService->setToken(null);
-            } catch (\Throwable $e) {
-                Log::warning('[WorkspaceController] API index failed, falling back to local: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
-            }
+    // NativePHP (mobile): use the Hybrid repo which handles API + local fallback
+    // internally. On web, this resolves to Eloquent directly.
+    $patientsSource = 'none';
+    $patients = [];
+    try {
+        $patients = $this->patientRepo->all();
+        $patientsSource = (new \ReflectionClass($this->patientRepo))->getShortName() === 'HybridPatientRepository' ? 'hybrid' : 'eloquent';
+
+        // Sync to local SQLite for offline use (safe to call regardless of source)
+        if (is_array($patients)) {
+            $this->syncPatientsLocally($patients);
         }
 
-        // Fallback: use local EloquentPatientRepository
-        if (empty($patients)) {
+        $uuids = collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
+        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::index() - repo returned', [
+            'source' => $patientsSource,
+            'count' => count($patients),
+            'uuids' => $uuids,
+        ]);
+    } catch (\Illuminate\Auth\AuthenticationException $e) {
+        Log::warning('[WorkspaceController] Auth error during index: ' . $e->getMessage());
+        $this->apiService->setToken(null);
+        $patientsSource = 'auth_error';
+    } catch (\Throwable $e) {
+        Log::warning('[WorkspaceController] Repo index failed, falling back to local: ' . $e->getMessage());
+        $patientsSource = 'repo_fallback';
+    }
+
+    // Last-resort fallback: ensure local SQLite is queried directly
+    if (empty($patients)) {
+        try {
             $patients = $this->eloquentPatientRepo->all();
+            $patientsSource = 'local_fallback';
+            $uuidsLocal = collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
+            Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::index() - got from local', [
+                'count' => count($patients),
+                'uuids' => $uuidsLocal,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('[WorkspaceController] Local fallback also failed: ' . $e->getMessage());
+            $patients = [];
         }
+    }
+        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::index() - FINAL', [
+            'source' => $patientsSource,
+            'count' => count($patients),
+            'uuids' => collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray(),
+        ]);
 
         return Inertia::render('DoctorWorkspace', [
             'patients' => $patients,
@@ -151,11 +176,29 @@ class WorkspaceController extends Controller
                 if ($token) {
                     $apiResult = $this->apiPatientRepo->paginated(10, $page, $status);
                     if (isset($apiResult['data'])) {
-                        $result = $apiResult;
                         $source = 'api';
+                        $apiUuids = collect($apiResult['data'])->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
+                        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - API returned', [
+                            'page' => $page,
+                            'status' => $status,
+                            'api_total' => $apiResult['meta']['total'] ?? 'N/A',
+                            'api_count' => count($apiResult['data']),
+                            'api_uuids' => $apiUuids,
+                            'raw_api_keys' => array_keys($apiResult),
+                        ]);
                         // Sync fetched data to local SQLite for offline use
                         $this->syncPatientsLocally($apiResult['data']);
+                        // Verify what's in local SQLite after sync
+                        $localAfterSync = Patient::latest()->take(20)->get();
+                        $localUuidsAfter = $localAfterSync->map(fn($p) => $p->uuid . ':' . $p->name . ':' . $p->code)->toArray();
+                        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - local SQLite after sync', [
+                            'local_count' => Patient::count(),
+                            'recent_local_uuids' => $localUuidsAfter,
+                        ]);
+                        $result = $apiResult;
                     }
+                } else {
+                    Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - no API token');
                 }
             } catch (\Illuminate\Auth\AuthenticationException $e) {
                 Log::warning('[WorkspaceController] API token expired: ' . $e->getMessage());
@@ -165,7 +208,11 @@ class WorkspaceController extends Controller
             } catch (\Throwable $e) {
                 Log::warning('[WorkspaceController] API call failed, falling back to local: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
+                $source = 'api_error_fallback';
             }
+        } else {
+            $source = 'offline_mode';
+            Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - offline mode');
         }
 
         // OFFLINE / Fallback: Use local EloquentPatientRepository (bypasses Hybrid)
@@ -175,8 +222,14 @@ class WorkspaceController extends Controller
                 $localResult = $this->eloquentPatientRepo->paginated(10, $page, $status);
                 if (($localResult['meta']['total'] ?? 0) > 0) {
                     $result = $localResult;
-                    $source = 'local';
+                    $source = 'local_auth_error';
+                    $localUuids = collect($localResult['data'])->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
+                    Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - local (auth error, data exists)', [
+                        'uuids' => $localUuids,
+                        'total' => $localResult['meta']['total'] ?? 0,
+                    ]);
                 } else {
+                    Log::channel('single')->warning('[PATIENT_DEBUG] WorkspaceController::patientList() - auth error, no local data');
                     return response()->json([
                         'data' => [],
                         'meta' => ['current_page' => 1, 'last_page' => 1, 'per_page' => 10, 'total' => 0, 'from' => null, 'to' => null],
@@ -186,7 +239,7 @@ class WorkspaceController extends Controller
                 }
             } else {
                 $result = $this->eloquentPatientRepo->paginated(10, $page, $status);
-                $source = 'local';
+                $source = 'local_fallback';
             }
         }
 
@@ -196,22 +249,24 @@ class WorkspaceController extends Controller
                 'data' => $result['data'] ?? [],
                 'meta' => [
                     'current_page' => $result['current_page'] ?? 1,
-                    'last_page'    => $result['last_page'] ?? 1,
-                    'per_page'     => $result['per_page'] ?? 10,
-                    'total'        => $result['total'] ?? 0,
-                    'from'         => $result['from'] ?? null,
-                    'to'           => $result['to'] ?? null,
+                    'last_page' => $result['last_page'] ?? 1,
+                    'per_page' => $result['per_page'] ?? 10,
+                    'total' => $result['total'] ?? 0,
+                    'from' => $result['from'] ?? null,
+                    'to' => $result['to'] ?? null,
                 ],
             ];
         }
 
-        Log::info('Sidebar patient list loaded', [
-            'url'    => $request->fullUrl(),
+        $resultUuids = collect($result['data'] ?? [])->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
+        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - FINAL response sent', [
+            'url' => $request->fullUrl(),
             'status' => $status ?: 'active',
-            'page'   => $page,
+            'page' => $page,
             'source' => $source,
-            'count'  => count($result['data'] ?? []),
-            'total'  => $result['meta']['total'] ?? 0,
+            'count' => count($result['data'] ?? []),
+            'total' => $result['meta']['total'] ?? 0,
+            'uuids' => $resultUuids,
         ]);
 
         return response()->json($result);
@@ -228,9 +283,9 @@ class WorkspaceController extends Controller
                     'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes'
                 ]);
                 try {
-                    Patient::unguard();
-                    Patient::updateOrCreate(['uuid' => $item['uuid']], $cleanData);
-                    Patient::reguard();
+            Patient::unguard();
+            Patient::withoutGlobalScopes()->updateOrCreate(['uuid' => $item['uuid']], $cleanData);
+            Patient::reguard();
                 } catch (\Exception $e) {
                     Patient::reguard();
                     Log::warning("[WorkspaceController] Failed to sync patient {$item['uuid']}: " . $e->getMessage());

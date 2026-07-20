@@ -851,6 +851,25 @@ watch(expanded, (val) => {
   }
 }, { immediate: true })
 
+// Reload category data when the selected patient changes
+watch(() => selectedPatient.value?.uuid, (newUuid, oldUuid) => {
+  if (newUuid && newUuid !== oldUuid) {
+    console.log(`[CategoryBlock] Patient changed from ${oldUuid} to ${newUuid}, reloading category data for ${props.slug}`);
+    serverFiles.value = []
+    serverNotes.value = []
+    serverMeta.value = { total: 0, current_page: 1, last_page: 1 }
+    currentPage.value = 1
+    if (expanded.value) {
+      loadCategoryData(1)
+    }
+  }
+})
+
+// Debug: log category data state after load
+watch(serverFiles, (files) => {
+  console.log(`[CategoryBlock] ${props.slug}: serverFiles updated: ${files.length} files`);
+})
+
 // After upload completes, sync from server in background (file shows instantly via reactive merge)
 const localCompleteCount = ref(0)
 watch(uploads, (list) => {

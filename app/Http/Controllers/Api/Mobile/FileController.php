@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api\Mobile;
 use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Models\PatientFile;
-use App\Domains\Media\Resources\FileResource;
+use App\Domains\Mobile\Resources\MobilePatientFileResource;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -36,7 +36,7 @@ class FileController extends Controller
 
         $files = $query->paginate(min($request->integer('per_page', 50), 100));
 
-        return FileResource::collection($files);
+        return MobilePatientFileResource::collection($files);
     }
 
     public function show(string $fileUuid)
@@ -44,7 +44,7 @@ class FileController extends Controller
         $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
         Gate::authorize('view', $file->patient);
 
-        return response()->json(new FileResource($file));
+        return response()->json(new MobilePatientFileResource($file));
     }
 
     public function store(Request $request, string $uuid)
@@ -248,6 +248,6 @@ class FileController extends Controller
 
         $file->update($validated);
 
-        return response()->json(new FileResource($file->fresh()));
+        return response()->json(new MobilePatientFileResource($file->fresh()));
     }
 }

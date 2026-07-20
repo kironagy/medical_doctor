@@ -68,11 +68,11 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                         $cleanData['uploaded_by_id'] = Auth::id();
                     }
                 }
-                try {
-                    \App\Domains\Media\Models\PatientFile::updateOrCreate(
-                        ['uuid' => $item['uuid']],
-                        $cleanData
-                    );
+        try {
+            \App\Domains\Media\Models\PatientFile::withoutGlobalScopes()->updateOrCreate(
+                ['uuid' => $item['uuid']],
+                $cleanData
+            );
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::warning("Failed to sync local cache in " . basename("app/Repositories/Hybrid/HybridPatientFileRepository.php") . ": " . $e->getMessage());
                 }

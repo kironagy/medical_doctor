@@ -172,6 +172,24 @@ async function selectPatient(uuid) {
         cats.forEach((c) => {
             expandedCategories.value[c.slug] = true;
         });
+        
+        // Trigger background sync to fetch latest files for this patient
+        console.log('[selectPatient] Triggering background sync for patient', uuid);
+        try {
+            await axios.post('/api/native/sync').catch(e => {
+                console.warn('[selectPatient] Background sync warning:', e?.message || e);
+            });
+            console.log('[selectPatient] Background sync completed');
+            
+            // Refresh workspace data after sync to get latest files
+            const refreshRes = await axios.get(`/api/v1/workspace/${uuid}`);
+            if (refreshRes.data) {
+                workspaceData.value = refreshRes.data;
+                console.log('[selectPatient] Workspace data refreshed after sync');
+            }
+        } catch (syncErr) {
+            console.warn('[selectPatient] Sync error (non-fatal):', syncErr?.message || syncErr);
+        }
     } catch (e) {
         console.error("Failed to load patient data", e);
         workspaceData.value = null;
@@ -376,31 +394,44 @@ async function updatePatient(uuid, formData) {
 const showArchived = ref(false);
 const authError = ref(null);
 
-async function refreshPatientList(page = 1) {
-    loadingPatients.value = true;
-    try {
-        const url = "/api/v1/workspace/patients-list";
-        const res = await axios.get(url, {
-            params: { page },
-        });
-        const count = res.data?.data?.length || 0;
-        const total = res.data?.meta?.total || 0;
-        console.log(`[PatientSidebar] GET ${url}?page=${page} | Status: ${res.status} | Patients: ${count} | Total: ${total}`);
-        if (res.data?.data) {
-            patients.value = res.data.data;
-            patientsMeta.value = res.data.meta;
-        }
-        if (res.data?.auth_error) {
-            authError.value = res.data?.message || 'Session expired. Please login again.';
-            console.warn("[PatientSidebar] Auth error:", authError.value);
-        } else {
-            authError.value = null;
-        }
-    } catch (e) {
-        console.error("[PatientSidebar] Failed to refresh patient list", e);
-    } finally {
-        loadingPatients.value = false;
+ async function refreshPatientList(page = 1) {
+  loadingPatients.value = true;
+  try {
+    const url = "/api/v1/workspace/patients-list";
+    console.log(`[refreshPatientList] Fetching: ${url}?page=${page}`);
+    const res = await axios.get(url, {
+      params: { page },
+    });
+    console.log(`[refreshPatientList] Response status: ${res.status}`);
+    console.log(`[refreshPatientList] Response data keys: ${Object.keys(res.data || {}).join(', ')}`);
+    
+    const count = res.data?.data?.length || 0;
+    const total = res.data?.meta?.total || 0;
+    const listUuids = (res.data?.data || []).map(p => `${p.uuid}:${p.name}:${p.code}>`);
+    console.log(
+      `[refreshPatientList] GET ${url}?page=${page} | Status: ${res.status} | Patients: ${count} | Total: ${total}\n` +
+      `[refreshPatientList] UUIDs on page: ${JSON.stringify(listUuids)}`
+    );
+    if (res.data?.data) {
+      console.log(`[refreshPatientList] Setting patients.value = ${res.data.data.length} patients (was ${patients.value.length})`);
+      patients.value = res.data.data;
+      patientsMeta.value = res.data.meta;
+      console.log(`[refreshPatientList] patients.value now has ${patients.value.length} patients`);
+    } else {
+      console.warn('[refreshPatientList] res.data?.data is falsy!', res.data);
     }
+    if (res.data?.auth_error) {
+      authError.value = res.data?.message || 'Session expired. Please login again.';
+      console.warn("[refreshPatientList] Auth error:", authError.value);
+    } else {
+      authError.value = null;
+    }
+  } catch (e) {
+    console.error("[refreshPatientList] Failed to refresh patient list", e);
+  } finally {
+    loadingPatients.value = false;
+    console.log(`[refreshPatientList] Done. loadingPatients=false, patients count=${patients.value.length}`);
+  }
 }
 
 async function fetchArchivedPatients(page = 1) {

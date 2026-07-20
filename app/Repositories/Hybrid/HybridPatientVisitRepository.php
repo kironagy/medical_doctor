@@ -36,12 +36,12 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
                     }
                 }
 
-                $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'doctor', 'patient']);
-                try {
-                    \App\Domains\Patients\Models\PatientVisit::updateOrCreate(
-                        ['uuid' => $item['uuid']],
-                        $cleanData
-                    );
+        $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'doctor', 'patient']);
+        try {
+            \App\Domains\Patients\Models\PatientVisit::withoutGlobalScopes()->updateOrCreate(
+                ['uuid' => $item['uuid']],
+                $cleanData
+            );
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::warning("Failed to sync local cache in " . basename("app/Repositories/Hybrid/HybridPatientVisitRepository.php") . ": " . $e->getMessage());
                 }

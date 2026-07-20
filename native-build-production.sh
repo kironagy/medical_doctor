@@ -56,27 +56,29 @@ echo "🚀 Building NativePHP for $PLATFORM ($BUILD_TYPE mode)..."
 echo "    Log: $BUILD_LOG"
 
 case $PLATFORM in
-    android)
-        # Run stabilization script first
-        if [ -f "nativephp/android/gradlew-stabilize" ]; then
-            echo "🔧 Running Android stabilization validation..."
-            cd nativephp/android && ./gradlew-stabilize && cd ../..
-        fi
-        
-        # Build Android
-        CI=true php artisan native:build android --$BUILD_TYPE --no-interaction | tee "$BUILD_LOG"
-        ;;
-    ios)
-        CI=true php artisan native:build ios --$BUILD_TYPE --no-interaction | tee "$BUILD_LOG"
-        ;;
-    *)
-        echo "❌ Unsupported platform: $PLATFORM"
-        exit 1
-        ;;
+android)
+    # Run stabilization script first
+    if [ -f "nativephp/android/gradlew-stabilize" ]; then
+        echo "🔧 Running Android stabilization validation..."
+        cd nativephp/android && ./gradlew-stabilize && cd ../..
+    fi
+
+    # Build Android (tee masks exit code, capture via PIPESTATUS)
+    BUILD_EXIT=0
+    CI=true php artisan native:build android --$BUILD_TYPE --no-interaction | tee "$BUILD_LOG" || BUILD_EXIT=$?
+    ;;
+ios)
+    # Build iOS
+    BUILD_EXIT=0
+    CI=true php artisan native:build ios --$BUILD_TYPE --no-interaction | tee "$BUILD_LOG" || BUILD_EXIT=$?
+    ;;
+*)
+    echo "❌ Unsupported platform: $PLATFORM"
+    exit 1
+    ;;
 esac
 
-# Build result validation
-if [ $? -eq 0 ]; then
+if [ $BUILD_EXIT -eq 0 ]; then
     echo "✅ $PLATFORM build completed successfully"
     
     # Signing coordination
@@ -98,8 +100,13 @@ else
 fi
 
 # Ready for distribution
-OUTPUT_FILE="nativephp/build-outputs/$(ls -t nativephp/android/app/build/outputs/apk/$BUILD_TYPE/ 2>/dev/null | grep '\.apk$' | head -1 || echo '')"
-if [ -n "$OUTPUT_FILE" ] && [ "$OUTPUT_FILE" != "nativephp/build-outputs/" ] && [ -f "$OUTPUT_FILE" ]; then
+APK_DIR="nativephp/android/app/build/outputs/apk/$BUILD_TYPE"
+# Prefer the signed APK (post-signing), fall back to the unsigned APK
+OUTPUT_FILE="$APK_DIR/app-release-signed.apk"
+if [ ! -f "$OUTPUT_FILE" ]; then
+    OUTPUT_FILE=$(find "$APK_DIR" -name "*.apk" -type f -print -quit 2>/dev/null || echo "")
+fi
+if [ -n "$OUTPUT_FILE" ] && [ -f "$OUTPUT_FILE" ]; then
     echo ""
     echo "🎉 Production build ready:"
     echo "    APK: $OUTPUT_FILE"

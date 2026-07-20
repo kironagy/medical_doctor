@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Log;
 
 class NetworkStatusService
 {
@@ -37,11 +38,14 @@ class NetworkStatusService
         // for GET /api/v1/mobile because no GET route matches the prefix itself,
         // but any response (including 404) proves the server is reachable.
         // We specifically exclude 5xx which indicates a server-side failure.
-        error_log('[NETWORK_DEBUG] Checking connectivity to ' . $apiUrl);
-        $response = Http::timeout(3)->get($apiUrl);
+        Log::channel('single')->info('[NETWORK_DEBUG] Checking connectivity', ['url' => $apiUrl]);
+        $response = Http::timeout(10)->get($apiUrl);
         $online = $response->status() < 500;
 
-        error_log('[NETWORK_DEBUG] Connectivity check result: ' . ($online ? 'ONLINE' : 'OFFLINE') . ' (status: ' . $response->status() . ')');
+        Log::channel('single')->info('[NETWORK_DEBUG] Connectivity result', [
+            'online' => $online,
+            'status' => $response->status(),
+        ]);
 
         // Cache success for 60 seconds
         \Illuminate\Support\Facades\Cache::put($cacheKey, $online, $online ? 60 : 15);

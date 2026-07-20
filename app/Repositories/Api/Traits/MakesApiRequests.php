@@ -17,6 +17,7 @@ trait MakesApiRequests
     private function apiCall(string $method, string $path, array $data = []): Response
     {
         $url = $this->baseUrl() . $path;
+        $callLabel = strtoupper($method) . ' ' . $path;
 
         // Load token via ApiService singleton (reads from session, falls back to local DB)
         $token = null;
@@ -38,26 +39,44 @@ trait MakesApiRequests
             ->withHeaders(['Accept' => 'application/json', 'Content-Type' => 'application/json'])
             ->when($token, fn($c) => $c->withToken($token));
 
-        $start = microtime(true);
+    $start = microtime(true);
 
-        $response = match (strtoupper($method)) {
-            'GET'    => $http->get($url, $data),
-            'POST'   => $http->post($url, $data),
-            'PUT'    => $http->put($url, $data),
-            'DELETE' => $http->delete($url, $data),
-            default  => throw new RuntimeException("Unsupported HTTP method: $method"),
-        };
+    $response = match (strtoupper($method)) {
+        'GET' => $http->get($url, $data),
+        'POST' => $http->post($url, $data),
+        'PUT' => $http->put($url, $data),
+        'DELETE' => $http->delete($url, $data),
+        default => throw new RuntimeException("Unsupported HTTP method: $method"),
+    };
 
-        $timeMs = (microtime(true) - $start) * 1000;
+    $timeMs = (microtime(true) - $start) * 1000;
 
-        Log::debug(sprintf(
-            '[API] %s %s | Status: %d | Time: %.0fms | Token: %s',
-            strtoupper($method),
-            $url,
-            $response->status(),
-            $timeMs,
-            $token ? 'YES' : 'NO'
-        ));
+    Log::debug(sprintf(
+        '[API] %s %s | Status: %d | Time: %.0fms | Token: %s',
+        strtoupper($method),
+        $url,
+        $response->status(),
+        $timeMs,
+        $token ? 'YES' : 'NO'
+    ));
+
+    // Log full response body for patient-related GET calls (all, search, paginated)
+    if (str_contains($path, '/patients') && strtoupper($method) === 'GET' && $response->successful()) {
+        $responseBody = $response->json();
+        if (is_array($responseBody)) {
+            Log::channel('single')->info('[PATIENT_DEBUG] API raw response for ' . $callLabel, [
+                'path' => $path,
+                'body_keys' => array_keys($responseBody),
+                'total_in_data' => count($responseBody['data'] ?? []),
+                'total_in_patients' => count($responseBody['patients'] ?? []),
+                'meta' => $responseBody['meta'] ?? null,
+                'uuids_sample' => collect($responseBody['data'] ?? $responseBody['patients'] ?? [])
+                    ->take(5)
+                    ->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))
+                    ->toArray(),
+            ]);
+        }
+    }
 
         if ($response->unauthorized()) {
             session()->forget('api_token');

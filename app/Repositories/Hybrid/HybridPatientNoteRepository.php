@@ -37,12 +37,12 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
                     }
                 }
 
-                $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'author']);
-                try {
-                    \App\Domains\Patients\Models\PatientNote::updateOrCreate(
-                        ['uuid' => $item['uuid']],
-                        $cleanData
-                    );
+        $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'author']);
+        try {
+            \App\Domains\Patients\Models\PatientNote::withoutGlobalScopes()->updateOrCreate(
+                ['uuid' => $item['uuid']],
+                $cleanData
+            );
                 } catch (\Exception $e) {
                     \Illuminate\Support\Facades\Log::warning("Failed to sync local cache in " . basename("app/Repositories/Hybrid/HybridPatientNoteRepository.php") . ": " . $e->getMessage());
                 }

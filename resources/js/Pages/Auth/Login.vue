@@ -110,7 +110,7 @@ const submit = async () => {
 
     // Force a full page reload to flush the Android WebView CookieManager
     setTimeout(() => {
-        window.location.replace(response.data.redirect || '/dashboard');
+        window.location.replace(response.data.redirect || '/workspace');
     }, 100);
 
   } catch (error) {

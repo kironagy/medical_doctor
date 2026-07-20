@@ -26,8 +26,20 @@
       </div>
     </div>
 
+    <!-- PTR Indicator for Sidebar -->
+    <div v-if="sidebarPullDistance > 0 || sidebarIsRefreshing" class="flex items-center justify-center py-2 pointer-events-none" :style="{ opacity: Math.min(sidebarPullProgress * 2, 1) }">
+      <svg v-if="!sidebarIsRefreshing" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class="text-primary-500" :style="{ transform: `rotate(${sidebarPullProgress * 180}deg)` }">
+        <path d="M12 5 L12 17 M8 13 L12 17 L16 13" stroke-linejoin="round"/>
+      </svg>
+      <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" class="animate-spin text-primary-500">
+        <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="35 75" stroke-linecap="round" transform="rotate(-90 12 12)"/>
+      </svg>
+      <span v-if="sidebarThresholdReached && !sidebarIsRefreshing" class="text-xs font-semibold text-slate-400 me-2">{{ $t('workspace.release_to_refresh') || 'Release' }}</span>
+      <span v-if="sidebarIsRefreshing" class="text-xs font-semibold text-slate-400 me-2">{{ $t('workspace.refreshing') || 'Refreshing' }}</span>
+    </div>
+
     <!-- Patients List -->
-    <div class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-1">
+    <div ref="sidebarScrollRef" class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-1" @touchstart="sidebarTouchStart" @touchmove="sidebarTouchMove" @touchend="sidebarTouchEnd" @touchcancel="sidebarTouchEnd">
       <div v-for="patient in filteredPatients" :key="patient.uuid">
         <button
           @click="selectAndClose(patient.uuid)"
@@ -108,13 +120,15 @@
         {{ $t('nav.settings') }}
       </button>
     </div>
-  </aside>
+    <!-- PTR indicator for dragging state -->
+  <div v-if="sidebarPullDistance > 0 && !sidebarIsRefreshing" class="absolute top-0 left-0 right-0 h-1 bg-primary-500/30" :style="{ transform: `scaleX(${sidebarPullProgress})`, transformOrigin: 'left' }"></div>
+</aside>
 </template>
 
 <script setup>
 import { router } from '@inertiajs/vue3'
 import { useWorkspace } from '@/Composables/useWorkspace'
-import { computed } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 
 const props = defineProps({
   user: Object,
@@ -153,6 +167,45 @@ const {
   openSettings,
   authError,
 } = useWorkspace()
+
+// Pull-to-refresh for the sidebar patient list
+import { usePullToRefresh } from '@/Composables/usePullToRefresh'
+const sidebarScrollRef = ref(null)
+let sidebarRefreshPromise = null
+const {
+  pullDistance: sidebarPullDistance,
+  pullProgress: sidebarPullProgress,
+  isRefreshing: sidebarIsRefreshing,
+  thresholdReached: sidebarThresholdReached,
+  handleTouchStart: sidebarTouchStart,
+  handleTouchMove: sidebarTouchMove,
+  handleTouchEnd: sidebarTouchEnd,
+} = usePullToRefresh({
+  scrollContainer: sidebarScrollRef,
+  onRefresh: async () => {
+    if (sidebarRefreshPromise) return
+    sidebarRefreshPromise = (async () => {
+      console.log('[PTRefresh-Sidebar] Pull-to-refresh triggered')
+      await refreshPatientList()
+      console.log(`[PTRefresh-Sidebar] Done. ${patients.value.length} patients`)
+    })()
+    try { await sidebarRefreshPromise } finally { sidebarRefreshPromise = null }
+  },
+})
+
+// Debug: log whenever patients list changes
+watch(() => patients.value.length, (newLen, oldLen) => {
+  console.log(`[PatientListSidebar] patients.length changed: ${oldLen} → ${newLen}`);
+  console.log(`[PatientListSidebar] filteredPatients computed: ${filteredPatients.value.length} items`);
+});
+
+// Debug: log initial render
+onMounted(() => {
+  console.log(`[PatientListSidebar] Mounted. patients.length=${patients.value.length}, filteredPatients.length=${filteredPatients.value.length}`);
+  if (patients.value.length > 0) {
+    console.log(`[PatientListSidebar] Patient UUIDs: ${JSON.stringify(patients.value.map(p => `${p.uuid}:${p.name}:${p.code}`))}`);
+  }
+})
 
 function toggleArchived() {
   showArchived.value = !showArchived.value

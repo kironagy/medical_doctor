@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Mobile;
 use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Models\PatientFile;
+use App\Domains\Mobile\Resources\MobilePatientResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -28,26 +29,14 @@ class DashboardController extends Controller
                 ->count();
         }
 
-        $recentPatients = Patient::with('primaryDoctor:id,name,email')
-            ->latest()
-            ->take(10)
-            ->get()
-            ->map(fn($p) => [
-                'uuid' => $p->uuid,
-                'name' => $p->name,
-                'code' => $p->code,
-                'phone' => $p->phone,
-                'diagnosis' => $p->diagnosis,
-                'created_at' => $p->created_at?->toIso8601String(),
-                'primary_doctor' => $p->primaryDoctor ? [
-                    'id' => $p->primaryDoctor->id,
-                    'name' => $p->primaryDoctor->name,
-                ] : null,
-            ]);
+$recentPatients = Patient::with('primaryDoctor:id,name,email')
+->latest()
+->take(10)
+->get();
 
-        return response()->json([
-            'stats' => $stats,
-            'recent_patients' => $recentPatients,
+return response()->json([
+    'stats' => $stats,
+    'recent_patients' => MobilePatientResource::collection($recentPatients),
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,

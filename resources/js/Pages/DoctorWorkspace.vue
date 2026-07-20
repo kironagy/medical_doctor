@@ -161,13 +161,13 @@
             <!-- Section 2: Dynamic Categories -->
             <div ref="recordsRef" class="workspace-section space-y-4">
               <CategoryBlock
-                v-for="cat in categories"
+                v-for="cat in displayCategories"
                 :key="cat.slug"
                 :slug="cat.slug"
                 :name="cat.name"
                 :icon="getCategoryIcon(cat.icon)"
                 :color="cat.color || '#0d9488'"
-                :allCategories="categories"
+                :allCategories="displayCategories"
               />
             </div>
           </div>
@@ -305,6 +305,8 @@ const {
   fetchArchivedPatients,
   archivePatient,
   restorePatient,
+  patients,
+  loadingPatients,
 } = useWorkspace()
 
 const dialog = useDialog()
@@ -323,8 +325,42 @@ const {
   onRefresh: async () => {
     if (refreshPromise) return
     refreshPromise = (async () => {
+      console.log('[PTRefresh] Pull-to-refresh triggered. Refreshing patient list and current patient data...')
+      // 1. Refresh patient list (calls API, saves to SQLite, updates UI)
       await refreshPatientList()
-      await refreshWorkspaceData()
+      console.log(`[PTRefresh] Patient list refreshed: ${patients.value.length} patients`)
+      
+      // 2. Refresh workspace data for the selected patient (if any)
+      if (selectedPatientId.value) {
+        console.log(`[PTRefresh] Refreshing workspace data for patient ${selectedPatientId.value}`)
+        await refreshWorkspaceData()
+        console.log('[PTRefresh] Workspace data refreshed')
+      }
+      
+      // 3. If online, trigger a background sync to fetch latest files/media
+      if (navigator.onLine) {
+        try {
+          console.log('[PTRefresh] Online - triggering background sync')
+          await axios.post('/api/native/sync').catch(e => {
+            console.warn('[PTRefresh] Background sync error (non-fatal):', e?.message || e)
+          })
+          console.log('[PTRefresh] Background sync completed')
+          
+          // 4. If we had a selected patient, refresh data again after sync
+          if (selectedPatientId.value) {
+            await refreshWorkspaceData()
+          }
+          
+          // 5. Refresh patient list again after sync (in case new patients arrived)
+          await refreshPatientList()
+        } catch (e) {
+          console.warn('[PTRefresh] Sync error (non-fatal):', e?.message || e)
+        }
+      } else {
+        console.log('[PTRefresh] Offline - using local SQLite data only')
+      }
+      
+      console.log('[PTRefresh] Pull-to-refresh complete')
     })()
     try { await refreshPromise } finally { refreshPromise = null }
   },
@@ -344,14 +380,46 @@ const ptrContentStyle = computed(() => ({
 }))
 
 let refreshPromise = null
+let syncPromise = null
 
-onMounted(() => {
-  // Load initial patients from Inertia props so the sidebar is populated
-  // immediately, before the async API call completes.
-  if (props.patients?.length) {
-    patients.value = props.patients
-  }
-  refreshPatientList()
+ onMounted(() => {
+    // Load initial patients from Inertia props so the sidebar is populated
+    // immediately, before the async API call completes.
+    const inertiaUuids = (props.patients || []).map(p => `${p.uuid}:${p.name}:${p.code}`);
+    console.log(`[DoctorWorkspace] onMounted - Inertia props: ${props.patients?.length || 0} patients | UUIDs: ${JSON.stringify(inertiaUuids)}`);
+    if (props.patients?.length) {
+      patients.value = props.patients
+      console.log(`[DoctorWorkspace] Set patients from Inertia props: ${patients.value.length} patients`);
+    } else {
+      console.log('[DoctorWorkspace] No patients in Inertia props, will fetch from API');
+    }
+    // Always refresh from API — this updates the patients list on mount
+    console.log('[DoctorWorkspace] Calling refreshPatientList from onMounted');
+    refreshPatientList().then(() => {
+      console.log(`[DoctorWorkspace] refreshPatientList completed. patients now has ${patients.value.length} patients`);
+      if (patients.value.length > 0) {
+        console.log(`[DoctorWorkspace] Patient UUIDs: ${JSON.stringify(patients.value.map(p => `${p.uuid}:${p.name}:${p.code}`))}`);
+      }
+    }).catch(e => {
+      console.error('[DoctorWorkspace] refreshPatientList failed:', e);
+    })
+    
+    // Trigger background sync on startup (with dedup guard)
+    if (!syncPromise) {
+      syncPromise = (async () => {
+        console.log('[DoctorWorkspace] Triggering initial background sync');
+        try {
+          await axios.post('/api/native/sync');
+          console.log('[DoctorWorkspace] Initial background sync completed');
+          // Refresh patient list after sync in case new data arrived
+          await refreshPatientList();
+          console.log(`[DoctorWorkspace] Patient list after sync: ${patients.value.length} patients`);
+        } catch (e) {
+          console.warn('[DoctorWorkspace] Initial sync warning:', e?.message || e);
+        }
+      })();
+      syncPromise.finally(() => { syncPromise = null; });
+    }
   if (isMobile.value && !selectedPatientId.value) {
     mobilePatientListOpen.value = true
   }
@@ -402,6 +470,14 @@ const timelinePageSize = 20
 
 const currentPatient = computed(() => {
   return workspaceData.value?.patient || selectedPatient.value || {}
+})
+
+// Use workspace categories when available, fall back to Inertia props
+const displayCategories = computed(() => {
+  const wsCats = categories?.length ? categories : []
+  if (wsCats.length > 0) return wsCats
+  if (props.categories?.length > 0) return props.categories
+  return []
 })
 
 const displayedTimeline = computed(() => {

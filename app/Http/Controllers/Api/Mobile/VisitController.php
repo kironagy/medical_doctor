@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Mobile;
 use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientVisit;
+use App\Domains\Mobile\Resources\MobilePatientVisitResource;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -20,9 +21,9 @@ class VisitController extends Controller
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('view', $patient);
 
-        $visits = $patient->visits()->latest()->paginate(50);
+$visits = $patient->visits()->latest()->paginate(50);
 
-        return response()->json($visits);
+return MobilePatientVisitResource::collection($visits);
     }
 
     public function store(Request $request, string $uuid)
@@ -51,7 +52,7 @@ class VisitController extends Controller
             'patient_uuid' => $uuid,
         ]);
 
-        return response()->json($visit, 201);
+        return response()->json(new MobilePatientVisitResource($visit), 201);
     }
 
     public function update(Request $request, string $uuid, string $visitId)
@@ -79,7 +80,7 @@ class VisitController extends Controller
 
         $visit->update($validated);
 
-        return response()->json($visit->fresh());
+        return response()->json(new MobilePatientVisitResource($visit->fresh()));
     }
 
     public function destroy(string $uuid, string $visitId)

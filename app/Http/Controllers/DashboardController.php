@@ -18,9 +18,9 @@ class DashboardController extends Controller
     {
         $user = auth()->user();
 
-        if ($user->hasRole('doctor')) {
-            return app(WorkspaceController::class)->index();
-        }
+    if ($user->hasRole('doctor')) {
+        return redirect('/workspace');
+    }
 
         $isSuperAdmin = $user->hasRole('super-admin');
         $stats = $this->patientRepo->stats();

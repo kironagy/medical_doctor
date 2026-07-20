@@ -12,7 +12,14 @@ class ApiPatientRepository implements PatientRepositoryInterface
     public function all(): array
     {
         $body = $this->apiCall('GET', '/patients', ['per_page' => 1000])->json() ?? [];
-        return $body['data'] ?? $body['patients'] ?? $body ?? [];
+        $patients = $body['data'] ?? $body['patients'] ?? $body ?? [];
+        $uuids = collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
+        Log::channel('single')->info('[PATIENT_DEBUG] ApiPatientRepo::all()', [
+            'total_in_response' => count($patients),
+            'uuids' => $uuids,
+            'raw_keys' => array_keys($body),
+        ]);
+        return $patients;
     }
 
     public function find(string $uuid): ?array
@@ -50,7 +57,13 @@ class ApiPatientRepository implements PatientRepositoryInterface
     public function search(string $term): array
     {
         $body = $this->apiCall('GET', '/patients', ['search' => $term, 'per_page' => 1000])->json() ?? [];
-        return $body['data'] ?? $body['patients'] ?? [];
+        $patients = $body['data'] ?? $body['patients'] ?? [];
+        Log::channel('single')->info('[PATIENT_DEBUG] ApiPatientRepo::search()', [
+            'term' => $term,
+            'total_in_response' => count($patients),
+            'uuids' => collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray(),
+        ]);
+        return $patients;
     }
 
     public function shared(int $userId): array
@@ -77,6 +90,16 @@ class ApiPatientRepository implements PatientRepositoryInterface
             $params['status'] = $status;
         }
         $body = $this->apiCall('GET', '/patients', $params)->json() ?? [];
+        $dataItems = $body['data'] ?? [];
+        Log::channel('single')->info('[PATIENT_DEBUG] ApiPatientRepo::paginated()', [
+            'per_page' => $perPage,
+            'page' => $page,
+            'status' => $status,
+            'total_from_api' => $body['meta']['total'] ?? $body['total'] ?? 'N/A',
+            'returned_count' => count($dataItems),
+            'uuids' => collect($dataItems)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray(),
+            'raw_keys' => array_keys($body),
+        ]);
         return $body;
     }
 

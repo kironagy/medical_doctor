@@ -5,29 +5,47 @@ namespace App\Repositories\Eloquent;
 use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Models\PatientFile;
+use Illuminate\Support\Facades\Log;
 
 class EloquentPatientRepository implements PatientRepositoryInterface
 {
     public function all(): array
     {
-        return Patient::latest()->get()->toArray();
+        $patients = Patient::latest()->get()->toArray();
+        $uuids = collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
+        Log::channel('single')->info('[PATIENT_DEBUG] EloquentPatientRepo::all()', [
+            'count' => count($patients),
+            'uuids' => $uuids,
+        ]);
+        return $patients;
     }
 
     public function paginated(int $perPage = 10, int $page = 1, ?string $status = null): array
     {
         $query = Patient::latest();
-        
+
         if ($status === 'archived') {
             $query = Patient::onlyTrashed()->latest();
         }
-        
+
         $paginator = $query->paginate(
             perPage: $perPage,
             page: $page
         );
-        
+
+        $dataItems = $paginator->items();
+        $uuids = collect($dataItems)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
+        Log::channel('single')->info('[PATIENT_DEBUG] EloquentPatientRepo::paginated()', [
+            'per_page' => $perPage,
+            'page' => $page,
+            'status' => $status,
+            'total' => $paginator->total(),
+            'returned_count' => count($dataItems),
+            'uuids' => $uuids,
+        ]);
+
         return [
-            'data' => $paginator->items(),
+            'data' => $dataItems,
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -69,13 +87,19 @@ class EloquentPatientRepository implements PatientRepositoryInterface
 
     public function search(string $term): array
     {
-        return Patient::where('name', 'like', "%{$term}%")
+        $patients = Patient::where('name', 'like', "%{$term}%")
             ->orWhere('code', 'like', "%{$term}%")
             ->orWhere('phone', 'like', "%{$term}%")
             ->orWhere('diagnosis', 'like', "%{$term}%")
             ->latest()
             ->get()
             ->toArray();
+        Log::channel('single')->info('[PATIENT_DEBUG] EloquentPatientRepo::search()', [
+            'term' => $term,
+            'count' => count($patients),
+            'uuids' => collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray(),
+        ]);
+        return $patients;
     }
 
     public function shared(int $userId): array

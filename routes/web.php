@@ -11,15 +11,18 @@ Route::get('/', function () {
     if (auth()->check() && (auth()->user()->hasRole('super-admin') || auth()->user()->role === 'super-admin')) {
         return redirect()->route('admin.doctors.index');
     }
-    return redirect('/dashboard');
+    return redirect('/workspace');
 });
 
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
-// Debug endpoint — no auth required, shows connectivity & user state
+// Debug endpoint — only accessible when APP_DEBUG=true (development only)
 Route::get('/debug-state', function () {
+    if (! config('app.debug')) {
+        abort(404);
+    }
     $info = [
         'user_id' => auth()->id(),
         'user_email' => auth()->user()?->email ?? 'guest',
