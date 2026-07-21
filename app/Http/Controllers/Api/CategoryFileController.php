@@ -3,16 +3,25 @@
 namespace App\Http\Controllers\Api;
 
 use App\Contracts\Repositories\PatientFileRepositoryInterface;
+use App\Contracts\Repositories\PatientNoteRepositoryInterface;
 use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Domains\Auth\Scopes\DoctorIsolationScope;
 use App\Domains\Media\Models\PatientFile;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
+use App\Services\NetworkStatusService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class CategoryFileController extends Controller
 {
+    public function __construct(
+        private readonly PatientFileRepositoryInterface $fileRepo,
+        private readonly PatientNoteRepositoryInterface $noteRepo,
+        private readonly PatientRepositoryInterface $patientRepo,
+    ) {}
+
     public function files(Request $request, string $patientUuid, string $slug)
     {
         // Gracefully handle missing patient — return empty results instead of 404
@@ -21,7 +30,7 @@ class CategoryFileController extends Controller
             ->where('uuid', $patientUuid)->first();
         
         if (!$patient) {
-            \Illuminate\Support\Facades\Log::warning('[CategoryFileController] Patient not found locally', [
+            Log::warning('[CategoryFileController] Patient not found locally', [
                 'uuid' => $patientUuid,
                 'slug' => $slug,
             ]);
@@ -38,6 +47,23 @@ class CategoryFileController extends Controller
                 'notes' => [],
                 'notes_count' => 0,
             ]);
+        }
+
+        // Check auth: user must be primary doctor or have a valid share
+        $user = $request->user();
+        if ($user) {
+            $isPrimary = $patient->primary_doctor_id === $user->id;
+            $hasShare = \App\Domains\Patients\Models\PatientShare::where('patient_id', $patient->id)
+                ->where('doctor_id', $user->id)
+                ->where('access_level', '!=', 'removed')
+                ->exists();
+            if (!$isPrimary && !$hasShare && !$user->hasRole(['super-admin', 'admin'])) {
+                Log::warning('[CategoryFileController] Unauthorized access attempt', [
+                    'patient_uuid' => $patientUuid,
+                    'user_id' => $user->id,
+                ]);
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
         }
 
         $page = (int) $request->input('page', 1);

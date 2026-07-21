@@ -25,6 +25,9 @@ use Illuminate\Support\Str;
 
 class FullSyncService
 {
+    /** Semaphore to prevent concurrent sync operations */
+    private static bool $syncInProgress = false;
+
     public function __construct(
         private PatientRepositoryInterface $patientRepo,
         private PatientFileRepositoryInterface $fileRepo,
@@ -38,6 +41,14 @@ class FullSyncService
         private ApiPatientVisitRepository $apiVisitRepo,
         private ApiUserRepository $apiUserRepo
     ) {}
+
+    /**
+     * Check if a sync operation is already in progress.
+     */
+    public static function isSyncInProgress(): bool
+    {
+        return self::$syncInProgress;
+    }
 
     public function syncPendingOperations(): void
     {
@@ -62,8 +73,67 @@ class FullSyncService
      *
      * File binaries are downloaded on-demand when the user opens a file.
      */
+    /**
+     * Unified field mapping: normalize API response fields to model fields.
+     * Shared across all sync methods to ensure consistent data.
+     */
+    public static function normalizeFileRecord(array $record, ?string $patientUuid = null): array
+    {
+        $clean = \Illuminate\Support\Arr::except($record, ['id', 'patient', 'creator', 'uploader', 'url', 'thumbnail_url', 'description']);
+
+        // Map description → desc (API response uses 'description', model uses 'desc')
+        if (isset($record['description']) && !isset($clean['desc'])) {
+            $clean['desc'] = $record['description'];
+        }
+        unset($clean['description']);
+
+        // Resolve local patient_id from UUID
+        if ($patientUuid) {
+            try {
+                $localPatient = \App\Domains\Patients\Models\Patient::withoutGlobalScopes()
+                    ->where('uuid', $patientUuid)
+                    ->first();
+                if ($localPatient) {
+                    $clean['patient_id'] = $localPatient->id;
+                }
+            } catch (\Throwable $e) {
+                Log::warning("[FullSyncService] Cannot resolve local patient for UUID {$patientUuid}: " . $e->getMessage());
+            }
+        }
+
+        // Ensure uploaded_by_id has a fallback
+        if (empty($clean['uploaded_by_id'])) {
+            if (isset($record['uploader']['id'])) {
+                $clean['uploaded_by_id'] = $record['uploader']['id'];
+            } else {
+                try {
+                    if (auth()->check()) {
+                        $clean['uploaded_by_id'] = auth()->id();
+                    }
+                } catch (\Throwable $e) {
+                    // Auth guard may not be available in console/queue context
+                }
+            }
+        }
+
+        // Generate a local file path if missing
+        if (empty($clean['file_path']) && !empty($clean['file_name'])) {
+            $resolvedUuid = $patientUuid ?? 'unknown';
+            $clean['file_path'] = "patients/{$resolvedUuid}/{$clean['file_name']}";
+        }
+
+        return $clean;
+    }
+
     public function syncMetadataOnly(): void
     {
+        // Prevent concurrent sync operations (race condition fix)
+        if (self::$syncInProgress) {
+            Log::info('[FullSyncService] Sync already in progress, skipping duplicate call.');
+            return;
+        }
+        self::$syncInProgress = true;
+
         Log::info('[FullSyncService] Starting lightweight metadata synchronization...');
 
         try {
@@ -140,6 +210,7 @@ class FullSyncService
         } catch (\Throwable $e) {
             Log::error('[FullSyncService] Metadata synchronization failed: ' . $e->getMessage());
         } finally {
+            self::$syncInProgress = false;
             try {
                 DB::statement('PRAGMA foreign_keys = ON');
             } catch (\Throwable $e) {
@@ -149,12 +220,93 @@ class FullSyncService
     }
 
     /**
+     * Download a single file's binary from the remote API and cache it locally.
+     * Used for on-demand file downloads when the user opens a file offline.
+     */
+    public function downloadFileBinary(string $fileUuid): bool
+    {
+        try {
+            $file = PatientFile::withoutGlobalScopes()->where('uuid', $fileUuid)->first();
+            if (!$file) {
+                Log::warning('[FullSyncService] Cannot download binary: file not found: ' . $fileUuid);
+                return false;
+            }
+
+            // If already cached locally, skip
+            if ($file->is_cached_locally && $file->downloaded_at) {
+                Log::info('[FullSyncService] File already cached locally: ' . $fileUuid);
+                return true;
+            }
+
+            // Resolve the remote URL
+            $remoteUrl = $file->remote_url;
+            if (!$remoteUrl) {
+                // Build URL from API base
+                $apiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+                $remoteUrl = $apiUrl . '/files/' . $fileUuid . '/stream';
+            }
+
+            // Get token for authenticated download
+            $token = null;
+            try {
+                $token = app(\App\Services\Mobile\ApiService::class)->getToken();
+            } catch (\Throwable $e) {}
+
+            if (!$token) {
+                Log::warning('[FullSyncService] Cannot download file binary: no API token');
+                return false;
+            }
+
+            // Download the file
+            $localPath = $file->file_path;
+            if (!$localPath) {
+                $patientUuid = null;
+                try {
+                    $patient = $file->patient()->withoutGlobalScopes()->first();
+                    $patientUuid = $patient?->uuid ?? 'unknown';
+                } catch (\Throwable $e) {
+                    $patientUuid = 'unknown';
+                }
+                $localPath = "patients/{$patientUuid}/{$file->file_name}";
+                $file->file_path = $localPath;
+            }
+
+            $fullLocalPath = \Illuminate\Support\Facades\Storage::disk('local')->path($localPath);
+            $localDir = dirname($fullLocalPath);
+            if (!is_dir($localDir)) {
+                mkdir($localDir, 0755, true);
+            }
+
+            $response = \Illuminate\Support\Facades\Http::timeout(120)
+                ->withToken($token)
+                ->withHeaders(['Accept' => 'application/json'])
+                ->sink($fullLocalPath)
+                ->get($remoteUrl);
+
+            if ($response->successful() && file_exists($fullLocalPath) && filesize($fullLocalPath) > 0) {
+                PatientFile::withoutGlobalScopes()->where('uuid', $fileUuid)->update([
+                    'is_cached_locally' => true,
+                    'downloaded_at' => now(),
+                    'file_path' => $localPath,
+                ]);
+                Log::info('[FullSyncService] Downloaded file binary: ' . $fileUuid . ' (' . filesize($fullLocalPath) . ' bytes)');
+                return true;
+            }
+
+            Log::warning('[FullSyncService] Failed to download file binary: ' . $fileUuid . ' (status: ' . $response->status() . ')');
+            return false;
+        } catch (\Throwable $e) {
+            Log::error('[FullSyncService] Error downloading file binary: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Full synchronization including file binary downloads.
      * Only called explicitly for full offline cache building.
      */
     public function syncAll(): void
     {
-        // For backward compat, syncAll now calls syncMetadataOnly (no binary downloads)
         $this->syncMetadataOnly();
     }
 
@@ -298,17 +450,6 @@ class FullSyncService
      */
     private function syncFilesWithLocalPatientId(string $patientUuid, array $files): void
     {
-        // Resolve local patient ID once (efficient for bulk sync)
-        $localPatientId = null;
-        try {
-            $localPatient = Patient::withoutGlobalScopes()
-                ->where('uuid', $patientUuid)
-                ->first();
-            $localPatientId = $localPatient?->id;
-        } catch (\Throwable $e) {
-            Log::warning("[FullSyncService] Cannot resolve local patient for UUID {$patientUuid}: " . $e->getMessage());
-        }
-
         $modelClass = PatientFile::class;
         try {
             $modelInstance = new $modelClass;
@@ -327,38 +468,12 @@ class FullSyncService
                 continue;
             }
 
-            $cleanRecord = [];
-            foreach ($record as $key => $value) {
-                // Map description -> desc (API response uses 'description', model uses 'desc')
-                if ($key === 'description' && !isset($record['desc'])) {
-                    $cleanRecord['desc'] = $value;
-                    continue;
-                }
-                // Skip non-fillable complex fields
-                if (in_array($key, ['id', 'patient', 'creator', 'uploader', 'url', 'thumbnail_url', 'description'], true)) {
-                    continue;
-                }
-                if (empty($validColumns) || in_array($key, $validColumns)) {
-                    if (is_array($value) && !array_key_exists($key, (new $modelClass)->getCasts())) {
-                        $cleanRecord[$key] = json_encode($value);
-                    } else {
-                        $cleanRecord[$key] = $value;
-                    }
-                }
-            }
+            // Use unified field mapping helper — resolves patient_id from UUID
+            $cleanRecord = self::normalizeFileRecord($record, $patientUuid);
 
-            // CRITICAL: Use the resolved local patient_id, not the remote one from API
-            if ($localPatientId) {
-                $cleanRecord['patient_id'] = $localPatientId;
-            }
-
-            // Ensure uploaded_by_id has a fallback
-            if (empty($cleanRecord['uploaded_by_id'])) {
-                if (isset($record['uploader']['id'])) {
-                    $cleanRecord['uploaded_by_id'] = $record['uploader']['id'];
-                } elseif (auth()->check()) {
-                    $cleanRecord['uploaded_by_id'] = auth()->id();
-                }
+            // Filter to valid columns only
+            if (!empty($validColumns)) {
+                $cleanRecord = array_intersect_key($cleanRecord, array_flip($validColumns));
             }
 
             try {

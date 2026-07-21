@@ -16,14 +16,14 @@ use Illuminate\Support\Facades\Log;
 
 class NativeSyncController extends Controller
 {
-public function __construct(
-private FullSyncService $fullSync,
-private SyncQueueService $syncQueue,
-private ApiPatientRepository $apiPatient,
-private ApiPatientVisitRepository $apiVisit,
-private ApiPatientNoteRepository $apiNote,
-private ApiPatientFileRepository $apiFile
-) {}
+    public function __construct(
+        private FullSyncService $fullSync,
+        private SyncQueueService $syncQueue,
+        private ApiPatientRepository $apiPatient,
+        private ApiPatientVisitRepository $apiVisit,
+        private ApiPatientNoteRepository $apiNote,
+        private ApiPatientFileRepository $apiFile
+    ) {}
 
 /**
  * Sync all pending operations with the remote, then pull fresh remote data
@@ -37,13 +37,17 @@ public function sync(Request $request)
 {
     Log::info('NativeSyncController: Starting Sync');
 
-    // Log token status for debugging
-    try {
-        $token = app(\App\Services\Mobile\ApiService::class)->getToken();
-        Log::info('[NativeSyncController] Token available: ' . ($token ? 'YES (len=' . strlen($token) . ')' : 'NO'));
-    } catch (\Throwable $e) {
-        Log::warning('[NativeSyncController] Token check failed: ' . $e->getMessage());
+    // Verify API token is available for sync operations
+    $token = $this->getToken();
+    if (!$token) {
+        Log::warning('[NativeSyncController] Sync attempted without API token');
+        return response()->json([
+            'error' => 'No API token available. Please login again.',
+            'auth_error' => true,
+        ], 401);
     }
+
+    Log::info('[NativeSyncController] Token available: YES (len=' . strlen($token) . ')');
 
     // Log local patient count before sync
     try {
@@ -247,9 +251,24 @@ $this->apiVisit->delete((int) $item->record_uuid);
  *
  * Returns the current sync queue state. Intended to be called from
  * routes/api.php (or web.php) as a standalone endpoint.
- */
-public function getStatus()
-{
+ */    /**
+     * Get the current API token from the active session or local DB.
+     */
+    private function getToken(): ?string
+    {
+        try {
+            return app(\App\Services\Mobile\ApiService::class)->getToken();
+        } catch (\Throwable $e) {
+            try {
+                return session('api_token_raw');
+            } catch (\Throwable $se) {
+                return null;
+            }
+        }
+    }
+
+    public function getStatus()
+    {
 try {
 $pendingCount = $this->syncQueue->getPendingCount();
 

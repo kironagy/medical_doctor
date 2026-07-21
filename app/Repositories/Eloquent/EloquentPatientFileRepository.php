@@ -10,7 +10,10 @@ class EloquentPatientFileRepository implements PatientFileRepositoryInterface
 {
     public function forPatient(string $patientUuid): array
     {
-        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
+        $patient = Patient::where('uuid', $patientUuid)->first();
+        if (!$patient) {
+            return [];
+        }
         return $patient->files()
             ->latest()
             ->select([
@@ -29,19 +32,28 @@ class EloquentPatientFileRepository implements PatientFileRepositoryInterface
 
     public function upload(string $patientUuid, array $file, array $data = []): array
     {
-        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
+        $patient = Patient::where('uuid', $patientUuid)->first();
+        if (!$patient) {
+            throw new \RuntimeException('Patient not found locally: ' . $patientUuid);
+        }
         $file = $patient->files()->create($data);
         return $file->toArray();
     }
 
     public function delete(string $uuid): void
     {
-        PatientFile::where('uuid', $uuid)->firstOrFail()->delete();
+        $file = PatientFile::where('uuid', $uuid)->first();
+        if ($file) {
+            $file->delete();
+        }
     }
 
     public function byCategory(string $patientUuid, string $categorySlug): array
     {
-        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
+        $patient = Patient::where('uuid', $patientUuid)->first();
+        if (!$patient) {
+            return [];
+        }
         return $patient->files()
             ->where('category', $categorySlug)
             ->latest()

@@ -16,12 +16,15 @@ class PatientFile extends Model
         'uuid', 'patient_id', 'uploaded_by_id', 'title', 'desc', 'notes', 'tags', 'type', 'category',
         'date', 'file_name', 'file_path', 'thumbnail_path', 'upload_status',
         'client_updated_at', 'mime_type', 'size',
+        'remote_url', 'is_cached_locally', 'downloaded_at',
     ];
 
     protected $casts = [
         'date' => 'date',
         'client_updated_at' => 'datetime',
         'size' => 'integer',
+        'is_cached_locally' => 'boolean',
+        'downloaded_at' => 'datetime',
     ];
 
     protected $appends = ['url', 'thumbnail_url', 'name', 'extension'];

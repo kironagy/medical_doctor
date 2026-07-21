@@ -15,25 +15,16 @@ class DoctorIsolationTest extends TestCase
 {
     use RefreshDatabase;
 
-    // ---------------------------------------------------------------
-    // Boot Spatie roles once per test class so hasRole() works everywhere
-    // ---------------------------------------------------------------
-
     protected function setUp(): void
     {
         parent::setUp();
 
-        // Spatie-permission roles are not auto-seeded; create them explicitly.
         foreach (['super-admin', 'admin', 'doctor'] as $roleName) {
             /** @var Role $role */
             $role = app(Role::class);
             $role->findOrCreate($roleName, 'web');
         }
     }
-
-    // ---------------------------------------------------------------
-    // Fixtures
-    // ---------------------------------------------------------------
 
     private function makeDoctor(string $name = 'Dr Smith', string $email = null): User
     {
@@ -78,10 +69,6 @@ class DoctorIsolationTest extends TestCase
         ]);
     }
 
-    // ---------------------------------------------------------------
-    // Doctor scope: only own patients + shared ones
-    // ---------------------------------------------------------------
-
     public function test_doctor_sees_only_own_patients(): void
     {
         $doctorA = $this->makeDoctor('Doctor A', 'doctor-a-only@example.com');
@@ -90,7 +77,6 @@ class DoctorIsolationTest extends TestCase
         $patientA = $this->makePatient($doctorA, 'Patient Alpha');
         $patientB = $this->makePatient($doctorB, 'Patient Beta');
 
-        // DoctorIsolationScope uses the default guard (web) via Auth::user()
         Auth::login($doctorA);
 
         $visibleIds = Patient::query()->pluck('id')->all();
@@ -98,10 +84,6 @@ class DoctorIsolationTest extends TestCase
         $this->assertContains($patientA->id, $visibleIds, 'Doctor A should see their own patient');
         $this->assertNotContains($patientB->id, $visibleIds, 'Doctor A should NOT see Doctor B\'s patient');
     }
-
-    // ---------------------------------------------------------------
-    // Admin scope: all patients visible
-    // ---------------------------------------------------------------
 
     public function test_admin_sees_all_patients(): void
     {
@@ -120,10 +102,6 @@ class DoctorIsolationTest extends TestCase
         $this->assertContains($patientB->id, $visibleIds);
         $this->assertCount(2, $visibleIds);
     }
-
-    // ---------------------------------------------------------------
-    // Doctor scope: shared patients included
-    // ---------------------------------------------------------------
 
     public function test_doctor_sees_patients_shared_with_them(): void
     {
@@ -145,10 +123,6 @@ class DoctorIsolationTest extends TestCase
         $this->assertContains($patient->id, $visibleIds, 'Doctor A should see patient shared with them');
     }
 
-    // ---------------------------------------------------------------
-    // withoutGlobalScopes bypasses isolation
-    // ---------------------------------------------------------------
-
     public function test_without_global_scopes_bypasses_isolation_for_doctor(): void
     {
         $doctorA  = $this->makeDoctor('Scope Doc A', 'scope-doc-a@example.com');
@@ -157,7 +131,6 @@ class DoctorIsolationTest extends TestCase
         $patientA = $this->makePatient($doctorA, 'Scope Patient A');
         $patientB = $this->makePatient($doctorB, 'Scope Patient B');
 
-        // Even with a doctor authenticated, withoutGlobalScopes() removes the scope entirely
         Auth::login($doctorA);
 
         $allIds = Patient::withoutGlobalScopes()->pluck('id')->all();
@@ -169,15 +142,10 @@ class DoctorIsolationTest extends TestCase
         $this->assertCount(2, $allIds);
     }
 
-    // ---------------------------------------------------------------
-    // Unauthenticated: scope early-returns — query must not crash
-    // ---------------------------------------------------------------
-
     public function test_unauthenticated_scope_does_not_throw(): void
     {
         Auth::logout();
 
-        // No users logged in, no patients in DB — scope must not raise an error.
         $result = Patient::all();
         $this->assertCount(0, $result);
     }

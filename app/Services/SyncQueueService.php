@@ -9,6 +9,9 @@ use Illuminate\Support\Str;
 
 class SyncQueueService
 {
+    /** Max retry attempts before marking as permanently failed */
+    private const MAX_RETRIES = 5;
+
     /**
      * Map entity types to their local table names.
      */
@@ -64,6 +67,7 @@ class SyncQueueService
 
     /**
      * Mark a sync queue item as synced (or failed with retry logic).
+     * Automatically marks as permanently_failed after MAX_RETRIES.
      */
     public function markItemResult(SyncQueueItem $item, bool $success, ?string $errorMessage = null): void
     {
@@ -77,11 +81,16 @@ class SyncQueueService
 
             Log::info("[SyncQueueService] Item {$item->uuid} marked as synced.");
         } else {
-            $item->status     = 'failed';
+            // Check if exceeded max retries
+            if ($item->retry_count >= self::MAX_RETRIES) {
+                $item->status = 'permanently_failed';
+                Log::error("[SyncQueueService] Item {$item->uuid} permanently failed after {$item->retry_count} attempts: {$errorMessage}");
+            } else {
+                $item->status = 'failed';
+                Log::warning("[SyncQueueService] Item {$item->uuid} failed (attempt {$item->retry_count}/" . self::MAX_RETRIES . "): {$errorMessage}");
+            }
             $item->last_error = $errorMessage ?? 'Unknown error';
             $item->save();
-
-            Log::warning("[SyncQueueService] Item {$item->uuid} failed (attempt {$item->retry_count}): {$item->last_error}");
         }
 
         $this->updateState([
@@ -100,11 +109,19 @@ class SyncQueueService
     {
         $this->updateState(['sync_in_progress' => true]);
 
-        $items = SyncQueueItem::where('status', 'pending')
+        // Include both 'pending' and 'failed' items (retry failed ones)
+        $items = SyncQueueItem::whereIn('status', ['pending', 'failed'])
+            ->where('retry_count', '<', self::MAX_RETRIES)
             ->orderBy('priority', 'asc')
             ->orderBy('created_at', 'asc')
             ->limit($batchSize)
             ->get();
+
+        // Batch reset failed items to pending (avoids per-item events)
+        $failedIds = $items->where('status', 'failed')->pluck('id');
+        if ($failedIds->isNotEmpty()) {
+            SyncQueueItem::whereIn('id', $failedIds)->update(['status' => 'pending']);
+        }
 
         Log::info("[SyncQueueService] Fetched {$items->count()} pending operations for processing.");
 
@@ -118,11 +135,43 @@ class SyncQueueService
     }
 
     /**
-     * Return the current count of pending items in sync_queue.
+     * Return the count of truly pending items (never attempted yet).
      */
     public function getPendingCount(): int
     {
         return SyncQueueItem::where('status', 'pending')->count();
+    }
+
+    /**
+     * Return the count of items needing processing (pending + retriable failed).
+     */
+    public function getTotalBacklogCount(): int
+    {
+        return SyncQueueItem::whereIn('status', ['pending', 'failed'])
+            ->where('retry_count', '<', self::MAX_RETRIES)
+            ->count();
+    }
+
+    /**
+     * Get count of permanently failed items.
+     */
+    public function getPermanentlyFailedCount(): int
+    {
+        return SyncQueueItem::where('status', 'permanently_failed')->count();
+    }
+
+    /**
+     * Clean up permanently failed items older than the given days.
+     */
+    public function clearPermanentlyFailed(int $olderThanDays = 30): int
+    {
+        $cutoff = now()->subDays($olderThanDays);
+        $count = SyncQueueItem::where('status', 'permanently_failed')
+            ->where('updated_at', '<', $cutoff)
+            ->delete();
+
+        Log::info("[SyncQueueService] Cleared {$count} permanently failed items older than {$olderThanDays} days.");
+        return $count;
     }
 
     /**

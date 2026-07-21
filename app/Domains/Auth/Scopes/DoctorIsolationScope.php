@@ -10,17 +10,13 @@ use Illuminate\Support\Facades\DB;
 
 class DoctorIsolationScope implements Scope
 {
- public function apply(Builder $builder, Model $model)
- {
-     // In NativePHP (mobile), the local SQLite only contains the logged-in user's data.
-     // Applying isolation would incorrectly filter out every record (since remote user IDs
-     // don't always map 1:1 to local SQLite IDs after sync). Skip the scope here.
-     if (app()->runningInConsole() && !app()->runningUnitTests()) {
-         return;
-     }
-     if (\App\Helpers\NativePhp::isRunning()) {
-         return;
-     }
+    public function apply(Builder $builder, Model $model)
+    {
+        // Skip the scope entirely in NativePHP (mobile) — the local SQLite only contains
+        // the logged-in user's data, so isolation would incorrectly filter everything out.
+        if (\App\Helpers\NativePhp::isRunning()) {
+            return;
+        }
 
         $user = Auth::user();
         if (!$user) return;
@@ -41,6 +37,7 @@ class DoctorIsolationScope implements Scope
                           $query->select('patient_id')
                                 ->from('patient_shares')
                                 ->where('doctor_id', $user->id)
+                                ->where('access_level', '!=', 'removed')
                                 ->where(function($q2) {
                                     $q2->whereNull('expires_at')->orWhere('expires_at', '>', now());
                                 });
@@ -60,6 +57,7 @@ class DoctorIsolationScope implements Scope
                     $query->select('patient_id')
                           ->from('patient_shares')
                           ->where('doctor_id', $user->id)
+                          ->where('access_level', '!=', 'removed')
                           ->where(function($q2) {
                               $q2->whereNull('expires_at')->orWhere('expires_at', '>', now());
                           });

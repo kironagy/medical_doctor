@@ -218,6 +218,32 @@ class ApiService
         return $response->successful();
     }
 
+    /**
+     * Attempt to refresh the API token.
+     * Currently this clears the token and signals re-authentication needed.
+     * Future: implement proper refresh token flow if the remote API supports it.
+     */
+    public function refreshToken(): bool
+    {
+        try {
+            // Check if we still have connectivity before clearing the token
+            $testUrl = $this->baseUrl();
+            $response = Http::timeout(5)->get($testUrl);
+            if ($response->status() < 500) {
+                // Server is reachable — token is truly expired
+                $this->setToken(null);
+                Log::warning('[ApiService] Token refresh failed — session expired. User must re-login.');
+                return false;
+            }
+            // Server unreachable — keep the token for later retry
+            return false;
+        } catch (\Throwable $e) {
+            // Network issue — keep token
+            Log::warning('[ApiService] Cannot refresh token (network issue): ' . $e->getMessage());
+            return false;
+        }
+    }
+
     private function send(string $method, string $path, array $options = []): array
     {
         $url = $this->baseUrl() . $path;
@@ -228,7 +254,9 @@ class ApiService
                 $response = $this->client()->send($method, $url, $options);
 
                 if ($response->unauthorized()) {
-                    $this->setToken(null);
+                    // Try to refresh token before giving up
+                    // refreshToken() already clears the token via setToken(null)
+                    $this->refreshToken();
                     throw new RuntimeException('Session expired. Please login again.');
                 }
 

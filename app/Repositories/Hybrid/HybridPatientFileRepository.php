@@ -48,6 +48,13 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                     }
                 }
                 
+                // Preserve remote_url for on-demand binary download
+                if (!empty($item['url'])) {
+                    $cleanData['remote_url'] = $item['url'];
+                } elseif (!empty($item['remote_url'])) {
+                    $cleanData['remote_url'] = $item['remote_url'];
+                }
+
                 // Generate a local file path if missing from remote API metadata response
                 if (empty($cleanData['file_path'])) {
                     $resolvedUuid = $pUuid ?? 'unknown';

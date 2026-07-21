@@ -26,6 +26,10 @@ class RepositoryServiceProvider extends ServiceProvider
 
         $this->app->bind(UserRepositoryInterface::class, EloquentUserRepository::class);
 
+        // Always use Hybrid repos for NativePHP (mobile) — ensures offline-first.
+        // On web server, Eloquent repos are fine (no local SQLite cache needed).
+        // IMPORTANT: Hybrid repos try API first, fall back to local SQLite.
+        // This is critical for the mobile app to work both online and offline.
         if ($isNative) {
             // In NativePHP (mobile): use Hybrid repos for offline support + sync
             $this->app->bind(PatientRepositoryInterface::class, HybridPatientRepository::class);
@@ -38,6 +42,15 @@ class RepositoryServiceProvider extends ServiceProvider
             $this->app->bind(PatientFileRepositoryInterface::class, EloquentPatientFileRepository::class);
             $this->app->bind(PatientNoteRepositoryInterface::class, EloquentPatientNoteRepository::class);
             $this->app->bind(PatientVisitRepositoryInterface::class, EloquentPatientVisitRepository::class);
+        }
+
+        // In Native mode, also alias the Hybrid repos so WorkspaceController
+        // receives Hybrid through the interface binding.
+        if ($isNative) {
+            $this->app->singleton(HybridPatientRepository::class);
+            $this->app->singleton(HybridPatientFileRepository::class);
+            $this->app->singleton(HybridPatientNoteRepository::class);
+            $this->app->singleton(HybridPatientVisitRepository::class);
         }
     }
 }

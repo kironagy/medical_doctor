@@ -9,11 +9,7 @@ use App\Contracts\Repositories\PatientVisitRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Domains\Media\Models\PatientFile;
 use App\Domains\Patients\Models\Patient;
-use App\Domains\Patients\Models\PatientShare;
-use App\Repositories\Api\ApiPatientFileRepository;
-use App\Repositories\Api\ApiPatientRepository;
-use App\Repositories\Eloquent\EloquentPatientFileRepository;
-use App\Repositories\Eloquent\EloquentPatientRepository;
+use App\Services\FullSyncService;
 use App\Services\Mobile\ApiService;
 use App\Services\NetworkStatusService;
 use Illuminate\Http\Request;
@@ -29,12 +25,33 @@ class WorkspaceController extends Controller
         private readonly PatientNoteRepositoryInterface $noteRepo,
         private readonly PatientVisitRepositoryInterface $visitRepo,
         private readonly UserRepositoryInterface $userRepo,
-        private readonly ApiPatientRepository $apiPatientRepo,
-        private readonly EloquentPatientRepository $eloquentPatientRepo,
-        private readonly EloquentPatientFileRepository $eloquentFileRepo,
-        private readonly ApiPatientFileRepository $apiFileRepo,
         private readonly ApiService $apiService,
-    ) {}
+        private readonly FullSyncService $fullSyncService,
+    ) {
+        // Internal repos are resolved via helper methods (getApiPatientRepo(), etc.)
+        // instead of being injected directly. This keeps the constructor clean
+        // and ensures the public interface handles the hybrid fallback.
+    }
+
+    private function getApiPatientRepo(): \App\Repositories\Api\ApiPatientRepository
+    {
+        return app(\App\Repositories\Api\ApiPatientRepository::class);
+    }
+
+    private function getEloquentPatientRepo(): \App\Repositories\Eloquent\EloquentPatientRepository
+    {
+        return app(\App\Repositories\Eloquent\EloquentPatientRepository::class);
+    }
+
+    private function getEloquentFileRepo(): \App\Repositories\Eloquent\EloquentPatientFileRepository
+    {
+        return app(\App\Repositories\Eloquent\EloquentPatientFileRepository::class);
+    }
+
+    private function getApiFileRepo(): \App\Repositories\Api\ApiPatientFileRepository
+    {
+        return app(\App\Repositories\Api\ApiPatientFileRepository::class);
+    }
 
     private function getCategories($user)
     {
@@ -112,7 +129,7 @@ class WorkspaceController extends Controller
         // STEP 2: Try local SQLite first (instant, works offline)
         $patients = [];
         try {
-            $patients = $this->eloquentPatientRepo->all();
+            $patients = $this->getEloquentPatientRepo()->all();
         } catch (\Throwable $e) {
             Log::error('[LOAD_PATIENTS] ERROR: Local SQLite load failed: ' . $e->getMessage());
             $patients = [];
@@ -132,7 +149,7 @@ class WorkspaceController extends Controller
 
                 if ($token) {
                     Log::info('[LOAD_PATIENTS] STEP 3b: Calling ApiPatientRepository::all()...');
-                    $apiPatients = $this->apiPatientRepo->all();
+                    $apiPatients = $this->getApiPatientRepo()->all();
                     $apiCount = is_array($apiPatients) ? count($apiPatients) : 0;
                     Log::info('[LOAD_PATIENTS] STEP 3c: API returned ' . $apiCount . ' patients');
 
@@ -146,7 +163,7 @@ class WorkspaceController extends Controller
 
                         // Re-read from SQLite to ensure consistent format
                         Log::info('[LOAD_PATIENTS] STEP 3f: Reloading patients from SQLite...');
-                        $patients = $this->eloquentPatientRepo->all();
+                        $patients = $this->getEloquentPatientRepo()->all();
                         Log::info('[LOAD_PATIENTS] STEP 3g: Rendering ' . count($patients) . ' patients in UI');
                     } else {
                         Log::warning('[LOAD_PATIENTS] API returned 0 patients (response was empty)');
@@ -187,7 +204,7 @@ class WorkspaceController extends Controller
         $authError = false;
 
         // OFFLINE-FIRST: Always load from local SQLite first for instant UI.
-        $result = $this->eloquentPatientRepo->paginated(10, $page, $status);
+        $result = $this->getEloquentPatientRepo()->paginated(10, $page, $status);
         Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - loaded from local SQLite', [
             'page' => $page,
             'local_count' => $result['meta']['total'] ?? 0,
@@ -206,7 +223,7 @@ class WorkspaceController extends Controller
                 $token = $this->apiService->getToken();
                 Log::info('[WorkspaceController] patientList bootstrap - token: ' . ($token ? 'YES' : 'NO'));
                 if ($token) {
-                    $apiResult = $this->apiPatientRepo->paginated(10, $page, $status);
+                    $apiResult = $this->getApiPatientRepo()->paginated(10, $page, $status);
                     Log::info('[WorkspaceController] patientList bootstrap - API returned ' . (isset($apiResult['data']) ? count($apiResult['data']) : 0) . ' patients');
                     if (isset($apiResult['data']) && count($apiResult['data']) > 0) {
                         $this->syncPatientsLocally($apiResult['data']);
@@ -336,91 +353,33 @@ class WorkspaceController extends Controller
     {
         $t0 = microtime(true);
 
+        \Illuminate\Support\Facades\Log::info('[WorkspaceController] Loading patient data', ['patient_uuid' => $uuid]);
+
+        // RACE CONDITION GUARD: If FullSyncService is currently syncing,
+        // skip the local empty → API bootstrap to avoid parallel writes.
+        // The background sync handled by syncAndRefresh() will populate
+        // local SQLite, and selectPatient() can be called again to refresh.
+        $syncInProgress = FullSyncService::isSyncInProgress();
+        if ($syncInProgress) {
+            \Illuminate\Support\Facades\Log::info('[WorkspaceController] Sync in progress, loading local data for patient: ' . $uuid);
+        }
+
         // OFFLINE-FIRST: Load EVERYTHING from local SQLite instantly.
         // The local cache is populated by FullSyncService::syncMetadataOnly()
         // which runs before the UI is displayed (via syncAndRefresh).
-        //
-        // Use the ELOQUENT (local) file repo to ensure we NEVER block on the
-        // remote API. The background sync handles populating SQLite.
-        // If local files are empty AND online, we bootstrap from the API.
         try {
-            $patient = $this->eloquentPatientRepo->findByUuid($uuid);
+            $patient = $this->patientRepo->findByUuid($uuid);
         } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[WorkspaceController] Patient not found: ' . $uuid);
             return response()->json(['error' => 'Patient not found'], 404);
         }
 
         $t1 = microtime(true);
 
-        // Get files from LOCAL SQLite only (instant, always works).
-        $allFiles = $this->eloquentFileRepo->forPatient($uuid);
-
-        // If local is empty AND online, bootstrap from API
-        if (empty($allFiles) && NetworkStatusService::isOnline()) {
-            try {
-                $token = $this->apiService->getToken();
-                if ($token) {
-                    \Illuminate\Support\Facades\Log::info('[WorkspaceController] Bootstrap: fetching files from API', ['patient_uuid' => $uuid]);
-                    $apiFiles = $this->apiFileRepo->forPatient($uuid);
-                    if (!empty($apiFiles)) {
-                        \Illuminate\Support\Facades\Log::info('[WorkspaceController] Bootstrap: API returned ' . count($apiFiles) . ' files', ['patient_uuid' => $uuid]);
-                        // Save to local SQLite with proper patient_id mapping
-                        foreach ($apiFiles as $fileData) {
-                            if (isset($fileData['uuid'])) {
-                                $cleanData = \Illuminate\Support\Arr::except($fileData, ['id', 'patient', 'creator', 'uploader', 'description', 'url', 'thumbnail_url']);
-                                
-                                // Map description -> desc
-                                if (isset($cleanData['desc']) || isset($fileData['description'])) {
-                                    $cleanData['desc'] = $cleanData['desc'] ?? $fileData['description'];
-                                }
-                                unset($cleanData['description'], $cleanData['url'], $cleanData['thumbnail_url']);
-
-                                // CRITICAL: Resolve local patient_id from UUID
-                                // The API returns the REMOTE patient_id, but local
-                                // SQLite has different auto-increment IDs.
-                                try {
-                                    $patientModel = Patient::where('uuid', $uuid)->first();
-                                    if ($patientModel) {
-                                        $cleanData['patient_id'] = $patientModel->id;
-                                    }
-                                } catch (\Throwable $e) {
-                                    \Illuminate\Support\Facades\Log::warning('[WorkspaceController] Bootstrap: Cannot resolve local patient_id', ['uuid' => $uuid, 'error' => $e->getMessage()]);
-                                }
-
-                                // Ensure uploaded_by_id has a fallback
-                                if (empty($cleanData['uploaded_by_id'])) {
-                                    if (isset($fileData['uploader']['id'])) {
-                                        $cleanData['uploaded_by_id'] = $fileData['uploader']['id'];
-                                    } elseif (auth()->check()) {
-                                        $cleanData['uploaded_by_id'] = auth()->id();
-                                    }
-                                }
-
-                                try {
-                                    PatientFile::withoutGlobalScopes()->updateOrCreate(
-                                        ['uuid' => $fileData['uuid']],
-                                        $cleanData
-                                    );
-                                    \Illuminate\Support\Facades\Log::info('[WorkspaceController] Bootstrap: Saved file to SQLite', ['uuid' => $fileData['uuid'], 'patient_id' => $cleanData['patient_id'] ?? 'MISSING']);
-                                } catch (\Exception $e) {
-                                    \Illuminate\Support\Facades\Log::warning("[WorkspaceController] Failed to sync file {$fileData['uuid']}: " . $e->getMessage());
-                                }
-                            }
-                        }
-                        // Re-read from SQLite
-                        $allFiles = $this->eloquentFileRepo->forPatient($uuid);
-                        \Illuminate\Support\Facades\Log::info('[WorkspaceController] Bootstrap: Re-read from SQLite: ' . count($allFiles) . ' files', ['patient_uuid' => $uuid]);
-                    } else {
-                        \Illuminate\Support\Facades\Log::info('[WorkspaceController] Bootstrap: API returned empty files list', ['patient_uuid' => $uuid]);
-                    }
-                } else {
-                    \Illuminate\Support\Facades\Log::warning('[WorkspaceController] Bootstrap: No API token available', ['patient_uuid' => $uuid]);
-                }
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning("[WorkspaceController] File API bootstrap failed: " . $e->getMessage());
-            }
-        } else {
-            \Illuminate\Support\Facades\Log::info('[WorkspaceController] Loaded files from local SQLite', ['count' => count($allFiles), 'patient_uuid' => $uuid]);
-        }
+        // Use fileRepo interface (Hybrid in Native mode) for offline-first loading.
+        // HybridRepo tries local SQLite first, then API if online and local empty.
+        $allFiles = $this->fileRepo->forPatient($uuid);
+        \Illuminate\Support\Facades\Log::info('[WorkspaceController] Loaded ' . count($allFiles) . ' files from ' . (\App\Helpers\NativePhp::isRunning() ? 'Hybrid (offline-first)' : 'Eloquent') . ' repo', ['patient_uuid' => $uuid]);
 
         $files = array_slice($allFiles, 0, 50);
 
@@ -479,7 +438,10 @@ class WorkspaceController extends Controller
         $t5 = microtime(true);
 
         // Get the Patient model instance for permission checks
-        $patientModel = Patient::where('uuid', $uuid)->firstOrFail();
+        $patientModel = Patient::where('uuid', $uuid)->first();
+        if (!$patientModel) {
+            return response()->json(['error' => 'Patient not found'], 404);
+        }
 
         // If this doctor has access via a share (not as primary), load share metadata
         // so the frontend can show who shared the patient and enforce read-only mode.
