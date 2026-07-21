@@ -402,13 +402,9 @@ async function addPatient(formData) {
                 stats: { total_files: 0, total_notes: 0, total_visits: 0 },
             };
             
-            // Background: refresh the patient list from local SQLite to ensure
-            // the sidebar is fully in sync (handles edge cases where the server
-            // returns slightly different data than what we have locally).
-            // CRITICAL: We must preserve the newly created patient in the list
-            // even if they are on a different page than the current one.
-            // The refreshPatientList function now uses incremental merging
-            // instead of overwriting the entire array.
+            // Background: refresh the patient list from the API to ensure
+            // the sidebar shows the latest data. The patient was just created
+            // on the API synchronously, so it will be in the API response.
             refreshPatientList(patientsMeta.value?.current_page || 1).catch(() => {});
         }
         return { success: true, patient };
@@ -441,16 +437,17 @@ const showArchived = ref(false);
 const authError = ref(null);
 
 /**
- * SYNC-AND-REFRESH: Call /api/native/sync to pull latest data from the remote
- * API into local SQLite, then refresh the patient list from local SQLite.
+ * SYNC-AND-REFRESH: Push pending changes, then refresh from the API.
+ *
+ * Sequence:
+ *   1. POST /api/native/sync to push local changes + pull latest data
+ *   2. Refresh patient list from the API (API-first)
+ *   3. Refresh workspace data for the current patient (if any)
  *
  * Has built-in dedup: if a sync is already in progress, subsequent calls
  * wait for the in-progress one to finish and reuse its result.
  *
- * This is the CORRECT sequence for all sync operations:
- *   1. Sync remote → local SQLite (metadata only, no binary downloads)
- *   2. Refresh patient list FROM local SQLite (fast, always works)
- *   3. Refresh workspace data for the current patient (if any)
+ * When offline: skips sync, refreshes patient list from SQLite directly.
  */
 async function syncAndRefresh(page = 1) {
   // Dedup: if a sync is already in progress, return its promise
