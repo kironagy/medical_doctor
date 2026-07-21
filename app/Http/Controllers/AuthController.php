@@ -139,18 +139,14 @@ class AuthController extends Controller
      * subsequent offline Auth::attempt() calls succeed.
      */
     /**
-     * Trigger a lightweight metadata sync immediately after login.
-     * This ensures the local SQLite is populated with the latest patients
-     * from the remote API before the DoctorWorkspace page renders.
+     * Trigger a background metadata sync after login.
+     * Dispatches a FullSyncJob to the queue so the sync runs in the
+     * background and the login response returns immediately (no more
+     * 15-second block on login).
      *
-     * We use dispatch() so the sync runs synchronously in the current request.
-     * This adds ~1-3 seconds to login time but guarantees patients are ready
-     * when the DoctorWorkspace page loads.
-     *
-     * For NativePHP mobile, this is called AFTER the UI already has the
-     * Inertia props (which may be empty for first launch). The sync ensures
-     * that by the time the background syncAndRefresh() runs, the local
-     * SQLite is already populated.
+     * The first workspace page load will fetch patients from the API via
+     * the Hybrid repository, so the local SQLite pre-population is not
+     * critical for a responsive first experience.
      */
     private function triggerStartupSync(): void
     {
