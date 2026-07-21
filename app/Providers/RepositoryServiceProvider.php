@@ -19,7 +19,6 @@ use App\Repositories\Hybrid\HybridPatientVisitRepository;
 use App\Services\BackgroundSyncService;
 use App\Services\Sync\ConflictResolver;
 use App\Services\Sync\IncrementalSyncService;
-use App\Services\Sync\PendingOperationsService;
 use App\Services\Sync\SyncManager;
 use Illuminate\Support\ServiceProvider;
 
@@ -59,7 +58,6 @@ class RepositoryServiceProvider extends ServiceProvider
         }
 
         // Register new sync architecture services globally (both native and web)
-        $this->app->singleton(PendingOperationsService::class);
         $this->app->singleton(SyncManager::class);
         $this->app->singleton(ConflictResolver::class);
         $this->app->singleton(IncrementalSyncService::class);

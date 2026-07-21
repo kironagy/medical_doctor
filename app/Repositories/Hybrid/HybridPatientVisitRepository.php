@@ -62,7 +62,7 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
                 Log::warning('[HybridPatientVisitRepo] forPatient() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridPatientVisitRepo] forPatient() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
         return $this->localRepo->forPatient($patientUuid);
@@ -80,7 +80,7 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
                 Log::warning('[HybridPatientVisitRepo] create() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridPatientVisitRepo] create() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
 
@@ -105,7 +105,7 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
                 Log::warning('[HybridPatientVisitRepo] update() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridPatientVisitRepo] update() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
 
@@ -131,7 +131,7 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
                 Log::warning('[HybridPatientVisitRepo] delete() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridPatientVisitRepo] delete() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
 

@@ -10,6 +10,7 @@ use App\Services\Upload\ChunkUploadService;
 use App\Services\Upload\ChunkMergeService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -17,6 +18,14 @@ use Tests\TestCase;
 class ChunkedUploadTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Disable throttle middleware in tests to avoid rate limiter
+        // accumulating across test methods within the same PHPUnit process.
+        $this->withoutMiddleware(ThrottleRequests::class);
+    }
 
     private function registerDoctor(): User
     {
@@ -54,7 +63,7 @@ class ChunkedUploadTest extends TestCase
                 'file_name' => 'test-report.pdf',
                 'file_size' => 2 * 1024 * 1024, // 2 MB
                 'mime_type' => 'application/pdf',
-                'patient_id' => $patient->id,
+                'patient_id' => $patient->uuid,
                 'chunk_size' => 1024 * 1024, // 1 MB — forces 2 chunks
             ])
             ->assertOk()
@@ -99,7 +108,7 @@ class ChunkedUploadTest extends TestCase
                 'file_name' => 'too-big.bin',
                 'file_size' => 6 * 1024 * 1024 * 1024, // 6 GB — exceeds 5 GB max
                 'mime_type' => 'application/octet-stream',
-                'patient_id' => $patient->id,
+                'patient_id' => $patient->uuid,
             ])
             ->assertStatus(422);
     }
@@ -124,7 +133,7 @@ class ChunkedUploadTest extends TestCase
                 'file_name' => 'chunk-test.bin',
                 'file_size' => 1024 * 1024,
                 'mime_type' => 'application/octet-stream',
-                'patient_id' => $patient->id,
+                'patient_id' => $patient->uuid,
                 'chunk_size' => 1024 * 1024,
             ]);
 
@@ -217,11 +226,13 @@ class ChunkedUploadTest extends TestCase
                 'file_name' => 'cancel-test.bin',
                 'file_size' => 1024 * 1024,
                 'mime_type' => 'application/octet-stream',
-                'patient_id' => $patient->id,
+                'patient_id' => $patient->uuid,
                 'chunk_size' => 1024 * 1024,
             ]);
 
         $uploadId = $start->json('upload_id');
+
+        $this->assertNotNull($uploadId, 'Upload ID should not be null.');
 
         $this->withHeader('Authorization', "Bearer {$token}")
             ->deleteJson("/api/v1/mobile/uploads/{$uploadId}")

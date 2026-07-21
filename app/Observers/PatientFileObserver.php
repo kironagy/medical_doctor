@@ -14,7 +14,7 @@ class PatientFileObserver
      * Check if a sync operation for this record already exists.
      * Prevents duplicate sync entries (Observer + Upload Controller conflict).
      */
-    private function hasExistingPendingOperation(string $recordUuid, string $operation): bool
+    private function hasExistingSyncQueueItem(string $recordUuid, string $operation): bool
     {
         return SyncQueueItem::where('record_uuid', $recordUuid)
             ->where('operation', $operation)
@@ -41,7 +41,7 @@ class PatientFileObserver
         }
 
         // Dedup check: skip if already enqueued (e.g. by UploadController)
-        if ($this->hasExistingPendingOperation($file->uuid, 'create')) {
+        if ($this->hasExistingSyncQueueItem($file->uuid, 'create')) {
             Log::info('[PatientFileObserver] Duplicate create event skipped for file: ' . $file->uuid);
             return;
         }
@@ -95,7 +95,7 @@ class PatientFileObserver
         }
 
         // Dedup check
-        if ($this->hasExistingPendingOperation($file->uuid, 'delete')) {
+        if ($this->hasExistingSyncQueueItem($file->uuid, 'delete')) {
             return;
         }
 

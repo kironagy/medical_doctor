@@ -186,10 +186,13 @@ class AuthController extends Controller
         $uuid = $remoteUser['uuid'] ?? null;
 
         // If the login response didn't include UUID, fetch it from the /me endpoint
-        if (!$uuid && !empty($remoteUser['id']) && isset($this->apiToken)) {
+        if (!$uuid && !empty($remoteUser['id'])) {
             try {
-                $meResponse = app(\App\Services\Mobile\ApiService::class)->get('/me');
-                $uuid = $meResponse['uuid'] ?? $meResponse['data']['uuid'] ?? null;
+                $apiService = app(\App\Services\Mobile\ApiService::class);
+                if ($apiService->getToken()) {
+                    $meResponse = $apiService->get('/me');
+                    $uuid = $meResponse['uuid'] ?? $meResponse['data']['uuid'] ?? null;
+                }
             } catch (\Throwable $e) {
                 Log::warning('[AuthController] Failed to fetch user UUID from /me endpoint: ' . $e->getMessage());
             }

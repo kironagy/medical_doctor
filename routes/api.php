@@ -20,9 +20,10 @@ Route::get('/files/{uuid}/stream', [FileAccessController::class, 'streamDirect']
 
 Route::prefix('v1')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])
-        ->middleware('throttle:10,1');
+        ->middleware('throttle:60,1');
 
     Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
+        Route::get('/ping', fn() => response()->json(['status' => 'ok', 'time' => now()]));
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
 
@@ -96,11 +97,11 @@ Route::prefix('v1')->group(function () {
     });
 });
 
-// NativePHP offline sync endpoints (authenticated mobile routes)
-// IMPORTANT: These routes are in api.php so they use the 'api' middleware group
-// which does NOT include CSRF verification (unlike web.php routes).
-// The NativePHP WebView makes API requests that don't carry CSRF tokens.
-Route::middleware('auth')->group(function () {
+// NativePHP offline sync endpoints
+// Uses auth:sanctum so the mobile app can authenticate with its API token
+// (web session auth doesn't work on API routes — no StartSession middleware).
+// The mobile frontend sends the Sanctum token in the Authorization header.
+Route::middleware(['auth:sanctum', 'throttle:30,1'])->group(function () {
     Route::post('/native/sync', [\App\Http\Controllers\NativeSyncController::class, 'sync']);
     Route::get('/native/sync/status', [\App\Http\Controllers\NativeSyncController::class, 'getStatus'])
         ->name('native.sync.status');

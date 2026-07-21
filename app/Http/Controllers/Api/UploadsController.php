@@ -33,7 +33,7 @@ class UploadsController extends Controller
             'file_name' => 'required|string|max:255',
             'file_size' => 'required|integer|min:1|max:5368709120',
             'mime_type' => 'required|string|max:255',
-            'patient_id' => 'required',
+            'patient_id' => 'required|uuid|exists:patients,uuid',
             'chunk_size' => 'sometimes|integer|min:1048576|max:52428800',
             'metadata' => 'sometimes|array',
             'metadata.title' => 'sometimes|nullable|string|max:255',
@@ -42,11 +42,7 @@ class UploadsController extends Controller
             'metadata.date' => 'sometimes|nullable|date',
         ]);
 
-        $patient = Patient::where('uuid', $request->patient_id)->first();
-
-        if (!$patient) {
-            $patient = Patient::findOrFail((int) $request->patient_id);
-        }
+        $patient = Patient::where('uuid', $validated['patient_id'])->firstOrFail();
 
         if ($request->user()->cannot('view', $patient)) {
             return response()->json(['message' => 'Forbidden'], 403);

@@ -7,6 +7,8 @@ use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Models\PatientFile;
 use App\Domains\Mobile\Resources\MobilePatientFileResource;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
+use App\Services\NetworkStatusService;
+use App\Services\Mobile\ApiService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
@@ -16,11 +18,28 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class FileController extends Controller
 {
     public function __construct(
-        private readonly ActivityLogger $logger
+        private readonly ActivityLogger $logger,
+        private readonly ApiService $api
     ) {}
 
     public function index(Request $request, string $uuid)
     {
+        if (NetworkStatusService::isOnline()) {
+            try {
+                $params = array_filter([
+                    'category' => $request->get('category'),
+                    'type' => $request->get('type'),
+                    'per_page' => $request->integer('per_page', 50),
+                ]);
+                $response = $this->api->get("/patients/{$uuid}/files", $params);
+                $files = $response['data'] ?? [];
+                $this->cacheFilesLocally($uuid, $files);
+                return response()->json($response);
+            } catch (\Throwable $e) {
+                Log::warning('[FileController] API index failed, falling back to local: ' . $e->getMessage());
+            }
+        }
+
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('view', $patient);
 
@@ -35,12 +54,20 @@ class FileController extends Controller
         }
 
         $files = $query->paginate(min($request->integer('per_page', 50), 100));
-
         return MobilePatientFileResource::collection($files);
     }
 
     public function show(string $fileUuid)
     {
+        if (NetworkStatusService::isOnline()) {
+            try {
+                $response = $this->api->get("/files/{$fileUuid}");
+                return response()->json($response);
+            } catch (\Throwable $e) {
+                Log::warning('[FileController] API show failed, falling back to local: ' . $e->getMessage());
+            }
+        }
+
         $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
         Gate::authorize('view', $file->patient);
 
@@ -163,10 +190,18 @@ class FileController extends Controller
 
     public function destroy(Request $request, string $fileUuid)
     {
+        if (NetworkStatusService::isOnline()) {
+            try {
+                $this->api->delete("/files/{$fileUuid}");
+                return response()->json(['message' => 'File deleted successfully']);
+            } catch (\Throwable $e) {
+                Log::warning('[FileController] API delete failed, falling back to local: ' . $e->getMessage());
+            }
+        }
+
         $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
         Gate::authorize('update', $file->patient);
 
-        // Collect paths to delete
         $pathsToDelete = array_filter([
             $file->file_path,
             $file->thumbnail_path,
@@ -179,25 +214,21 @@ class FileController extends Controller
         foreach ($pathsToDelete as $path) {
             if (empty($path)) continue;
             try {
-                // First try delete as file (works for files and may also delete empty dirs depending on driver)
                 $deleted = $disk->delete($path);
                 if ($deleted) {
                     continue;
                 }
-                // If not deleted, check if it's a directory and attempt recursive delete
                 try {
                     if ($disk->isDirectory($path)) {
                         $disk->deleteDirectory($path);
                     }
                 } catch (\Throwable $e2) {
-                    // If isDirectory fails because file doesn't exist, ignore
                     $msg2 = strtolower($e2->getMessage());
                     if (!str_contains($msg2, 'file not found') && !str_contains($msg2, 'no such file') && !str_contains($msg2, 'does not exist')) {
                         $errors[] = "Failed to delete directory '{$path}': " . $e2->getMessage();
                     }
                 }
             } catch (\Throwable $e) {
-                // Main delete threw; check if it's a "not found" error
                 $msg = strtolower($e->getMessage());
                 if (str_contains($msg, 'file not found') || str_contains($msg, 'no such file') || str_contains($msg, 'does not exist')) {
                     continue;
@@ -237,6 +268,21 @@ class FileController extends Controller
 
     public function update(Request $request, string $fileUuid)
     {
+        if (NetworkStatusService::isOnline()) {
+            try {
+                $validated = $request->validate([
+                    'title' => 'sometimes|required|string|max:255',
+                    'desc' => 'sometimes|string|nullable',
+                    'category' => 'sometimes|string|nullable',
+                ]);
+
+                $response = $this->api->put("/files/{$fileUuid}", $validated);
+                return response()->json($response);
+            } catch (\Throwable $e) {
+                Log::warning('[FileController] API update failed, falling back to local: ' . $e->getMessage());
+            }
+        }
+
         $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
         Gate::authorize('update', $file->patient);
 
@@ -253,5 +299,27 @@ class FileController extends Controller
         $file->update($validated);
 
         return response()->json(new MobilePatientFileResource($file->fresh()));
+    }
+
+    private function cacheFilesLocally(string $patientUuid, array $files): void
+    {
+        $patient = Patient::where('uuid', $patientUuid)->first();
+        if (!$patient) return;
+
+        foreach ($files as $item) {
+            if (!isset($item['uuid'])) continue;
+
+            $cleanData = \Illuminate\Support\Arr::except($item, ['id', 'patient', 'creator', 'uploader']);
+            $cleanData['patient_id'] = $patient->id;
+
+            try {
+                PatientFile::withoutGlobalScopes()->updateOrCreate(
+                    ['uuid' => $item['uuid']],
+                    $cleanData
+                );
+            } catch (\Throwable $e) {
+                Log::warning('[FileController] Failed to cache file locally: ' . $e->getMessage());
+            }
+        }
     }
 }

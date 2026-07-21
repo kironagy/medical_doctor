@@ -18,6 +18,7 @@ use App\Repositories\Api\ApiPatientRepository;
 use App\Repositories\Api\ApiPatientVisitRepository;
 use App\Repositories\Api\ApiUserRepository;
 use App\Services\Sync\ConflictResolver;
+use App\Services\Sync\SyncManager;
 use App\Services\SyncQueueService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;

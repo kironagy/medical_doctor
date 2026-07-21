@@ -115,7 +115,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 Log::warning('[HybridPatientFileRepo] forPatient() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridPatientFileRepo] forPatient() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
         return $this->localRepo->forPatient($patientUuid);
@@ -136,7 +136,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 Log::warning('[HybridPatientFileRepo] find() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridPatientFileRepo] find() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
         return $this->localRepo->find($uuid);
@@ -157,7 +157,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 Log::warning('[HybridPatientFileRepo] upload() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridPatientFileRepo] upload() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
 
@@ -197,7 +197,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 Log::warning('[HybridPatientFileRepo] delete() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridPatientFileRepo] delete() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
 
@@ -216,7 +216,7 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
                 Log::warning('[HybridPatientFileRepo] byCategory() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridPatientFileRepo] byCategory() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
         return $this->localRepo->byCategory($patientUuid, $categorySlug);

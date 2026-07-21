@@ -13,6 +13,7 @@ class NoteController extends Controller
     public function index(Request $request, string $patientUuid)
     {
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
+        Gate::authorize('view', $patient);
         $notes = $patient->notes()
             ->with('author:id,name,email')
             ->latest()
@@ -23,6 +24,7 @@ class NoteController extends Controller
     public function store(Request $request, string $patientUuid)
     {
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
+        Gate::authorize('update', $patient);
 
         $validated = $request->validate([
             'content' => 'required|string|max:65535',

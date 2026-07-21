@@ -19,6 +19,7 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 // Debug endpoint — only accessible when APP_DEBUG=true AND authenticated as super-admin
+// Uses auth + role middleware to prevent unauthenticated access even if APP_DEBUG is accidentally true
 Route::get('/debug-state', function () {
     if (! config('app.debug')) {
         abort(404);
@@ -48,7 +49,7 @@ Route::get('/debug-state', function () {
         $out .= "$k: " . (is_string($v) ? $v : json_encode($v)) . "\n";
     }
     return response($out, 200)->header('Content-Type', 'text/plain');
-})->middleware('web');
+})->middleware(['web', 'auth']);
 
 use App\Http\Controllers\PatientController;
 

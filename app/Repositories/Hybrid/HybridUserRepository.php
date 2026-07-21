@@ -3,10 +3,10 @@
 namespace App\Repositories\Hybrid;
 
 use App\Contracts\Repositories\UserRepositoryInterface;
-use App\Models\PendingOperation;
 use App\Repositories\Api\ApiUserRepository;
 use App\Repositories\Eloquent\EloquentUserRepository;
 use App\Services\NetworkStatusService;
+use App\Services\SyncQueueService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Log;
 
@@ -14,7 +14,8 @@ class HybridUserRepository implements UserRepositoryInterface
 {
     public function __construct(
         private ApiUserRepository $apiRepo,
-        private EloquentUserRepository $localRepo
+        private EloquentUserRepository $localRepo,
+        private SyncQueueService $syncQueue
     ) {}
 
     private function syncLocalCache(array $data): void
@@ -50,7 +51,7 @@ class HybridUserRepository implements UserRepositoryInterface
                 Log::warning('[HybridUserRepo] find() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridUserRepo] find() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
         return $this->localRepo->find($id);
@@ -68,16 +69,11 @@ class HybridUserRepository implements UserRepositoryInterface
                 Log::warning('[HybridUserRepo] update() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridUserRepo] update() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
 
-        PendingOperation::create([
-            'uuid' => (string) $id,
-            'entity_type' => 'User',
-            'action' => 'update',
-            'payload' => $data,
-        ]);
+        $this->syncQueue->enqueueOperation('User', 'update', (string) $id, $data);
 
         return $localData;
     }
@@ -95,16 +91,11 @@ class HybridUserRepository implements UserRepositoryInterface
                 Log::warning('[HybridUserRepo] updatePassword() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridUserRepo] updatePassword() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
 
-        PendingOperation::create([
-            'uuid' => (string) $id,
-            'entity_type' => 'User',
-            'action' => 'updatePassword',
-            'payload' => ['password' => $password],
-        ]);
+        $this->syncQueue->enqueueOperation('User', 'updatePassword', (string) $id, ['password' => $password]);
     }
 
     public function updatePreferences(int $id, array $preferences): void
@@ -120,16 +111,11 @@ class HybridUserRepository implements UserRepositoryInterface
                 Log::warning('[HybridUserRepo] updatePreferences() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridUserRepo] updatePreferences() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
 
-        PendingOperation::create([
-            'uuid' => (string) $id,
-            'entity_type' => 'User',
-            'action' => 'updatePreferences',
-            'payload' => $preferences,
-        ]);
+        $this->syncQueue->enqueueOperation('User', 'updatePreferences', (string) $id, $preferences);
     }
 
     public function doctors(): array
@@ -144,7 +130,7 @@ class HybridUserRepository implements UserRepositoryInterface
                 Log::warning('[HybridUserRepo] doctors() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridUserRepo] doctors() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
         return $this->localRepo->doctors();
@@ -162,7 +148,7 @@ class HybridUserRepository implements UserRepositoryInterface
                 Log::warning('[HybridUserRepo] searchDoctors() - API unavailable: ' . $e->getMessage());
             } catch (\Throwable $e) {
                 Log::warning('[HybridUserRepo] searchDoctors() - API error: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
         return $this->localRepo->searchDoctors($term);

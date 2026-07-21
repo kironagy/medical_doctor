@@ -4,7 +4,6 @@ namespace App\Repositories\Hybrid;
 
 use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
-use App\Models\PendingOperation;
 use App\Repositories\Api\ApiPatientRepository;
 use App\Repositories\Eloquent\EloquentPatientRepository;
 use App\Services\NetworkStatusService;
@@ -67,7 +66,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                     $this->syncLocalCache($data);
                 }
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
                 Log::warning('[HybridPatientRepo] all() - API error, falling back to local: ' . $e->getMessage());
                 $source = 'local_fallback';
                 $data = null;
@@ -91,7 +90,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                     return $data;
                 }
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
                 Log::warning('[HybridPatientRepo] find() - API error: ' . $e->getMessage());
             }
         }
@@ -129,7 +128,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 }
                 throw $e;
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
                 Log::warning('[HybridPatientRepo] create() - API failed, queuing offline: ' . $e->getMessage());
             }
         }
@@ -154,7 +153,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                     return $apiData;
                 }
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
                 Log::warning('[HybridPatientRepo] update() - API error: ' . $e->getMessage());
             }
         }
@@ -172,7 +171,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $this->apiRepo->delete($uuid);
                 return;
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
                 Log::warning('[HybridPatientRepo] delete() - API error: ' . $e->getMessage());
             }
         }
@@ -188,7 +187,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $this->syncLocalCache($data);
                 return $data;
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
                 Log::warning('[HybridPatientRepo] search() - API error: ' . $e->getMessage());
             }
         }
@@ -203,7 +202,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $this->syncLocalCache($data);
                 return $data;
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
                 Log::warning('[HybridPatientRepo] shared() - API error: ' . $e->getMessage());
             }
         }
@@ -216,7 +215,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
             try {
                 return $this->apiRepo->stats();
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
         return $this->localRepo->stats();
@@ -230,7 +229,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $this->syncLocalCache($data);
                 return $data;
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
         return $this->localRepo->recent($limit);
@@ -244,7 +243,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $this->syncLocalCache($data);
                 return $data;
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
             }
         }
         return $this->localRepo->withTrashed();
@@ -261,7 +260,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                     $this->syncLocalCache($data['data']);
                 }
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
                 Log::warning('[HybridPatientRepo] paginated() - API error: ' . $e->getMessage());
                 $data = null;
             }
@@ -283,7 +282,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $this->apiRepo->restore($uuid);
                 return;
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
                 Log::warning('[HybridPatientRepo] restore() - API error: ' . $e->getMessage());
             }
         }
@@ -300,7 +299,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
                 $this->apiRepo->forceDelete($uuid);
                 return;
             } catch (\Throwable $e) {
-                NetworkStatusService::setOnline(false);
+                NetworkStatusService::handleThrowable($e);
                 Log::warning('[HybridPatientRepo] forceDelete() - API error: ' . $e->getMessage());
             }
         }

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Client\ConnectionException;
@@ -74,5 +75,17 @@ class NetworkStatusService
     public static function setOnline(bool $status): void
     {
         self::$isOnline = $status;
+    }
+
+    /**
+     * Handle an exception from a Hybrid repo API call.
+     * Does NOT mark the network as offline if the exception is an auth failure.
+     */
+    public static function handleThrowable(\Throwable $e): void
+    {
+        if ($e instanceof AuthenticationException) {
+            return;
+        }
+        self::$isOnline = false;
     }
 }

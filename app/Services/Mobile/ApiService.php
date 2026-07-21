@@ -350,38 +350,78 @@ class ApiService
 
     /**
      * Attempt to refresh the API token by re-authenticating with stored credentials.
+     *
+     * Features:
+     *  1. Cache lock prevents concurrent refresh storms (only one refresh at a time).
+     *  2. Exponential backoff (1s, 2s, 4s, 8s...) to avoid hammering the login throttle.
+     *  3. Double-check: if another request already refreshed the token, skip the login call.
+     *  4. Backoff counter resets on success, expires after 4 hours.
+     *
      * Steps:
-     *  1. Load encrypted email/password from local DB.
-     *  2. Re-authenticate against the remote /login endpoint.
-     *  3. On success, update the token in session + DB.
-     *  4. On failure, clear the expired token and log a warning.
+     *  1. Acquire a cache lock (wait up to 10s for another in-progress refresh).
+     *  2. Check if token was already refreshed by another request (race condition guard).
+     *  3. Load encrypted email/password from local DB.
+     *  4. Sleep for 2^attempts seconds (backoff) before hitting the login endpoint.
+     *  5. Re-authenticate against the remote /login endpoint.
+     *  6. On success, update the token in session + DB and reset backoff counter.
+     *  7. On failure, increment backoff counter, clear the expired token.
      */
     public function refreshToken(): bool
     {
-        $credentials = $this->loadCredentials();
-
-        if (!$credentials) {
-            Log::warning('[ApiService] Token refresh failed — no stored credentials available. User must re-login.');
-            $this->setToken(null);
-            return false;
-        }
+        $lock = \Illuminate\Support\Facades\Cache::lock('token_refresh_lock', 10);
 
         try {
+            if (!$lock->get()) {
+                Log::warning('[ApiService] Token refresh skipped — another refresh already in progress.');
+                return $this->token !== null;
+            }
+
+            $currentToken = $this->loadTokenFromDb();
+            if ($currentToken && $currentToken !== $this->token) {
+                $this->token = $currentToken;
+                Log::info('[ApiService] Token was already refreshed by another request.');
+                try { session(['api_token_raw' => $currentToken]); } catch (\Throwable $e) {}
+                return true;
+            }
+
+            $attemptKey = 'token_refresh_attempts';
+            $attempts = (int) \Illuminate\Support\Facades\Cache::get($attemptKey, 0);
+
+            if ($attempts > 0) {
+                $delay = min(pow(2, $attempts), 30);
+                Log::info("[ApiService] Backing off token refresh: attempt #{$attempts}, waiting {$delay}s");
+                sleep($delay);
+            }
+
+            $credentials = $this->loadCredentials();
+            if (!$credentials) {
+                Log::warning('[ApiService] Token refresh failed — no stored credentials available. User must re-login.');
+                $this->setToken(null);
+                \Illuminate\Support\Facades\Cache::forget($attemptKey);
+                return false;
+            }
+
             Log::info('[ApiService] Attempting token refresh via re-authentication...');
             $response = self::loginToRemote($credentials['email'], $credentials['password']);
 
             if (isset($response['token'])) {
                 $this->setToken($response['token']);
                 Log::info('[ApiService] Token refreshed successfully via re-authentication.');
+                \Illuminate\Support\Facades\Cache::forget($attemptKey);
                 return true;
             }
 
             Log::warning('[ApiService] Token refresh failed — re-authentication returned no token.');
         } catch (\Throwable $e) {
             Log::warning('[ApiService] Token refresh failed: ' . $e->getMessage());
+        } finally {
+            $lock?->release();
         }
 
-        // If we get here, re-authentication failed — clear token
+        $attemptKey = 'token_refresh_attempts';
+        $attempts = (int) \Illuminate\Support\Facades\Cache::get($attemptKey, 0);
+        \Illuminate\Support\Facades\Cache::put($attemptKey, $attempts + 1, 14400);
+
         $this->setToken(null);
         return false;
     }
