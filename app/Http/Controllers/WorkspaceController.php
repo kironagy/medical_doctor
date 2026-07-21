@@ -7,9 +7,12 @@ use App\Contracts\Repositories\PatientNoteRepositoryInterface;
 use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Contracts\Repositories\PatientVisitRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
+use App\Domains\Media\Models\PatientFile;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientShare;
+use App\Repositories\Api\ApiPatientFileRepository;
 use App\Repositories\Api\ApiPatientRepository;
+use App\Repositories\Eloquent\EloquentPatientFileRepository;
 use App\Repositories\Eloquent\EloquentPatientRepository;
 use App\Services\Mobile\ApiService;
 use App\Services\NetworkStatusService;
@@ -28,6 +31,8 @@ class WorkspaceController extends Controller
         private readonly UserRepositoryInterface $userRepo,
         private readonly ApiPatientRepository $apiPatientRepo,
         private readonly EloquentPatientRepository $eloquentPatientRepo,
+        private readonly EloquentPatientFileRepository $eloquentFileRepo,
+        private readonly ApiPatientFileRepository $apiFileRepo,
         private readonly ApiService $apiService,
     ) {}
 
@@ -95,50 +100,71 @@ class WorkspaceController extends Controller
 
     public function index()
     {
+        Log::info('[LOAD_PATIENTS] === START: Loading patients for DoctorWorkspace ===');
+
         $user = auth()->user();
         $categories = $this->getCategories($user);
 
-        // STEP 1: Try local SQLite first (instant, works offline)
+        // STEP 1: Check internet availability
+        $isOnline = NetworkStatusService::isOnline();
+        Log::info('[LOAD_PATIENTS] STEP 1: Internet available = ' . ($isOnline ? 'true' : 'false'));
+
+        // STEP 2: Try local SQLite first (instant, works offline)
         $patients = [];
         try {
             $patients = $this->eloquentPatientRepo->all();
         } catch (\Throwable $e) {
-            Log::error('[WorkspaceController] Local SQLite load failed: ' . $e->getMessage());
+            Log::error('[LOAD_PATIENTS] ERROR: Local SQLite load failed: ' . $e->getMessage());
             $patients = [];
         }
 
         $localCount = count($patients);
-        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::index() - loaded from local SQLite', [
-            'count' => $localCount,
-        ]);
+        Log::info('[LOAD_PATIENTS] STEP 2: SQLite contains ' . $localCount . ' patients');
 
-        // STEP 2: If local is empty and we're online, FORCE-fetch from API
-        // This ensures first-time users see patients immediately without waiting
-        // for the background sync to complete.
-        if ($localCount === 0 && NetworkStatusService::isOnline()) {
-            Log::info('[WorkspaceController] Local SQLite empty - attempting direct API fetch');
+        // STEP 3: If local has data, use it. If empty AND online, fetch from API.
+        if ($localCount > 0) {
+            Log::info('[LOAD_PATIENTS] STEP 3: Using local SQLite data (' . $localCount . ' patients)');
+        } elseif ($isOnline) {
+            Log::info('[LOAD_PATIENTS] STEP 3: Local empty + online = true, calling GET /patients API');
             try {
                 $token = $this->apiService->getToken();
+                Log::info('[LOAD_PATIENTS] STEP 3a: Token available = ' . ($token ? 'YES (len=' . strlen($token) . ')' : 'NO'));
+
                 if ($token) {
+                    Log::info('[LOAD_PATIENTS] STEP 3b: Calling ApiPatientRepository::all()...');
                     $apiPatients = $this->apiPatientRepo->all();
-                    if (is_array($apiPatients) && count($apiPatients) > 0) {
-                        Log::info('[WorkspaceController] API returned ' . count($apiPatients) . ' patients - saving to SQLite');
-                        // Save to local SQLite first
+                    $apiCount = is_array($apiPatients) ? count($apiPatients) : 0;
+                    Log::info('[LOAD_PATIENTS] STEP 3c: API returned ' . $apiCount . ' patients');
+
+                    if ($apiCount > 0) {
+                        Log::info('[LOAD_PATIENTS] STEP 3d: Saving ' . $apiCount . ' patients into SQLite...');
                         $this->syncPatientsLocally($apiPatients);
-                        // Then re-read from SQLite to ensure consistent format (Eloquent model format)
+
+                        // Verify count after save
+                        $afterSave = Patient::count();
+                        Log::info('[LOAD_PATIENTS] STEP 3e: SQLite now contains ' . $afterSave . ' patients');
+
+                        // Re-read from SQLite to ensure consistent format
+                        Log::info('[LOAD_PATIENTS] STEP 3f: Reloading patients from SQLite...');
                         $patients = $this->eloquentPatientRepo->all();
-                        Log::info('[WorkspaceController] Re-read from SQLite: ' . count($patients) . ' patients');
+                        Log::info('[LOAD_PATIENTS] STEP 3g: Rendering ' . count($patients) . ' patients in UI');
+                    } else {
+                        Log::warning('[LOAD_PATIENTS] API returned 0 patients (response was empty)');
                     }
-                } else {
-                    Log::warning('[WorkspaceController] No API token available for bootstrap');
                 }
             } catch (\Illuminate\Auth\AuthenticationException $e) {
-                Log::error('[WorkspaceController] API token invalid/expired: ' . $e->getMessage());
+                Log::error('[LOAD_PATIENTS] ERROR: API token invalid/expired: ' . $e->getMessage());
             } catch (\Throwable $e) {
-                Log::error('[WorkspaceController] API bootstrap failed: ' . $e->getMessage());
+                Log::error('[LOAD_PATIENTS] ERROR: API bootstrap failed: ' . $e->getMessage());
+                Log::error('[LOAD_PATIENTS] ERROR class: ' . get_class($e));
+                Log::error('[LOAD_PATIENTS] ERROR file: ' . $e->getFile() . ':' . $e->getLine());
                 NetworkStatusService::setOnline(false);
             }
+        } else {
+            Log::info('[LOAD_PATIENTS] STEP 3: Local empty + offline = true, cannot fetch from API');
         }
+
+        Log::info('[LOAD_PATIENTS] === END: Rendering with ' . count($patients) . ' patients ===');
 
         return Inertia::render('DoctorWorkspace', [
             'patients' => $patients,
@@ -314,9 +340,9 @@ class WorkspaceController extends Controller
         // The local cache is populated by FullSyncService::syncMetadataOnly()
         // which runs before the UI is displayed (via syncAndRefresh).
         //
-        // NO API CALLS HERE — the frontend handles background sync separately
-        // via syncAndRefresh(). Keeping this endpoint 100% local ensures
-        // instant response regardless of network conditions.
+        // Use the ELOQUENT (local) file repo to ensure we NEVER block on the
+        // remote API. The background sync handles populating SQLite.
+        // If local files are empty AND online, we bootstrap from the API.
         try {
             $patient = $this->eloquentPatientRepo->findByUuid($uuid);
         } catch (\Throwable $e) {
@@ -325,8 +351,49 @@ class WorkspaceController extends Controller
 
         $t1 = microtime(true);
 
-        // Get files, notes, visits from LOCAL repositories (instant, always works).
-        $allFiles = $this->fileRepo->forPatient($uuid);
+        // Get files from LOCAL SQLite only (instant, always works).
+        $allFiles = $this->eloquentFileRepo->forPatient($uuid);
+
+        // If local is empty AND online, bootstrap from API
+        if (empty($allFiles) && NetworkStatusService::isOnline()) {
+            try {
+                $token = $this->apiService->getToken();
+                if ($token) {
+                    $apiFiles = $this->apiFileRepo->forPatient($uuid);
+                    if (!empty($apiFiles)) {
+                        // Save to local SQLite
+                        foreach ($apiFiles as $fileData) {
+                            if (isset($fileData['uuid'])) {
+                                $cleanData = \Illuminate\Support\Arr::except($fileData, ['id', 'patient', 'creator', 'uploader', 'description', 'url', 'thumbnail_url']);
+                                if (isset($cleanData['desc']) || isset($fileData['description'])) {
+                                    $cleanData['desc'] = $cleanData['desc'] ?? $fileData['description'];
+                                }
+                                unset($cleanData['description'], $cleanData['url'], $cleanData['thumbnail_url']);
+                                try {
+                                    $patientModel = Patient::where('uuid', $uuid)->first();
+                                    if ($patientModel) {
+                                        $cleanData['patient_id'] = $patientModel->id;
+                                    }
+                                } catch (\Throwable $e) {}
+                                try {
+                                    PatientFile::withoutGlobalScopes()->updateOrCreate(
+                                        ['uuid' => $fileData['uuid']],
+                                        $cleanData
+                                    );
+                                } catch (\Exception $e) {
+                                    \Illuminate\Support\Facades\Log::warning("[WorkspaceController] Failed to sync file {$fileData['uuid']}: " . $e->getMessage());
+                                }
+                            }
+                        }
+                        // Re-read from SQLite
+                        $allFiles = $this->eloquentFileRepo->forPatient($uuid);
+                    }
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("[WorkspaceController] File API bootstrap failed: " . $e->getMessage());
+            }
+        }
+
         $files = array_slice($allFiles, 0, 50);
 
         $t2 = microtime(true);

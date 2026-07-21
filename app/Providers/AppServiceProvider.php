@@ -33,10 +33,12 @@ class AppServiceProvider extends ServiceProvider
 
         // Only run on NativePHP (mobile) environment
         if (env('NATIVEPHP_RUNNING')) {
+            // CRITICAL: Ensure storage directories exist before any service provider
+            // tries to use them. The Blade view compiler needs storage/framework/views
+            // to cache compiled templates — without it, the app crashes during boot
+            // with: "Please provide a valid cache path."
+            $this->ensureStorageDirectories();
             $this->runMigrationsIfNeeded();
-            // NOTE: Startup sync is now triggered by the frontend AFTER the UI renders.
-            // We no longer block the first HTTP request with a synchronous sync.
-            // This ensures the app opens instantly from local SQLite.
         }
     }
 
@@ -72,6 +74,32 @@ class AppServiceProvider extends ServiceProvider
             }
         } catch (Throwable $e) {
             logger()->error('Mobile migration failed: ' . $e->getMessage(), ['exception' => $e]);
+        }
+    }
+
+    /**
+     * Ensure all required storage directories exist.
+     * The Blade view compiler needs storage/framework/views to cache compiled
+     * templates. Without it, the app crashes during boot with:
+     * "Please provide a valid cache path."
+     */
+    protected function ensureStorageDirectories(): void
+    {
+        try {
+            $dirs = [
+                storage_path('framework/views'),
+                storage_path('framework/cache'),
+                storage_path('framework/sessions'),
+                storage_path('logs'),
+            ];
+
+            foreach ($dirs as $dir) {
+                if (!File::exists($dir)) {
+                    File::ensureDirectoryExists($dir, 0755, true);
+                }
+            }
+        } catch (Throwable $e) {
+            logger()->warning('Failed to ensure storage directories: ' . $e->getMessage());
         }
     }
 

@@ -8,6 +8,7 @@ use App\Services\Upload\ChunkUploadService;
 use App\Services\Upload\ChunkMergeService;
 use App\Services\Upload\UploadCleanupService;
 use App\Services\Upload\UploadValidationService;
+use App\Services\SyncQueueService;
 use App\Domains\Patients\Models\Patient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -21,6 +22,7 @@ class UploadsController extends Controller
         private readonly ChunkMergeService $mergeService,
         private readonly UploadCleanupService $cleanupService,
         private readonly UploadValidationService $validationService,
+        private readonly SyncQueueService $syncQueue,
     ) {}
 
     public function start(Request $request)
@@ -198,6 +200,27 @@ class UploadsController extends Controller
             }
 
             $patientFile = $this->mergeService->merge($session);
+
+            // Enqueue file for remote sync so it gets uploaded to the website
+            try {
+                $this->syncQueue->enqueueOperation(
+                    'PatientFile', 'create',
+                    $patientFile->uuid,
+                    [
+                        'patient_uuid' => $session->patient_uuid ?? $session->patient?->uuid,
+                        'local_path' => $patientFile->file_path,
+                        'file_name' => $patientFile->file_name,
+                        'mime_type' => $patientFile->mime_type,
+                        'title' => $patientFile->title,
+                        'desc' => $patientFile->desc,
+                        'category' => $patientFile->category,
+                        'date' => $patientFile->date,
+                    ],
+                    3 // Higher priority for file uploads
+                );
+            } catch (\Throwable $e) {
+                Log::warning('[UploadsController] Failed to enqueue file sync: ' . $e->getMessage());
+            }
 
             $duration = (microtime(true) - $start) * 1000;
 
