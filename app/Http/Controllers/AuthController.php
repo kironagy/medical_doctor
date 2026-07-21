@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Domains\Users\Models\User;
 use App\Services\Mobile\ApiService;
-use App\Services\FullSyncService;
+use App\Jobs\FullSyncJob;
 use App\Services\NetworkStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -172,10 +172,9 @@ class AuthController extends Controller
                 return;
             }
 
-            Log::info('[StartupSync] Starting background metadata sync after login...');
-            $syncService = app(FullSyncService::class);
-            $syncService->syncMetadataOnly();
-            Log::info('[StartupSync] Completed successfully');
+            Log::info('[StartupSync] Dispatching background FullSyncJob after login...');
+            FullSyncJob::dispatch();
+            Log::info('[StartupSync] FullSyncJob dispatched successfully');
         } catch (\Throwable $e) {
             Log::warning('[StartupSync] Failed (non-fatal): ' . $e->getMessage());
         }
