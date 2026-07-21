@@ -7,6 +7,7 @@ use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientVisit;
 use App\Domains\Mobile\Resources\MobilePatientVisitResource;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
+use App\Helpers\NativePhp;
 use App\Services\NetworkStatusService;
 use App\Services\Mobile\ApiService;
 use Illuminate\Http\Request;
@@ -22,7 +23,7 @@ class VisitController extends Controller
 
     public function index(string $uuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $response = $this->api->get("/patients/{$uuid}/visits");
                 $visits = $response['data'] ?? $response;
@@ -42,7 +43,7 @@ class VisitController extends Controller
 
     public function store(Request $request, string $uuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $validated = $request->validate([
                     'visit_type' => 'required|string|max:255',
@@ -94,7 +95,7 @@ class VisitController extends Controller
 
     public function update(Request $request, string $uuid, string $visitId)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $validated = $request->validate([
                     'visit_type' => 'sometimes|string|max:255',
@@ -144,7 +145,7 @@ class VisitController extends Controller
 
     public function destroy(string $uuid, string $visitId)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $this->api->delete("/patients/{$uuid}/visits/{$visitId}");
                 return response()->json(['message' => 'Visit deleted successfully']);

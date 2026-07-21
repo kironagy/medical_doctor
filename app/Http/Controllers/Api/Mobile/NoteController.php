@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Domains\Mobile\Resources\MobilePatientNoteResource;
+use App\Helpers\NativePhp;
 use App\Services\NetworkStatusService;
 use App\Services\Mobile\ApiService;
 use Illuminate\Http\Request;
@@ -20,7 +21,7 @@ class NoteController extends Controller
 
     public function index(string $uuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $response = $this->api->get("/patients/{$uuid}/notes");
                 $notes = $response['data'] ?? $response;
@@ -44,7 +45,7 @@ class NoteController extends Controller
 
     public function store(Request $request, string $uuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $validated = $request->validate([
                     'content' => 'required|string|max:65535',
@@ -81,7 +82,7 @@ class NoteController extends Controller
 
     public function update(Request $request, string $uuid, string $noteUuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $validated = $request->validate([
                     'content' => 'required|string|max:65535',
@@ -118,7 +119,7 @@ class NoteController extends Controller
 
     public function destroy(Request $request, string $uuid, string $noteUuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $this->api->delete("/patients/{$uuid}/notes/{$noteUuid}");
                 return response()->json(['message' => 'Note deleted successfully']);

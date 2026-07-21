@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Models\PatientFile;
 use App\Domains\Mobile\Resources\MobilePatientResource;
+use App\Helpers\NativePhp;
 use App\Services\NetworkStatusService;
 use App\Services\Mobile\ApiService;
 use Illuminate\Http\Request;
@@ -20,7 +21,7 @@ class DashboardController extends Controller
 
     public function stats(Request $request)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $response = $this->api->get('/dashboard/stats');
                 return response()->json($response);

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Mobile\Resources\MobilePatientResource;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
+use App\Helpers\NativePhp;
 use App\Services\NetworkStatusService;
 use App\Services\Mobile\ApiService;
 use Illuminate\Http\Request;
@@ -21,7 +22,7 @@ class PatientController extends Controller
 
     public function index(Request $request)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $params = array_filter([
                     'per_page' => $request->integer('per_page', 20),
@@ -59,7 +60,7 @@ class PatientController extends Controller
 
     public function show(string $uuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $response = $this->api->get("/patients/{$uuid}");
                 $patientData = $response['data'] ?? $response;
@@ -105,7 +106,7 @@ class PatientController extends Controller
 
     public function store(Request $request)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $validated = $request->validate([
                     'name' => 'required|string|max:255',
@@ -174,7 +175,7 @@ class PatientController extends Controller
 
     public function update(Request $request, string $uuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $validated = $request->validate([
                     'name' => 'sometimes|string|max:255',
@@ -233,7 +234,7 @@ class PatientController extends Controller
 
     public function destroy(string $uuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $this->api->delete("/patients/{$uuid}");
                 return response()->json(['message' => 'Patient deleted successfully']);

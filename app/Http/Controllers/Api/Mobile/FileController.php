@@ -7,6 +7,7 @@ use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Models\PatientFile;
 use App\Domains\Mobile\Resources\MobilePatientFileResource;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
+use App\Helpers\NativePhp;
 use App\Services\NetworkStatusService;
 use App\Services\Mobile\ApiService;
 use Illuminate\Http\Request;
@@ -24,7 +25,7 @@ class FileController extends Controller
 
     public function index(Request $request, string $uuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $params = array_filter([
                     'category' => $request->get('category'),
@@ -59,7 +60,7 @@ class FileController extends Controller
 
     public function show(string $fileUuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $response = $this->api->get("/files/{$fileUuid}");
                 return response()->json($response);
@@ -190,7 +191,7 @@ class FileController extends Controller
 
     public function destroy(Request $request, string $fileUuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $this->api->delete("/files/{$fileUuid}");
                 return response()->json(['message' => 'File deleted successfully']);
@@ -268,7 +269,7 @@ class FileController extends Controller
 
     public function update(Request $request, string $fileUuid)
     {
-        if (NetworkStatusService::isOnline()) {
+        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
             try {
                 $validated = $request->validate([
                     'title' => 'sometimes|required|string|max:255',
