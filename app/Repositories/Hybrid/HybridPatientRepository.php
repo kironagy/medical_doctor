@@ -110,30 +110,10 @@ class HybridPatientRepository implements PatientRepositoryInterface
         $localData = $this->localRepo->create($data);
         $localUuid = $localData['uuid'] ?? null;
 
-        if (NetworkStatusService::isOnline() && $localUuid) {
-            try {
-                // 2. Send to API with same UUID to avoid duplication
-                $data['uuid'] = $localUuid;
-                $apiData = $this->apiRepo->create($data);
-
-                // 3. Merge API response (server may enrich with additional fields)
-                if (is_array($apiData) && isset($apiData['uuid'])) {
-                    $this->syncLocalCache($apiData);
-                    return $apiData;
-                }
-            } catch (\Illuminate\Validation\ValidationException $e) {
-                // Validation error: remove local record and rethrow
-                if ($localUuid) {
-                    Patient::where('uuid', $localUuid)->forceDelete();
-                }
-                throw $e;
-            } catch (\Throwable $e) {
-                NetworkStatusService::handleThrowable($e);
-                Log::warning('[HybridPatientRepo] create() - API failed, queuing offline: ' . $e->getMessage());
-            }
-        }
-
-        // Offline: queue for next sync
+        // 2. Queue for background sync (always — non-blocking)
+        //    The sync queue pushes to the production API asynchronously.
+        //    This avoids blocking the UI response on potentially slow API calls
+        //    (phone internet, production server load, token refresh, etc.).
         if ($localUuid) {
             $this->syncQueue->enqueueOperation('Patient', 'create', $localUuid, $localData);
         }

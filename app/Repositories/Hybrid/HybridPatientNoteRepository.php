@@ -72,21 +72,9 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
     {
         $localData = $this->localRepo->create($patientUuid, $data);
 
-        if (NetworkStatusService::isOnline()) {
-            try {
-                $apiData = $this->apiRepo->create($patientUuid, $data);
-                // Sync API response back to local SQLite
-                $this->syncLocalCache($apiData);
-                return $apiData;
-            } catch (ConnectionException $e) {
-                NetworkStatusService::setOnline(false);
-                Log::warning('[HybridPatientNoteRepo] create() - API unavailable: ' . $e->getMessage());
-            } catch (\Throwable $e) {
-                Log::warning('[HybridPatientNoteRepo] create() - API error: ' . $e->getMessage());
-                NetworkStatusService::handleThrowable($e);
-            }
-        }
-
+        // Queue for background sync (always — non-blocking)
+        // The sync queue pushes to the production API asynchronously.
+        // This avoids blocking the UI on potentially slow API calls.
         $this->syncQueue->enqueueOperation(
             'PatientNote', 'create',
             $localData['uuid'] ?? \Illuminate\Support\Str::uuid()->toString(),
