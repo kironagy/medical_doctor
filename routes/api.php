@@ -22,8 +22,11 @@ Route::prefix('v1')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])
         ->middleware('throttle:60,1');
 
+    // Unauthenticated health-check endpoint for NetworkStatusService connectivity pings
+    Route::get('/ping', [\App\Http\Controllers\Api\AuthController::class, 'publicPing']);
+
     Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
-        Route::get('/ping', fn() => response()->json(['status' => 'ok', 'time' => now()]));
+        Route::get('/auth-ping', [AuthController::class, 'ping']);
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
 

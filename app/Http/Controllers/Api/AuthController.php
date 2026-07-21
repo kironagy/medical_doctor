@@ -46,4 +46,21 @@ class AuthController extends Controller
     {
         return response()->json($request->user());
     }
+
+    public function ping(): \Illuminate\Http\JsonResponse
+    {
+        return response()->json([
+            'status' => 'ok',
+            'time' => now(),
+            'authenticated' => true,
+        ]);
+    }
+
+    public function publicPing(): \Illuminate\Http\JsonResponse
+    {
+        return response()->json([
+            'status' => 'ok',
+            'time' => now(),
+        ]);
+    }
 }

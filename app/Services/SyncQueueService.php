@@ -270,11 +270,8 @@ class SyncQueueService
     private function updateState(array $values): void
     {
         foreach ($values as $key => $value) {
-            if (is_array($value) || is_object($value)) {
-                $jsonValue = json_encode($value);
-            } else {
-                $jsonValue = (string) $value;
-            }
+            // Always JSON-encode the value so it is valid for JSON columns
+            $jsonValue = json_encode($value, JSON_UNESCAPED_UNICODE);
 
             $exists = DB::table('sync_states')->where('key', $key)->exists();
             if ($exists) {
