@@ -229,7 +229,48 @@ function refreshWorkspaceData() {
             .then((res) => {
                 // Only update if still viewing the same patient
                 if (selectedPatientId.value === patientUuid) {
-                    workspaceData.value = res.data;
+                    const serverData = res.data;
+                    const currentData = workspaceData.value;
+                    
+                    if (currentData && serverData) {
+                        // INCREMENTAL MERGE: Preserve locally-created items that
+                        // might not yet be in the server response (e.g., notes/files
+                        // created offline that haven't been synced yet).
+                        // This prevents newly created items from disappearing.
+                        
+                        // Merge patient fields (server is authoritative)
+                        const merged = { ...serverData };
+                        
+                        // Preserve local notes not yet in server response
+                        if (currentData.notes?.length > 0) {
+                            const serverNoteUuids = new Set((serverData.notes || []).map(n => n.uuid));
+                            const localOnlyNotes = currentData.notes.filter(n => !serverNoteUuids.has(n.uuid));
+                            merged.notes = [...(serverData.notes || []), ...localOnlyNotes];
+                            // Sort by created_at descending
+                            merged.notes.sort((a, b) => {
+                                const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
+                                const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
+                                return tB - tA;
+                            });
+                        }
+                        
+                        // Preserve local files not yet in server response
+                        if (currentData.files?.length > 0) {
+                            const serverFileUuids = new Set((serverData.files || []).map(f => f.uuid));
+                            const localOnlyFiles = currentData.files.filter(f => !serverFileUuids.has(f.uuid));
+                            merged.files = [...(serverData.files || []), ...localOnlyFiles];
+                            // Sort by created_at descending
+                            merged.files.sort((a, b) => {
+                                const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
+                                const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
+                                return tB - tA;
+                            });
+                        }
+                        
+                        workspaceData.value = merged;
+                    } else {
+                        workspaceData.value = serverData;
+                    }
                 }
             })
             .catch(() => {
@@ -393,7 +434,10 @@ async function addPatient(formData) {
             // Background: refresh the patient list from local SQLite to ensure
             // the sidebar is fully in sync (handles edge cases where the server
             // returns slightly different data than what we have locally).
-            // This is fire-and-forget — it never blocks the UI.
+            // CRITICAL: We must preserve the newly created patient in the list
+            // even if they are on a different page than the current one.
+            // The refreshPatientList function now uses incremental merging
+            // instead of overwriting the entire array.
             refreshPatientList(patientsMeta.value?.current_page || 1).catch(() => {});
         }
         return { success: true, patient };
@@ -493,8 +537,45 @@ async function syncAndRefresh(page = 1) {
       `[refreshPatientList] UUIDs on page: ${JSON.stringify(listUuids)}`
     );
     if (res.data?.data) {
-      patients.value = res.data.data;
-      patientsMeta.value = res.data.meta;
+      // INCREMENTAL MERGE: Instead of overwriting the entire patients array,
+      // we merge the server response with our existing local patients.
+      // This ensures that patients created offline (or on other pages)
+      // are NOT removed from the list when we refresh.
+      const serverPatients = res.data.data;
+      const serverUuids = new Set(serverPatients.map(p => p.uuid));
+      
+      // Start with the server data (authoritative source)
+      const merged = [...serverPatients];
+      
+      // Add any local patients that are NOT in the server response
+      // (e.g., patients on other pages, or just-created patients that sync hasn't processed yet)
+      if (patients.value && patients.value.length > 0) {
+        for (const localPatient of patients.value) {
+          if (!serverUuids.has(localPatient.uuid)) {
+            merged.push(localPatient);
+          }
+        }
+      }
+      
+      // Sort by created_at descending so newest patients appear at the top
+      merged.sort((a, b) => {
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return timeB - timeA;
+      });
+      
+      patients.value = merged;
+      // Keep the server meta but update total to reflect any extra local patients
+      if (res.data.meta) {
+        patientsMeta.value = {
+          ...res.data.meta,
+          total: Math.max(res.data.meta.total || 0, merged.length),
+        };
+      } else {
+        patientsMeta.value = res.data.meta;
+      }
+      
+      console.log(`[refreshPatientList] Merged ${serverPatients.length} server + ${merged.length - serverPatients.length} local-only patients = ${merged.length} total (sorted by date)`);
     } else {
       console.warn('[refreshPatientList] res.data?.data is falsy!', res.data);
     }

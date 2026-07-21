@@ -36,6 +36,17 @@ $middleware->web(append: [
 $middleware->api(append: [
 \App\Http\Middleware\SyncMiddleware::class,
 ]);
+
+// Bypass CSRF for native sync routes — they are called by Axios/fetch without CSRF tokens
+// and are protected by session auth (auth middleware in web route group).
+$middleware->validateCsrfTokens(except: [
+    'api/native/sync',
+    'api/native/sync/status',
+    'api/native/sync/force',
+    'api/native/sync/background',
+    'api/native/sync/clear',
+]);
+
 $middleware->alias([
 'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
 'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,

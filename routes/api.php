@@ -99,27 +99,3 @@ Route::prefix('v1')->group(function () {
         });
     });
 });
-
-// NativePHP offline sync endpoints
-// Uses auth:sanctum so the mobile app can authenticate with its API token
-// (web session auth doesn't work on API routes — no StartSession middleware).
-// The mobile frontend sends the Sanctum token in the Authorization header.
-Route::middleware(['auth:sanctum', 'throttle:30,1'])->group(function () {
-    Route::post('/native/sync', [\App\Http\Controllers\NativeSyncController::class, 'sync']);
-    Route::get('/native/sync/status', [\App\Http\Controllers\NativeSyncController::class, 'getStatus'])
-        ->name('native.sync.status');
-    Route::post('/native/sync/force', [\App\Http\Controllers\NativeSyncController::class, 'forceSync'])
-        ->name('native.sync.force');
-    Route::post('/native/sync/background', [\App\Http\Controllers\NativeSyncController::class, 'backgroundSync'])
-        ->name('native.sync.background');
-    Route::post('/native/sync/clear', function () {
-        \Illuminate\Support\Facades\Log::info('Native sync clear endpoint called.');
-        $count = app(\App\Services\SyncQueueService::class)->clearSyncedOperations(7);
-        return response()->json([
-            'success' => true,
-            'cleared' => $count,
-            'message' => "{$count} fully synced operations removed.",
-        ]);
-    })->name('native.sync.clear');
-});
-
