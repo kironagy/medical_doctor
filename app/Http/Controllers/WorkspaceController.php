@@ -122,63 +122,50 @@ class WorkspaceController extends Controller
         $user = auth()->user();
         $categories = $this->getCategories($user);
 
-        // STEP 1: Check internet availability
+        // API-FIRST: When online, fetch from production API directly.
+        // The API data is authoritative. SQLite is only updated in background.
+        $patients = [];
         $isOnline = NetworkStatusService::isOnline();
         Log::info('[LOAD_PATIENTS] STEP 1: Internet available = ' . ($isOnline ? 'true' : 'false'));
 
-        // STEP 2: Try local SQLite first (instant, works offline)
-        $patients = [];
-        try {
-            $patients = $this->getEloquentPatientRepo()->all();
-        } catch (\Throwable $e) {
-            Log::error('[LOAD_PATIENTS] ERROR: Local SQLite load failed: ' . $e->getMessage());
-            $patients = [];
-        }
-
-        $localCount = count($patients);
-        Log::info('[LOAD_PATIENTS] STEP 2: SQLite contains ' . $localCount . ' patients');
-
-        // STEP 3: If local has data, use it. If empty AND online, fetch from API.
-        if ($localCount > 0) {
-            Log::info('[LOAD_PATIENTS] STEP 3: Using local SQLite data (' . $localCount . ' patients)');
-        } elseif ($isOnline) {
-            Log::info('[LOAD_PATIENTS] STEP 3: Local empty + online = true, calling GET /patients API');
+        if ($isOnline) {
             try {
                 $token = $this->apiService->getToken();
-                Log::info('[LOAD_PATIENTS] STEP 3a: Token available = ' . ($token ? 'YES (len=' . strlen($token) . ')' : 'NO'));
+                Log::info('[LOAD_PATIENTS] STEP 2: Token available = ' . ($token ? 'YES' : 'NO'));
 
                 if ($token) {
-                    Log::info('[LOAD_PATIENTS] STEP 3b: Calling ApiPatientRepository::all()...');
+                    Log::info('[LOAD_PATIENTS] STEP 3: Calling ApiPatientRepository::all()...');
                     $apiPatients = $this->getApiPatientRepo()->all();
                     $apiCount = is_array($apiPatients) ? count($apiPatients) : 0;
-                    Log::info('[LOAD_PATIENTS] STEP 3c: API returned ' . $apiCount . ' patients');
+                    Log::info('[LOAD_PATIENTS] STEP 4: API returned ' . $apiCount . ' patients');
 
+                    // Use API data directly as the source of truth
+                    $patients = $apiPatients;
+
+                    // Silently persist to SQLite for offline access (non-blocking)
                     if ($apiCount > 0) {
-                        Log::info('[LOAD_PATIENTS] STEP 3d: Saving ' . $apiCount . ' patients into SQLite...');
+                        Log::info('[LOAD_PATIENTS] STEP 5: Persisting ' . $apiCount . ' patients to SQLite cache...');
                         $this->syncPatientsLocally($apiPatients);
-
-                        // Verify count after save
-                        $afterSave = Patient::count();
-                        Log::info('[LOAD_PATIENTS] STEP 3e: SQLite now contains ' . $afterSave . ' patients');
-
-                        // Re-read from SQLite to ensure consistent format
-                        Log::info('[LOAD_PATIENTS] STEP 3f: Reloading patients from SQLite...');
-                        $patients = $this->getEloquentPatientRepo()->all();
-                        Log::info('[LOAD_PATIENTS] STEP 3g: Rendering ' . count($patients) . ' patients in UI');
-                    } else {
-                        Log::warning('[LOAD_PATIENTS] API returned 0 patients (response was empty)');
                     }
                 }
             } catch (\Illuminate\Auth\AuthenticationException $e) {
                 Log::error('[LOAD_PATIENTS] ERROR: API token invalid/expired: ' . $e->getMessage());
             } catch (\Throwable $e) {
-                Log::error('[LOAD_PATIENTS] ERROR: API bootstrap failed: ' . $e->getMessage());
-                Log::error('[LOAD_PATIENTS] ERROR class: ' . get_class($e));
-                Log::error('[LOAD_PATIENTS] ERROR file: ' . $e->getFile() . ':' . $e->getLine());
+                Log::error('[LOAD_PATIENTS] ERROR: API fetch failed, falling back to SQLite: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
+                $isOnline = false;
             }
-        } else {
-            Log::info('[LOAD_PATIENTS] STEP 3: Local empty + offline = true, cannot fetch from API');
+        }
+
+        // FALLBACK: Load from local SQLite when offline or API failed
+        if (!$isOnline || empty($patients)) {
+            try {
+                $patients = $this->getEloquentPatientRepo()->all();
+                Log::info('[LOAD_PATIENTS] FALLBACK: SQLite contains ' . count($patients) . ' patients');
+            } catch (\Throwable $e) {
+                Log::error('[LOAD_PATIENTS] ERROR: Local SQLite load failed: ' . $e->getMessage());
+                $patients = [];
+            }
         }
 
         Log::info('[LOAD_PATIENTS] === END: Rendering with ' . count($patients) . ' patients ===');
@@ -202,42 +189,40 @@ class WorkspaceController extends Controller
         $page = $request->input('page', 1);
         $status = $request->input('status');
         $authError = false;
+        $result = null;
 
-        // OFFLINE-FIRST: Always load from local SQLite first for instant UI.
-        $result = $this->getEloquentPatientRepo()->paginated(10, $page, $status);
-        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - loaded from local SQLite', [
-            'page' => $page,
-            'local_count' => $result['meta']['total'] ?? 0,
-        ]);
-
-        // If local has data, return it immediately (non-blocking).
-        // Background sync happens separately via NativeSyncController.
-        if (($result['meta']['total'] ?? 0) > 0) {
-            return response()->json($result);
-        }
-
-        // FORCE-FETCH FROM API if local is empty and we're online.
-        // This is critical for first-time users who have no cached data yet.
+        // API-FIRST: When online, always fetch from the production API.
+        // SQLite cache is only used when offline.
         if (NetworkStatusService::isOnline()) {
             try {
                 $token = $this->apiService->getToken();
-                Log::info('[WorkspaceController] patientList bootstrap - token: ' . ($token ? 'YES' : 'NO'));
+                Log::info('[WorkspaceController] patientList - token: ' . ($token ? 'YES' : 'NO'));
                 if ($token) {
                     $apiResult = $this->getApiPatientRepo()->paginated(10, $page, $status);
-                    Log::info('[WorkspaceController] patientList bootstrap - API returned ' . (isset($apiResult['data']) ? count($apiResult['data']) : 0) . ' patients');
-                    if (isset($apiResult['data']) && count($apiResult['data']) > 0) {
+                    $apiCount = isset($apiResult['data']) ? count($apiResult['data']) : 0;
+                    Log::info('[WorkspaceController] patientList - API returned ' . $apiCount . ' patients');
+                    
+                    // Persist API data to SQLite in background (silently)
+                    if ($apiCount > 0) {
                         $this->syncPatientsLocally($apiResult['data']);
-                        $result = $apiResult;
                     }
+                    
+                    $result = $apiResult;
                 }
             } catch (\Illuminate\Auth\AuthenticationException $e) {
                 Log::warning('[WorkspaceController] API token expired: ' . $e->getMessage());
                 $authError = true;
                 $this->apiService->setToken(null);
             } catch (\Throwable $e) {
-                Log::error('[WorkspaceController] API bootstrap failed: ' . $e->getMessage());
+                Log::error('[WorkspaceController] API fetch failed, falling back to SQLite: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
             }
+        }
+
+        // Fallback: load from local SQLite when offline or API failed
+        if ($result === null) {
+            $result = $this->getEloquentPatientRepo()->paginated(10, $page, $status);
+            Log::info('[WorkspaceController] patientList - fallback to SQLite: ' . ($result['meta']['total'] ?? 0) . ' patients');
         }
 
         // Auth error with no data

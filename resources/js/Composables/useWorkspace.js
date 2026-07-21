@@ -229,58 +229,24 @@ function refreshWorkspaceData() {
             .then((res) => {
                 // Only update if still viewing the same patient
                 if (selectedPatientId.value === patientUuid) {
-                    const serverData = res.data;
-                    const currentData = workspaceData.value;
-                    
-                    if (currentData && serverData) {
-                        // INCREMENTAL MERGE: Preserve locally-created items that
-                        // might not yet be in the server response (e.g., notes/files
-                        // created offline that haven't been synced yet).
-                        // This prevents newly created items from disappearing.
-                        
-                        // Merge patient fields (server is authoritative)
-                        const merged = { ...serverData };
-                        
-                        // Preserve local notes not yet in server response
-                        if (currentData.notes?.length > 0) {
-                            const serverNoteUuids = new Set((serverData.notes || []).map(n => n.uuid));
-                            const localOnlyNotes = currentData.notes.filter(n => !serverNoteUuids.has(n.uuid));
-                            merged.notes = [...(serverData.notes || []), ...localOnlyNotes];
-                            // Sort by created_at descending
-                            merged.notes.sort((a, b) => {
-                                const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
-                                const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
-                                return tB - tA;
-                            });
-                        }
-                        
-                        // Preserve local files not yet in server response
-                        if (currentData.files?.length > 0) {
-                            const serverFileUuids = new Set((serverData.files || []).map(f => f.uuid));
-                            const localOnlyFiles = currentData.files.filter(f => !serverFileUuids.has(f.uuid));
-                            merged.files = [...(serverData.files || []), ...localOnlyFiles];
-                            // Sort by created_at descending
-                            merged.files.sort((a, b) => {
-                                const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
-                                const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
-                                return tB - tA;
-                            });
-                        }
-                        
-                        workspaceData.value = merged;
-                    } else {
-                        workspaceData.value = serverData;
-                    }
+                    // API-FIRST: Server response is authoritative when online.
+                    // Directly set workspace data from the server response.
+                    // Locally-created items not yet synced are preserved by the
+                    // create flow which calls addNoteLocally()/addFileLocally()
+                    // to insert them directly into workspaceData.value.
+                    workspaceData.value = res.data;
                 }
             })
             .catch((e) => {
                 if (selectedPatientId.value === patientUuid) {
-                    // PRESERVE current data on transient errors (network blip, timeout).
                     // Only clear on 404 (patient was deleted).
+                    // Preserve current data on transient errors (timeout, network blip).
                     if (e?.response?.status === 404) {
+                        console.warn('[refreshWorkspaceData] Patient not found (404), clearing data');
                         workspaceData.value = null;
+                    } else {
+                        console.warn('[refreshWorkspaceData] Transient error, preserving current data:', e?.message || e);
                     }
-                    // else: keep currentData — don't wipe the workspace on a transient error
                 }
             })
             .finally(() => {
@@ -562,42 +528,16 @@ async function syncAndRefresh(page = 1) {
     }
     
     if (serverPatients) {
-      // INCREMENTAL MERGE: Instead of overwriting the entire patients array,
-      // we merge the server response with our existing local patients.
-      // This ensures that patients created offline (or on other pages)
-      // are NOT removed from the list when we refresh.
-      const serverUuids = new Set(serverPatients.map(p => p.uuid));
+      // API-FIRST: When online, the server response is authoritative.
+      // Overwrite the patient list with the server data directly.
+      // Patients saved locally but not yet synced will be re-added by
+      // the create/update flow which calls upsertPatient().
+      patients.value = serverPatients;
       
-      // Start with the server data (authoritative source)
-      const merged = [...serverPatients];
-      
-      // Add any local patients that are NOT in the server response
-      // (e.g., patients on other pages, or just-created patients that sync hasn't processed yet)
-      if (patients.value && patients.value.length > 0) {
-        for (const localPatient of patients.value) {
-          if (!serverUuids.has(localPatient.uuid)) {
-            merged.push(localPatient);
-          }
-        }
-      }
-      
-      // Sort by created_at descending so newest patients appear at the top
-      merged.sort((a, b) => {
-        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return timeB - timeA;
-      });
-      
-      patients.value = merged;
-      
-      // Keep the server meta if available, update total to reflect extra local patients
       const meta = res.data?.meta || {};
-      patientsMeta.value = {
-        ...meta,
-        total: Math.max(meta.total || 0, merged.length),
-      };
+      patientsMeta.value = { ...meta };
       
-      console.log(`[refreshPatientList] Merged ${serverPatients.length} server + ${merged.length - serverPatients.length} local-only patients = ${merged.length} total (sorted by date)`);
+      console.log(`[refreshPatientList] Set ${serverPatients.length} patients from server (API-first, no merge)`);
     } else {
       console.warn('[refreshPatientList] No patients array found in response. res.data keys:', respKeys, 'res.data:', res.data);
     }

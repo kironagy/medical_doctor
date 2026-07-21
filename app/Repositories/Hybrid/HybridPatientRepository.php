@@ -106,14 +106,31 @@ class HybridPatientRepository implements PatientRepositoryInterface
 
     public function create(array $data): array
     {
-        // 1. Save to local SQLite immediately (offline-first)
+        // API-FIRST: When online, create via the production API synchronously.
+        // The API response is authoritative and contains server-generated fields
+        // (proper code, timestamps, etc.). The local SQLite is updated in background.
+        if (NetworkStatusService::isOnline()) {
+            try {
+                // Add a uuid to the payload so the server can use it
+                if (!isset($data['uuid'])) {
+                    $data['uuid'] = (string) \Illuminate\Support\Str::uuid();
+                }
+                $apiData = $this->apiRepo->create($data);
+                if (is_array($apiData) && isset($apiData['uuid'])) {
+                    // Persist API response to local SQLite for offline access
+                    $this->syncLocalCache($apiData);
+                    return $apiData;
+                }
+            } catch (\Throwable $e) {
+                NetworkStatusService::handleThrowable($e);
+                Log::warning('[HybridPatientRepo] create() - API error, falling back to local: ' . $e->getMessage());
+            }
+        }
+
+        // OFFLINE FALLBACK: Save to local SQLite and queue for background sync
         $localData = $this->localRepo->create($data);
         $localUuid = $localData['uuid'] ?? null;
 
-        // 2. Queue for background sync (always — non-blocking)
-        //    The sync queue pushes to the production API asynchronously.
-        //    This avoids blocking the UI response on potentially slow API calls
-        //    (phone internet, production server load, token refresh, etc.).
         if ($localUuid) {
             $this->syncQueue->enqueueOperation('Patient', 'create', $localUuid, $localData);
         }

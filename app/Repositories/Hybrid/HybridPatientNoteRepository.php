@@ -70,11 +70,26 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
 
     public function create(string $patientUuid, array $data): array
     {
-        $localData = $this->localRepo->create($patientUuid, $data);
+        // API-FIRST: When online, create via the production API synchronously.
+        // The API response is authoritative. Local SQLite is updated in background.
+        if (NetworkStatusService::isOnline()) {
+            try {
+                if (!isset($data['uuid'])) {
+                    $data['uuid'] = (string) \Illuminate\Support\Str::uuid();
+                }
+                $apiData = $this->apiRepo->create($patientUuid, $data);
+                if (is_array($apiData) && isset($apiData['uuid'])) {
+                    $this->syncLocalCache($apiData);
+                    return $apiData;
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientNoteRepo] create() - API error, falling back to local: ' . $e->getMessage());
+                NetworkStatusService::handleThrowable($e);
+            }
+        }
 
-        // Queue for background sync (always — non-blocking)
-        // The sync queue pushes to the production API asynchronously.
-        // This avoids blocking the UI on potentially slow API calls.
+        // OFFLINE FALLBACK: Save to local SQLite and queue for background sync
+        $localData = $this->localRepo->create($patientUuid, $data);
         $this->syncQueue->enqueueOperation(
             'PatientNote', 'create',
             $localData['uuid'] ?? \Illuminate\Support\Str::uuid()->toString(),
