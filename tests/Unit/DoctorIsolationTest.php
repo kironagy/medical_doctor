@@ -26,7 +26,7 @@ class DoctorIsolationTest extends TestCase
         }
     }
 
-    private function makeDoctor(string $name = 'Dr Smith', string $email = null): User
+    private function makeDoctor(string $name = 'Dr Smith', ?string $email = null): User
     {
         $email ??= Str::slug($name) . '@example.com';
 
@@ -42,7 +42,7 @@ class DoctorIsolationTest extends TestCase
         return $user->fresh();
     }
 
-    private function makeAdmin(string $name = 'Admin User', string $email = null): User
+    private function makeAdmin(string $name = 'Admin User', ?string $email = null): User
     {
         $email ??= Str::slug($name) . '@example.com';
 

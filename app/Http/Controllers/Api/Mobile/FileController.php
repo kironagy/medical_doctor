@@ -66,6 +66,10 @@ class FileController extends Controller
         $mimeType = $uploadedFile->getMimeType();
         $size = $uploadedFile->getSize();
 
+        $originalName = $uploadedFile->getClientOriginalName();
+        $originalName = preg_replace('/[^\w\.\-\(\) ]/', '_', $originalName);
+        $originalName = ltrim($originalName, '.');
+
         $type = match (true) {
             str_starts_with($mimeType, 'image/') => 'image',
             str_starts_with($mimeType, 'video/') => 'video',
@@ -84,12 +88,12 @@ class FileController extends Controller
             'uuid' => $fileUuid,
             'patient_id' => $patient->id,
             'uploaded_by_id' => $request->user()->id,
-            'title' => $validated['title'] ?? $uploadedFile->getClientOriginalName(),
+            'title' => $validated['title'] ?? $originalName,
             'desc' => $validated['desc'] ?? null,
             'type' => $type,
             'category' => $validated['category'] ?? null,
             'date' => $validated['date'] ?? now(),
-            'file_name' => $uploadedFile->getClientOriginalName(),
+            'file_name' => $originalName,
             'file_path' => $path,
             'mime_type' => $mimeType,
             'size' => $size,
@@ -215,9 +219,9 @@ class FileController extends Controller
         }
 
         try {
-            $file->forceDelete();
+            $file->delete();
         } catch (\Throwable $e) {
-            Log::error('Failed to force delete PatientFile', ['uuid' => $fileUuid, 'exception' => $e]);
+            Log::error('Failed to soft delete PatientFile', ['uuid' => $fileUuid, 'exception' => $e]);
             return response()->json([
                 'message' => 'Failed to delete file record',
                 'errors' => [(string) $e->getMessage()],

@@ -183,6 +183,24 @@ class AuthController extends Controller
 
     private function mirrorRemoteUser(array $remoteUser, string $password): User
     {
+        $uuid = $remoteUser['uuid'] ?? null;
+
+        // If the login response didn't include UUID, fetch it from the /me endpoint
+        if (!$uuid && !empty($remoteUser['id']) && isset($this->apiToken)) {
+            try {
+                $meResponse = app(\App\Services\Mobile\ApiService::class)->get('/me');
+                $uuid = $meResponse['uuid'] ?? $meResponse['data']['uuid'] ?? null;
+            } catch (\Throwable $e) {
+                Log::warning('[AuthController] Failed to fetch user UUID from /me endpoint: ' . $e->getMessage());
+            }
+        }
+
+        // Last resort: generate a local UUID (only used as fallback)
+        if (!$uuid) {
+            $uuid = (string) \Illuminate\Support\Str::uuid();
+            Log::warning('[AuthController] No remote UUID available, generated local UUID: ' . $uuid);
+        }
+
         $attributes = [
             'name'     => $remoteUser['name'] ?? 'Remote User',
             'email'    => $remoteUser['email'],
@@ -190,24 +208,17 @@ class AuthController extends Controller
             'role'     => $remoteUser['role'] ?? 'doctor',
             'phone'    => $remoteUser['phone'] ?? null,
             'code'     => $remoteUser['code'] ?? null,
+            'uuid'     => $uuid,
         ];
-
-        if (!empty($remoteUser['uuid'])) {
-            $attributes['uuid'] = $remoteUser['uuid'];
-        }
 
  $localUser = User::where('email', $attributes['email'])->first();
 
  if ($localUser) {
      $localUser->update($attributes);
  } else {
-     // Create with the remote ID to keep primary_doctor_id matching across sync
      $localUser = User::create($attributes);
  }
 
- // Assign role via Spatie — always, whether user was just created or already existed.
- // Without this, hasRole('doctor') returns false on subsequent logins and the
- // doctor lands on the admin dashboard instead of the workspace.
  $roleName = $attributes['role'] ?? 'doctor';
  if (in_array($roleName, ['super-admin', 'doctor'], true)) {
      $localUser->syncRoles([$roleName]);
@@ -215,10 +226,6 @@ class AuthController extends Controller
      $localUser->syncRoles(['doctor']);
  }
 
- // Force the local user ID to match the remote ID so DoctorIsolationScope
- // (which filters patients by auth()->id()) finds the correct records.
- // Patients synced from the remote API store primary_doctor_id as the
- // remote user ID, so local and remote IDs must be identical.
  if (!empty($remoteUser['id'])) {
      $localUser->id = $remoteUser['id'];
      $localUser->saveQuietly();

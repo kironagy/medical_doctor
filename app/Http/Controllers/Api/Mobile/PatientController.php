@@ -99,7 +99,9 @@ class PatientController extends Controller
         ]);
 
         if (empty($validated['code'])) {
-            $validated['code'] = (string) random_int(100000, 999999);
+            do {
+                $validated['code'] = (string) random_int(100000, 999999);
+            } while (Patient::where('code', $validated['code'])->exists());
         }
 
         $validated['primary_doctor_id'] = $request->user()->id;

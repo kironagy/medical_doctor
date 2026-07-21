@@ -375,7 +375,7 @@ class FileAccessController extends Controller
         }
 
         try {
-            $file->forceDelete();
+            $file->delete();
         } catch (\Throwable $e) {
             Log::error('Failed to force delete PatientFile', ['uuid' => $uuid, 'exception' => $e]);
             return response()->json([

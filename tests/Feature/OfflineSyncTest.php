@@ -160,6 +160,7 @@ class OfflineSyncTest extends TestCase
             Mockery::mock(\App\Repositories\Api\ApiPatientNoteRepository::class),
             Mockery::mock(\App\Repositories\Api\ApiPatientVisitRepository::class),
             Mockery::mock(ApiUserRepository::class),
+            Mockery::mock(\App\Services\Sync\ConflictResolver::class),
         );
 
         $method = new \ReflectionMethod($service, 'syncLocalCache');
@@ -192,6 +193,7 @@ class OfflineSyncTest extends TestCase
             Mockery::mock(\App\Repositories\Api\ApiPatientNoteRepository::class),
             Mockery::mock(\App\Repositories\Api\ApiPatientVisitRepository::class),
             Mockery::mock(ApiUserRepository::class),
+            Mockery::mock(\App\Services\Sync\ConflictResolver::class),
         );
 
         $remoteDoctors = [

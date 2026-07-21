@@ -30,7 +30,7 @@ return MobilePatientNoteResource::collection($notes);
         Gate::authorize('update', $patient);
 
         $validated = $request->validate([
-            'content' => 'required|string',
+            'content' => 'required|string|max:65535',
             'category' => 'nullable|string|max:100',
         ]);
 
@@ -60,7 +60,7 @@ return response()->json(new MobilePatientNoteResource($note), 201);
         }
 
         $validated = $request->validate([
-            'content' => 'required|string',
+            'content' => 'required|string|max:65535',
         ]);
 
         $note->update($validated);

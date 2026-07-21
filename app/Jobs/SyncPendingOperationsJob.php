@@ -33,7 +33,7 @@ class SyncPendingOperationsJob implements ShouldQueue
 
     private function processOperation(PendingOperation $operation): void
     {
-        $apiUrl = env('MOBILE_API_URL', 'https://prof-hosam-fekry.online/api/v1/mobile');
+        $apiUrl = config('app.mobile_api_url');
         $payload = $operation->payload ?? [];
         $endpoint = $this->getEndpoint($operation->entity_type, $operation->action, $operation->uuid, $payload);
         $method = $this->getMethod($operation->action);

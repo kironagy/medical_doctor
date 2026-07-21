@@ -294,7 +294,9 @@ class WorkspaceController extends Controller
             'medical_record_number' => 'nullable|string|max:100',
         ]);
 
-        $validated['code'] = (string) random_int(100000, 999999);
+        do {
+            $validated['code'] = (string) random_int(100000, 999999);
+        } while (\App\Domains\Patients\Models\Patient::where('code', $validated['code'])->exists());
         $validated['primary_doctor_id'] = $request->user()->id;
         $validated['created_by_id'] = $request->user()->id;
 

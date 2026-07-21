@@ -12,12 +12,6 @@ class DoctorIsolationScope implements Scope
 {
     public function apply(Builder $builder, Model $model)
     {
-        // Skip the scope entirely in NativePHP (mobile) — the local SQLite only contains
-        // the logged-in user's data, so isolation would incorrectly filter everything out.
-        if (\App\Helpers\NativePhp::isRunning()) {
-            return;
-        }
-
         $user = Auth::user();
         if (!$user) return;
 

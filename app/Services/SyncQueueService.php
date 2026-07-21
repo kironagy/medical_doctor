@@ -12,6 +12,21 @@ class SyncQueueService
     /** Max retry attempts before marking as permanently failed */
     private const MAX_RETRIES = 5;
 
+    /** Max pending items before warning */
+    private const MAX_PENDING_WARN_THRESHOLD = 1000;
+
+    /**
+     * Dependency ordering for entity types.
+     * Patients must be processed before child records (files, notes, visits).
+     */
+    private const ENTITY_DEPENDENCY_ORDER = [
+        'Patient'       => 0,
+        'PatientShare'  => 1,
+        'PatientVisit'  => 2,
+        'PatientNote'   => 2,
+        'PatientFile'   => 2,
+    ];
+
     /**
      * Map entity types to their local table names.
      */
@@ -24,7 +39,7 @@ class SyncQueueService
     ];
 
     /**
-     * Enqueue an operation into sync_queue.
+     * Enqueue an operation into sync_queue with dedup support.
      *
      * @param  string  $entity      One of the ENTITY_TABLE_MAP keys (e.g. 'Patient')
      * @param  string  $operation   'create' | 'update' | 'delete'
@@ -39,6 +54,21 @@ class SyncQueueService
         ?array $payload,
         int $priority = 5
     ): SyncQueueItem {
+        // Dedup: skip if a pending operation for the same record already exists
+        if ($recordUuid && $this->hasPending($recordUuid, $operation)) {
+            Log::info("[SyncQueueService] Skipping duplicate enqueue: {$entity} {$operation} {$recordUuid}");
+
+            $existing = SyncQueueItem::where('record_uuid', $recordUuid)
+                ->where('operation', $operation)
+                ->where('status', 'pending')
+                ->first();
+
+            if ($existing) {
+                $existing->update(['payload' => $payload]);
+                return $existing;
+            }
+        }
+
         $tableName = self::ENTITY_TABLE_MAP[$entity] ?? strtolower($entity);
 
         $item = SyncQueueItem::create([
@@ -56,13 +86,30 @@ class SyncQueueService
             'available_at' => now(),
         ]);
 
+        $pendingCount = $this->getPendingCount();
+
         $this->updateState([
-            'pending_count' => $this->getPendingCount(),
+            'pending_count' => $pendingCount,
         ]);
+
+        if ($pendingCount > self::MAX_PENDING_WARN_THRESHOLD) {
+            Log::warning("[SyncQueueService] Queue size warning: {$pendingCount} pending items");
+        }
 
         Log::info("[SyncQueueService] Enqueued {$entity} {$operation} (uuid: {$item->uuid})");
 
         return $item;
+    }
+
+    /**
+     * Check if a pending operation exists for the given record.
+     */
+    public function hasPending(string $recordUuid, string $operation): bool
+    {
+        return SyncQueueItem::where('record_uuid', $recordUuid)
+            ->where('operation', $operation)
+            ->whereIn('status', ['pending', 'failed'])
+            ->exists();
     }
 
     /**
@@ -81,7 +128,6 @@ class SyncQueueService
 
             Log::info("[SyncQueueService] Item {$item->uuid} marked as synced.");
         } else {
-            // Check if exceeded max retries
             if ($item->retry_count >= self::MAX_RETRIES) {
                 $item->status = 'permanently_failed';
                 Log::error("[SyncQueueService] Item {$item->uuid} permanently failed after {$item->retry_count} attempts: {$errorMessage}");
@@ -99,9 +145,8 @@ class SyncQueueService
     }
 
     /**
-     * Process all pending operations in priority + oldest-first order.
-     * Does NOT automatically push to the remote API; callers iterate the
-     * returned items and apply their own push logic, then call markItemResult.
+     * Process all pending operations ordered by dependency (patients first, then child records),
+     * then by priority and creation time.
      *
      * @param  int  $batchSize  Max items to pull in one call (default 50)
      */
@@ -110,12 +155,16 @@ class SyncQueueService
         $this->updateState(['sync_in_progress' => true]);
 
         // Include both 'pending' and 'failed' items (retry failed ones)
+        // Order by: dependency order (patients first), then priority, then creation time
         $items = SyncQueueItem::whereIn('status', ['pending', 'failed'])
             ->where('retry_count', '<', self::MAX_RETRIES)
-            ->orderBy('priority', 'asc')
-            ->orderBy('created_at', 'asc')
-            ->limit($batchSize)
-            ->get();
+            ->get()
+            ->sortBy([
+                fn($a, $b) => (self::ENTITY_DEPENDENCY_ORDER[$a->entity] ?? 99) <=> (self::ENTITY_DEPENDENCY_ORDER[$b->entity] ?? 99),
+                fn($a, $b) => $a->priority <=> $b->priority,
+                fn($a, $b) => $a->created_at <=> $b->created_at,
+            ])
+            ->take($batchSize);
 
         // Batch reset failed items to pending (avoids per-item events)
         $failedIds = $items->where('status', 'failed')->pluck('id');
@@ -125,13 +174,39 @@ class SyncQueueService
 
         Log::info("[SyncQueueService] Fetched {$items->count()} pending operations for processing.");
 
-        $this->updateState([
-            'sync_in_progress' => false,
-            'last_sync_at'     => now()->toDateTimeString(),
-            'pending_count'    => $this->getPendingCount(),
-        ]);
-
         return $items;
+    }
+
+    /**
+     * Get the count of items needing processing (pending + retriable failed).
+     */
+    public function getTotalBacklogCount(): int
+    {
+        return SyncQueueItem::whereIn('status', ['pending', 'failed'])
+            ->where('retry_count', '<', self::MAX_RETRIES)
+            ->count();
+    }
+
+    /**
+     * Group items by dependency sets:
+     * Returns items grouped by entity type dependency level.
+     * Level 0 (patients) must be processed before level 1+ (child records).
+     */
+    public function getItemsGroupedByDependency(): array
+    {
+        $items = SyncQueueItem::whereIn('status', ['pending', 'failed'])
+            ->where('retry_count', '<', self::MAX_RETRIES)
+            ->get();
+
+        $grouped = [];
+        foreach ($items as $item) {
+            $level = self::ENTITY_DEPENDENCY_ORDER[$item->entity] ?? 99;
+            $grouped[$level][] = $item;
+        }
+
+        ksort($grouped);
+
+        return $grouped;
     }
 
     /**
@@ -140,16 +215,6 @@ class SyncQueueService
     public function getPendingCount(): int
     {
         return SyncQueueItem::where('status', 'pending')->count();
-    }
-
-    /**
-     * Return the count of items needing processing (pending + retriable failed).
-     */
-    public function getTotalBacklogCount(): int
-    {
-        return SyncQueueItem::whereIn('status', ['pending', 'failed'])
-            ->where('retry_count', '<', self::MAX_RETRIES)
-            ->count();
     }
 
     /**
@@ -226,5 +291,51 @@ class SyncQueueService
                 ]);
             }
         }
+    }
+
+    /**
+     * Sync semaphore using database-backed lock instead of in-memory static flag.
+     * This survives process crashes because:
+     * 1. The lock is stored in the sync_states table (persistent)
+     * 2. We use a heartbeat-based expiry mechanism
+     * 3. Old locks are automatically released after LOCK_TTL seconds
+     */
+    private const LOCK_TTL = 300;
+
+    public function acquireLock(): bool
+    {
+        $lockKey = 'sync_in_progress';
+        $lockTimeKey = 'sync_lock_acquired_at';
+
+        $existing = DB::table('sync_states')->where('key', $lockKey)->first();
+        $lockValue = $existing ? json_decode($existing->value) : false;
+
+        if ($lockValue === true) {
+            $acquiredAt = DB::table('sync_states')->where('key', $lockTimeKey)->first();
+            $acquiredTime = $acquiredAt ? json_decode($acquiredAt->value) : null;
+
+            if ($acquiredTime && now()->diffInSeconds(new \Carbon\Carbon($acquiredTime)) < self::LOCK_TTL) {
+                return false;
+            }
+
+            Log::warning('[SyncQueueService] Stale lock detected, force-releasing');
+            $this->releaseLock();
+        }
+
+        $this->updateState([
+            $lockKey => true,
+            $lockTimeKey => now()->toIso8601String(),
+        ]);
+
+        return true;
+    }
+
+    public function releaseLock(): void
+    {
+        $this->updateState([
+            'sync_in_progress' => false,
+            'sync_lock_acquired_at' => null,
+            'last_sync_at' => now()->toDateTimeString(),
+        ]);
     }
 }

@@ -25,7 +25,7 @@ class NoteController extends Controller
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
 
         $validated = $request->validate([
-            'content' => 'required|string',
+            'content' => 'required|string|max:65535',
             'category' => 'nullable|string|max:100',
         ]);
 
@@ -44,12 +44,10 @@ class NoteController extends Controller
     {
         $note = PatientNote::with('patient')->where('uuid', $uuid)->firstOrFail();
 
-        if ($note->author_id !== $request->user()->id) {
-            Gate::authorize('update', $note->patient);
-        }
+        Gate::authorize('update', $note->patient);
 
         $validated = $request->validate([
-            'content' => 'required|string',
+            'content' => 'required|string|max:65535',
         ]);
 
         $note->update(['content' => $validated['content']]);
@@ -62,9 +60,7 @@ class NoteController extends Controller
     {
         $note = PatientNote::with('patient')->where('uuid', $uuid)->firstOrFail();
 
-        if ($note->author_id !== $request->user()->id) {
-            Gate::authorize('update', $note->patient);
-        }
+        Gate::authorize('update', $note->patient);
 
         $note->delete();
 

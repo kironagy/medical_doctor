@@ -11,8 +11,6 @@ use RuntimeException;
 
 class ApiService
 {
-    private const BASE_URL = 'https://prof-hosam-fekry.online/api/v1/mobile';
-
     private const MAX_RETRIES = 2;
 
     private const RETRY_DELAY_MS = 500;
@@ -68,15 +66,25 @@ class ApiService
     }
 
     /**
+     * Check if encrypted token storage is enabled.
+     * When true, token is encrypted with APP_KEY before storage.
+     * When false (default for NativePHP), token is stored in plaintext
+     * to avoid token loss on APP_KEY changes during app updates.
+     * Production deployments should set this to true.
+     */
+    private function useEncryptedToken(): bool
+    {
+        return config('app.encrypt_api_token', false);
+    }
+
+    /**
      * Load the API token from the local sync_states table.
      * Returns null if the table doesn't exist yet or has no token.
      *
-     * IMPORTANT: The token is stored in PLAINTEXT (not encrypted) because:
-     * 1. The local SQLite database is only accessible on the device itself.
-     * 2. Encrypting with APP_KEY causes token loss when the key changes
-     *    between app builds or when config cache is cleared.
-     * 3. The token is a Sanctum bearer token — it's already designed to
-     *    be transmitted and stored by the client.
+     * Supports three formats:
+     * 1. Encrypted: {'encrypted': '...'} — decrypted with APP_KEY
+     * 2. Plaintext: {'plain': '...'} — stored as-is (default for NativePHP)
+     * 3. Legacy: direct string — upgraded to format 2 on save
      */
     private function loadTokenFromDb(): ?string
     {
@@ -86,9 +94,7 @@ class ApiService
                 ->first();
             if (!$row) return null;
             $value = is_string($row->value) ? json_decode($row->value, true) : $row->value;
-            // Support both plaintext and legacy encrypted formats
             if (is_array($value) && isset($value['encrypted'])) {
-                // Legacy format: try to decrypt, fall back to null
                 try {
                     return decrypt($value['encrypted']);
                 } catch (\Exception $e) {
@@ -96,11 +102,9 @@ class ApiService
                     return null;
                 }
             }
-            // New format: stored as plaintext string
             if (is_array($value) && isset($value['plain'])) {
                 return $value['plain'];
             }
-            // Direct string (oldest format or fallback)
             return is_string($row->value) ? $row->value : null;
         } catch (\Exception $e) {
             return null;
@@ -109,12 +113,16 @@ class ApiService
 
     /**
      * Persist (or clear) the API token in the local sync_states table.
-     * Stores in plaintext to avoid APP_KEY dependency (see loadTokenFromDb).
+     * Uses APP_KEY encryption when encrypt_api_token config is enabled.
      */
     private function saveTokenToDb(?string $token): void
     {
         try {
-            $value = $token ? json_encode(['plain' => $token]) : json_encode(null);
+            if ($token && $this->useEncryptedToken()) {
+                $value = json_encode(['encrypted' => encrypt($token)]);
+            } else {
+                $value = $token ? json_encode(['plain' => $token]) : json_encode(null);
+            }
             $exists = \Illuminate\Support\Facades\DB::table('sync_states')
                 ->where('key', 'api_token')
                 ->exists();
@@ -125,6 +133,10 @@ class ApiService
             } else {
                 \Illuminate\Support\Facades\DB::table('sync_states')
                     ->insert(['key' => 'api_token', 'value' => $value, 'created_at' => now(), 'updated_at' => now()]);
+            }
+
+            if ($token && $this->useEncryptedToken()) {
+                Log::info('[ApiService] API token stored with encryption.');
             }
         } catch (\Exception $e) {
             // DB not ready yet (first boot before migrations) — ignore

@@ -14,7 +14,8 @@ class RepositoryBindingTest extends TestCase
 
     public function test_patient_repository_uses_hybrid_binding(): void
     {
-        putenv('NATIVEPHP_APP_ID=native-test');
+        putenv('NATIVEPHP_RUNNING=true');
+        $_ENV['NATIVEPHP_RUNNING'] = 'true';
 
         $provider = new RepositoryServiceProvider($this->app);
         $provider->register();
@@ -23,6 +24,7 @@ class RepositoryBindingTest extends TestCase
 
         $this->assertInstanceOf(HybridPatientRepository::class, $repository);
 
-        putenv('NATIVEPHP_APP_ID');
+        putenv('NATIVEPHP_RUNNING');
+        unset($_ENV['NATIVEPHP_RUNNING']);
     }
 }

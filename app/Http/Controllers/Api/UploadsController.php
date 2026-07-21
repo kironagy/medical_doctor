@@ -42,9 +42,11 @@ class UploadsController extends Controller
             'metadata.date' => 'sometimes|nullable|date',
         ]);
 
-        $patient = is_numeric($request->patient_id)
-            ? Patient::findOrFail((int) $request->patient_id)
-            : Patient::where('uuid', $request->patient_id)->firstOrFail();
+        $patient = Patient::where('uuid', $request->patient_id)->first();
+
+        if (!$patient) {
+            $patient = Patient::findOrFail((int) $request->patient_id);
+        }
 
         if ($request->user()->cannot('view', $patient)) {
             return response()->json(['message' => 'Forbidden'], 403);

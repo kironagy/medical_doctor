@@ -19,21 +19,19 @@ use App\Repositories\Api\ApiPatientVisitRepository;
 use App\Repositories\Api\ApiUserRepository;
 use App\Services\FullSyncService;
 use App\Services\NetworkStatusService;
+use App\Services\SyncQueueService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class SyncManager
 {
-    /** Semaphore to prevent concurrent sync operations */
-    private static bool $syncInProgress = false;
-
     public function __construct(
         private PatientRepositoryInterface $patientRepo,
         private PatientFileRepositoryInterface $fileRepo,
         private PatientNoteRepositoryInterface $noteRepo,
         private PatientVisitRepositoryInterface $visitRepo,
         private UserRepositoryInterface $userRepo,
-        private PendingOperationsService $pendingOps,
+        private SyncQueueService $syncQueue,
         private ApiPatientRepository $apiPatientRepo,
         private ApiPatientFileRepository $apiFileRepo,
         private ApiPatientNoteRepository $apiNoteRepo,
@@ -42,28 +40,85 @@ class SyncManager
     ) {}
 
     /**
-     * Check if a sync operation is already in progress.
+     * Check if a sync operation is already in progress using database-backed lock.
      */
     public static function isSyncInProgress(): bool
     {
-        return self::$syncInProgress;
+        $inProgress = DB::table('sync_states')->where('key', 'sync_in_progress')->first();
+        if (!$inProgress) {
+            return false;
+        }
+
+        $value = json_decode($inProgress->value);
+        if ($value !== true) {
+            return false;
+        }
+
+        $lockTime = DB::table('sync_states')->where('key', 'sync_lock_acquired_at')->first();
+        if (!$lockTime) {
+            return false;
+        }
+
+        $acquiredAt = json_decode($lockTime->value);
+        if (!$acquiredAt) {
+            return false;
+        }
+
+        if (now()->diffInSeconds(new \Carbon\Carbon($acquiredAt)) > 300) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
      * Push pending local changes to the remote API.
+     * Uses SyncQueueService with dependency ordering.
      */
     public function pushPending(): void
     {
         Log::info('[SyncManager] Pushing pending operations to remote.');
 
-        $items = $this->pendingOps->processPending();
+        $items = $this->syncQueue->processPendingOperations();
 
         foreach ($items as $item) {
             try {
                 $this->pushItem($item);
-                $this->pendingOps->markResult($item, true);
+                $this->syncQueue->markItemResult($item, true);
             } catch (\Exception $e) {
-                $this->pendingOps->markResult($item, false, $e->getMessage());
+                $this->syncQueue->markItemResult($item, false, $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Push all pending items respecting dependency order.
+     * Processes in batches: first all patients, then child records.
+     */
+    public function pushPendingWithDependencyOrder(): void
+    {
+        Log::info('[SyncManager] Pushing pending operations with dependency ordering.');
+
+        $grouped = $this->syncQueue->getItemsGroupedByDependency();
+
+        foreach ($grouped as $level => $items) {
+            Log::info("[SyncManager] Processing dependency level {$level}: {$items->count()} items");
+
+            foreach ($items as $item) {
+                if (!in_array($item->status, ['pending', 'failed'])) {
+                    continue;
+                }
+                if ($item->retry_count >= 5) {
+                    continue;
+                }
+
+                try {
+                    $item->update(['status' => 'pending']);
+                    $this->pushItem($item);
+                    $this->syncQueue->markItemResult($item, true);
+                } catch (\Exception $e) {
+                    $this->syncQueue->markItemResult($item, false, $e->getMessage());
+                }
             }
         }
     }
@@ -74,19 +129,18 @@ class SyncManager
      */
     public function pullMetadata(): void
     {
-        if (self::$syncInProgress) {
+        if (!$this->syncQueue->acquireLock()) {
             Log::info('[SyncManager] Sync already in progress, skipping.');
             return;
         }
-        self::$syncInProgress = true;
 
         Log::info('[SyncManager] Starting metadata pull...');
 
         try {
             DB::statement('PRAGMA foreign_keys = OFF');
 
-            // Push pending first
-            $this->pushPending();
+            // Push pending first using dependency ordering
+            $this->pushPendingWithDependencyOrder();
 
             // Sync users
             try {
@@ -99,37 +153,35 @@ class SyncManager
             // Sync patients with pagination support
             $syncedPatients = $this->pullPaginatedPatients();
 
-            // Sync child resources for each patient
+            // Sync child resources using batched fetching
             $syncedFilesCount = 0;
             $syncedNotesCount = 0;
             $syncedVisitsCount = 0;
 
-            foreach ($syncedPatients as $p) {
-                if (empty($p['uuid'])) continue;
+            $resolver = app(ConflictResolver::class);
+            $patientUuids = array_filter(array_map(fn($p) => $p['uuid'] ?? null, $syncedPatients));
 
-                try {
-                    // Files
-                    $files = $this->pullPaginatedPatientFiles($p['uuid']);
-                    if (!empty($files)) {
-                        $syncedFilesCount += count($files);
-                        app(FullSyncService::class)->syncFilesWithLocalPatientId($p['uuid'], $files);
+            if (!empty($patientUuids)) {
+                [$allFiles, $allNotes, $allVisits] = $this->fetchChildResourcesBatched($patientUuids);
+
+                foreach ($patientUuids as $patientUuid) {
+                    $patientFiles = $allFiles[$patientUuid] ?? [];
+                    if (!empty($patientFiles)) {
+                        $syncedFilesCount += count($patientFiles);
+                        FullSyncService::syncFilesWithLocalPatientId($patientUuid, $patientFiles, $resolver);
                     }
 
-                    // Notes
-                    $notes = $this->pullPaginatedPatientNotes($p['uuid']);
-                    if (!empty($notes)) {
-                        $syncedNotesCount += count($notes);
-                        FullSyncService::syncChildRecordsWithLocalPatientId($p['uuid'], $notes, PatientNote::class);
+                    $patientNotes = $allNotes[$patientUuid] ?? [];
+                    if (!empty($patientNotes)) {
+                        $syncedNotesCount += count($patientNotes);
+                        FullSyncService::syncChildRecordsWithLocalPatientId($patientUuid, $patientNotes, PatientNote::class, $resolver);
                     }
 
-                    // Visits
-                    $visits = $this->pullPaginatedPatientVisits($p['uuid']);
-                    if (!empty($visits)) {
-                        $syncedVisitsCount += count($visits);
-                        FullSyncService::syncChildRecordsWithLocalPatientId($p['uuid'], $visits, PatientVisit::class);
+                    $patientVisits = $allVisits[$patientUuid] ?? [];
+                    if (!empty($patientVisits)) {
+                        $syncedVisitsCount += count($patientVisits);
+                        FullSyncService::syncChildRecordsWithLocalPatientId($patientUuid, $patientVisits, PatientVisit::class, $resolver);
                     }
-                } catch (\Throwable $e) {
-                    Log::warning("[SyncManager] Failed to sync resources for patient {$p['uuid']}: " . $e->getMessage());
                 }
             }
 
@@ -137,7 +189,7 @@ class SyncManager
         } catch (\Throwable $e) {
             Log::error('[SyncManager] Metadata pull failed: ' . $e->getMessage());
         } finally {
-            self::$syncInProgress = false;
+            $this->syncQueue->releaseLock();
             try { DB::statement('PRAGMA foreign_keys = ON'); } catch (\Throwable $e) {}
         }
     }
@@ -162,7 +214,6 @@ class SyncManager
                     break;
                 }
 
-                // Save page immediately to avoid memory bloat
                 foreach ($patients as $item) {
                     if (!is_array($item) || !isset($item['uuid'])) continue;
                     $cleanData = \Illuminate\Support\Arr::except($item, [
@@ -179,7 +230,6 @@ class SyncManager
 
                 $allPatients = array_merge($allPatients, $patients);
 
-                // Check meta for pagination info
                 $meta = $body['meta'] ?? [];
                 $currentPage = $meta['current_page'] ?? $page;
                 $lastPage = $meta['last_page'] ?? $page;
@@ -197,6 +247,51 @@ class SyncManager
 
         Log::info('[SyncManager] Synced ' . count($allPatients) . ' patients across all pages.');
         return $allPatients;
+    }
+
+    /**
+     * Fetch child resources (files, notes, visits) for all patients in batches.
+     */
+    private function fetchChildResourcesBatched(array $patientUuids): array
+    {
+        $allFiles = [];
+        $allNotes = [];
+        $allVisits = [];
+
+        $batches = array_chunk($patientUuids, 10);
+
+        foreach ($batches as $batch) {
+            foreach ($batch as $patientUuid) {
+                try {
+                    $files = $this->pullPaginatedPatientFiles($patientUuid);
+                    if (!empty($files)) {
+                        $allFiles[$patientUuid] = $files;
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("[SyncManager] Failed to fetch files for patient {$patientUuid}: " . $e->getMessage());
+                }
+
+                try {
+                    $notes = $this->pullPaginatedPatientNotes($patientUuid);
+                    if (!empty($notes)) {
+                        $allNotes[$patientUuid] = $notes;
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("[SyncManager] Failed to fetch notes for patient {$patientUuid}: " . $e->getMessage());
+                }
+
+                try {
+                    $visits = $this->pullPaginatedPatientVisits($patientUuid);
+                    if (!empty($visits)) {
+                        $allVisits[$patientUuid] = $visits;
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("[SyncManager] Failed to fetch visits for patient {$patientUuid}: " . $e->getMessage());
+                }
+            }
+        }
+
+        return [$allFiles, $allNotes, $allVisits];
     }
 
     /**
@@ -234,7 +329,7 @@ class SyncManager
                     $page++;
                 }
             } catch (\Throwable $e) {
-                Log::warning("[SyncManager] Failed to fetch files page {$page} for patient {$patientUuid}: " . $e->getMessage());
+                Log::warning("[SyncManager] Failed to fetch files for patient {$patientUuid} page {$page}: " . $e->getMessage());
                 $hasMore = false;
             }
         }
@@ -277,7 +372,7 @@ class SyncManager
                     $page++;
                 }
             } catch (\Throwable $e) {
-                Log::warning("[SyncManager] Failed to fetch notes page {$page} for patient {$patientUuid}: " . $e->getMessage());
+                Log::warning("[SyncManager] Failed to fetch notes for patient {$patientUuid} page {$page}: " . $e->getMessage());
                 $hasMore = false;
             }
         }
@@ -320,7 +415,7 @@ class SyncManager
                     $page++;
                 }
             } catch (\Throwable $e) {
-                Log::warning("[SyncManager] Failed to fetch visits page {$page} for patient {$patientUuid}: " . $e->getMessage());
+                Log::warning("[SyncManager] Failed to fetch visits for patient {$patientUuid} page {$page}: " . $e->getMessage());
                 $hasMore = false;
             }
         }
@@ -329,87 +424,22 @@ class SyncManager
     }
 
     /**
-     * Bulk upsert patients from API into local SQLite.
-     */
-    private function bulkUpsertPatients(array $patients): void
-    {
-        foreach ($patients as $item) {
-            if (!is_array($item) || !isset($item['uuid'])) continue;
-
-            $cleanData = \Illuminate\Support\Arr::except($item, [
-                'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes'
-            ]);
-
-            try {
-                Patient::unguard();
-                Patient::withoutGlobalScopes()->updateOrCreate(
-                    ['uuid' => $item['uuid']],
-                    $cleanData
-                );
-                Patient::reguard();
-            } catch (\Exception $e) {
-                Patient::reguard();
-                Log::warning("[SyncManager] Failed to cache patient {$item['uuid']}: " . $e->getMessage());
-            }
-        }
-    }
-
-    private function syncChildRecords(string $patientUuid, array $records, string $modelClass): void
-    {
-        // Delegate to FullSyncService to avoid code duplication
-        FullSyncService::syncChildRecordsWithLocalPatientId($patientUuid, $records, $modelClass);
-    }
-
-    /**
-     * Push a single queue item to the remote API.
+     * Push a single sync queue item to the remote API.
      */
     private function pushItem(SyncQueueItem $item): void
     {
         $payload = $item->payload ?? [];
 
         match ($item->entity) {
-            'Patient' => $this->pushPatient($item, $payload),
-            'PatientVisit' => $this->pushVisit($item, $payload),
-            'PatientNote' => $this->pushNote($item, $payload),
-            'PatientFile' => $this->pushFile($item, $payload),
+            'Patient' => $this->pushPatientToRemote($item, $payload),
+            'PatientVisit' => $this->pushVisitToRemote($item, $payload),
+            'PatientNote' => $this->pushNoteToRemote($item, $payload),
+            'PatientFile' => $this->pushFileToRemote($item, $payload),
             default => Log::warning("[SyncManager] Unsupported queue entity: {$item->entity}"),
         };
     }
 
-    private function pushPatient(SyncQueueItem $item, array $payload): void
-    {
-        match ($item->operation) {
-            'create' => $this->apiPatientRepo->create($payload),
-            'update' => $this->apiPatientRepo->update($item->record_uuid, $payload),
-            'delete' => $item->record_uuid ? $this->apiPatientRepo->delete($item->record_uuid) : null,
-        };
-    }
-
-    private function pushVisit(SyncQueueItem $item, array $payload): void
-    {
-        $patientUuid = $payload['patient_uuid'] ?? null;
-        if (!$patientUuid) return;
-
-        match ($item->operation) {
-            'create' => $this->apiVisitRepo->create($patientUuid, $payload),
-            'update' => $item->record_uuid ? $this->apiVisitRepo->update((int)$item->record_uuid, $payload) : null,
-            'delete' => $item->record_uuid ? $this->apiVisitRepo->delete((int)$item->record_uuid) : null,
-        };
-    }
-
-    private function pushNote(SyncQueueItem $item, array $payload): void
-    {
-        $patientUuid = $payload['patient_uuid'] ?? null;
-        if (!$patientUuid) return;
-
-        match ($item->operation) {
-            'create' => $this->apiNoteRepo->create($patientUuid, $payload),
-            'update' => $item->record_uuid ? $this->apiNoteRepo->update($patientUuid, $item->record_uuid, $payload) : null,
-            'delete' => $item->record_uuid ? $this->apiNoteRepo->delete($patientUuid, $item->record_uuid) : null,
-        };
-    }
-
-    private function pushFile(SyncQueueItem $item, array $payload): void
+    private function pushFileToRemote(SyncQueueItem $item, array $payload): void
     {
         $patientUuid = $payload['patient_uuid'] ?? null;
 
@@ -438,7 +468,9 @@ class SyncManager
             try {
                 $token = app(\App\Services\Mobile\ApiService::class)->getToken();
             } catch (\Throwable $e) {
-                try { $token = session('api_token_raw'); } catch (\Throwable $se) {}
+                try {
+                    $token = session('api_token_raw');
+                } catch (\Throwable $se) {}
             }
 
             $mimeType = $payload['mime_type'] ?? (mime_content_type($fullPath) ?: 'application/octet-stream');
@@ -446,32 +478,81 @@ class SyncManager
 
             $http = \Illuminate\Support\Facades\Http::timeout(120)
                 ->when($token, fn($c) => $c->withToken($token))
-                ->withHeaders(['Accept' => 'application/json'])
-                ->attach('file', file_get_contents($fullPath), $fileName, ['Content-Type' => $mimeType]);
+                ->withHeaders(['Accept' => 'application/json']);
+
+            $fileResource = fopen($fullPath, 'r');
+
+            $http = $http->attach(
+                'file',
+                $fileResource,
+                $fileName,
+                ['Content-Type' => $mimeType]
+            );
 
             $data = \Illuminate\Support\Arr::except($payload, ['patient_uuid', 'local_path', 'file', 'file_path', 'file_name', 'mime_type', 'size', 'upload_status']);
+
+            // Include local UUID so the server uses it instead of generating a new one
+            $data['uuid'] = $item->record_uuid;
+
             foreach ($data as $k => $v) {
-                if ($v !== null) $http = $http->attach($k, (string) $v);
+                if ($v !== null) {
+                    $http = $http->attach($k, (string) $v);
+                }
             }
 
             $response = $http->post($url);
+            if (is_resource($fileResource)) {
+                fclose($fileResource);
+            }
+
             if ($response->failed()) {
                 throw new \RuntimeException("File upload failed: " . ($response->json('message') ?? $response->body()));
             }
 
             Log::info("[SyncManager] Uploaded offline file {$fileName} for patient {$patientUuid}");
+        }
+    }
 
-            $responseData = $response->json();
-            $remoteFileUuid = $responseData['data']['uuid'] ?? null;
-            if ($remoteFileUuid && $item->record_uuid && $remoteFileUuid !== $item->record_uuid) {
-                try {
-                    PatientFile::where('uuid', $item->record_uuid)
-                        ->update(['uuid' => $remoteFileUuid]);
-                    Log::info("[SyncManager] Updated local file UUID from {$item->record_uuid} to {$remoteFileUuid}");
-                } catch (\Throwable $e) {
-                    Log::warning("[SyncManager] Failed to update local file UUID: " . $e->getMessage());
-                }
-            }
+    private function pushPatientToRemote(SyncQueueItem $item, array $payload): void
+    {
+        if ($item->operation === 'create') {
+            $this->apiPatientRepo->create($payload);
+        } elseif ($item->operation === 'update') {
+            $this->apiPatientRepo->update($item->record_uuid, $payload);
+        } elseif ($item->operation === 'delete' && $item->record_uuid) {
+            $this->apiPatientRepo->delete($item->record_uuid);
+        }
+    }
+
+    private function pushVisitToRemote(SyncQueueItem $item, array $payload): void
+    {
+        $patientUuid = $payload['patient_uuid'] ?? null;
+        if (!$patientUuid) {
+            return;
+        }
+
+        if ($item->operation === 'create') {
+            $this->apiVisitRepo->create($patientUuid, $item->payload);
+        } elseif ($item->operation === 'update' && $item->record_uuid) {
+            $this->apiVisitRepo->update((int) $item->record_uuid, $item->payload);
+        } elseif ($item->operation === 'delete' && $item->record_uuid) {
+            $this->apiVisitRepo->delete((int) $item->record_uuid);
+        }
+    }
+
+    private function pushNoteToRemote(SyncQueueItem $item, array $payload): void
+    {
+        $patientUuid = $payload['patient_uuid'] ?? null;
+        if (!$patientUuid) {
+            return;
+        }
+
+        if ($item->operation === 'create') {
+            $this->apiNoteRepo->create($patientUuid, $item->payload);
+        } elseif ($item->operation === 'update' && $item->record_uuid) {
+            $this->apiNoteRepo->update($patientUuid, $item->record_uuid, $item->payload);
+        } elseif ($item->operation === 'delete' && $item->record_uuid) {
+            $this->apiNoteRepo->delete($patientUuid, $item->record_uuid);
         }
     }
 }

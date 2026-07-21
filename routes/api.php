@@ -19,9 +19,10 @@ Route::get('/files/{uuid}/stream', [FileAccessController::class, 'streamDirect']
     ->name('files.stream');
 
 Route::prefix('v1')->group(function () {
-    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/login', [AuthController::class, 'login'])
+        ->middleware('throttle:10,1');
 
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
 
@@ -78,8 +79,14 @@ Route::prefix('v1')->group(function () {
             Route::put('/profile', [DoctorController::class, 'updateProfile']);
             Route::put('/profile/password', [DoctorController::class, 'updatePassword']);
 
+            // Categories (mobile-accessible)
+            Route::get('/categories', [\App\Http\Controllers\Api\CategoryController::class, 'index']);
+            Route::put('/categories', [\App\Http\Controllers\Api\CategoryController::class, 'update']);
+            Route::post('/categories', [\App\Http\Controllers\Api\CategoryController::class, 'addCategory']);
+            Route::delete('/categories/{slug}', [\App\Http\Controllers\Api\CategoryController::class, 'deleteCategory']);
+
             // Resumable Uploads
-            Route::post('/uploads/start', [\App\Http\Controllers\Api\UploadsController::class, 'start']);
+            Route::post('/uploads/start', [\App\Http\Controllers\Api\UploadsController::class, 'start'])->middleware('throttle:10,1');
             Route::post('/uploads/chunk', [\App\Http\Controllers\Api\UploadsController::class, 'chunk']);
             Route::get('/uploads/{id}/status', [\App\Http\Controllers\Api\UploadsController::class, 'status']);
             Route::post('/uploads/{id}/resume', [\App\Http\Controllers\Api\UploadsController::class, 'resume']);

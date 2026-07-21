@@ -18,10 +18,13 @@ Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
-// Debug endpoint — only accessible when APP_DEBUG=true (development only)
+// Debug endpoint — only accessible when APP_DEBUG=true AND authenticated as super-admin
 Route::get('/debug-state', function () {
     if (! config('app.debug')) {
         abort(404);
+    }
+    if (! auth()->check() || ! auth()->user()->hasRole('super-admin')) {
+        abort(403);
     }
     $info = [
         'user_id' => auth()->id(),
@@ -30,7 +33,7 @@ Route::get('/debug-state', function () {
         'time' => now()->toIso8601String(),
     ];
     try {
-        $info['local_patient_count'] = \App\Models\Patient::count();
+        $info['local_patient_count'] = \App\Domains\Patients\Models\Patient::count();
     } catch (\Throwable $e) {
         $info['local_patient_count'] = 'ERROR: ' . $e->getMessage();
     }
@@ -45,7 +48,7 @@ Route::get('/debug-state', function () {
         $out .= "$k: " . (is_string($v) ? $v : json_encode($v)) . "\n";
     }
     return response($out, 200)->header('Content-Type', 'text/plain');
-});
+})->middleware('web');
 
 use App\Http\Controllers\PatientController;
 
