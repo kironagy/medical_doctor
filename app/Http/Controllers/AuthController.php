@@ -46,6 +46,9 @@ class AuthController extends Controller
     // Best-effort remote token (non-blocking for offline)
     $this->acquireRemoteToken($email, $password);
 
+    // Store credentials for automatic token refresh on 401
+    app(\App\Services\Mobile\ApiService::class)->storeCredentials($email, $password);
+
     // Trigger a lightweight background sync so patients are loaded immediately
     $this->triggerStartupSync();
 
@@ -76,6 +79,9 @@ class AuthController extends Controller
                         'user_id' => $localUser->id,
                         'email'   => $localUser->email,
                     ]);
+
+                    // Store credentials for automatic token refresh on 401
+                    app(ApiService::class)->storeCredentials($email, $password);
 
                     // Trigger a lightweight background sync so patients are loaded immediately
                     $this->triggerStartupSync();
@@ -246,6 +252,7 @@ class AuthController extends Controller
         // Clear the persisted API token from local DB (so startup sync doesn't reuse it)
         try {
             app(ApiService::class)->setToken(null);
+            app(ApiService::class)->clearCredentials();
         } catch (\Throwable $e) {}
 
         Auth::logout();

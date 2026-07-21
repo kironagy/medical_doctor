@@ -4,6 +4,7 @@ namespace App\Services\Mobile;
 
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -191,6 +192,32 @@ class ApiService
         $response = $request->post($url, $data);
 
         if ($response->unauthorized()) {
+            // Attempt token refresh and retry the upload once
+            Log::info('[ApiService] Upload received 401, attempting token refresh...');
+            if ($this->refreshToken()) {
+                // Rebuild request with new token and retry
+                $retryRequest = $this->client();
+                foreach ($files as $k => $f) {
+                    if ($f instanceof \Illuminate\Http\UploadedFile) {
+                        $retryRequest->attach($k, file_get_contents($f->getRealPath()), $f->getClientOriginalName());
+                    } elseif (is_string($f) && file_exists($f)) {
+                        $retryRequest->attach($k, file_get_contents($f), basename($f));
+                    }
+                }
+                $response = $retryRequest->post($url, $data);
+
+                if ($response->successful()) {
+                    Log::info('[ApiService] Upload retry succeeded after token refresh.');
+                    return $response->json() ?? [];
+                }
+
+                if (!$response->unauthorized()) {
+                    $body = $response->json();
+                    $message = is_array($body) ? ($body['message'] ?? 'Upload failed.') : 'Upload failed.';
+                    throw new RuntimeException($message);
+                }
+            }
+
             $this->setToken(null);
             throw new RuntimeException('Session expired. Please login again.');
         }
@@ -211,6 +238,21 @@ class ApiService
         $response = $this->client()->sink($destination)->get($url);
 
         if ($response->unauthorized()) {
+            // Attempt token refresh and retry the download once
+            Log::info('[ApiService] Download received 401, attempting token refresh...');
+            if ($this->refreshToken()) {
+                $response = $this->client()->sink($destination)->get($url);
+
+                if ($response->successful()) {
+                    Log::info('[ApiService] Download retry succeeded after token refresh.');
+                    return true;
+                }
+
+                if (!$response->unauthorized()) {
+                    return false;
+                }
+            }
+
             $this->setToken(null);
             throw new RuntimeException('Session expired. Please login again.');
         }
@@ -219,44 +261,140 @@ class ApiService
     }
 
     /**
-     * Attempt to refresh the API token.
-     * Currently this clears the token and signals re-authentication needed.
-     * Future: implement proper refresh token flow if the remote API supports it.
+     * Store login credentials securely for automatic token refresh.
+     * Credentials are encrypted before storage.
+     */
+    public function storeCredentials(string $email, string $password): void
+    {
+        try {
+            $value = json_encode([
+                'email'    => Crypt::encryptString($email),
+                'password' => Crypt::encryptString($password),
+            ]);
+
+            $exists = \Illuminate\Support\Facades\DB::table('sync_states')
+                ->where('key', 'stored_login_credentials')
+                ->exists();
+
+            if ($exists) {
+                \Illuminate\Support\Facades\DB::table('sync_states')
+                    ->where('key', 'stored_login_credentials')
+                    ->update(['value' => $value, 'updated_at' => now()]);
+            } else {
+                \Illuminate\Support\Facades\DB::table('sync_states')
+                    ->insert(['key' => 'stored_login_credentials', 'value' => $value, 'created_at' => now(), 'updated_at' => now()]);
+            }
+
+            Log::info('[ApiService] Login credentials stored securely for auto-refresh.');
+        } catch (\Throwable $e) {
+            Log::warning('[ApiService] Failed to store credentials: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Load stored login credentials for automatic token refresh.
+     * Returns ['email' => string, 'password' => string] or null.
+     */
+    public function loadCredentials(): ?array
+    {
+        try {
+            $row = \Illuminate\Support\Facades\DB::table('sync_states')
+                ->where('key', 'stored_login_credentials')
+                ->first();
+
+            if (!$row || empty($row->value)) {
+                return null;
+            }
+
+            $data = json_decode($row->value, true);
+            if (!is_array($data) || empty($data['email']) || empty($data['password'])) {
+                return null;
+            }
+
+            return [
+                'email'    => Crypt::decryptString($data['email']),
+                'password' => Crypt::decryptString($data['password']),
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('[ApiService] Failed to load stored credentials: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Clear stored login credentials (e.g., on explicit logout).
+     */
+    public function clearCredentials(): void
+    {
+        try {
+            \Illuminate\Support\Facades\DB::table('sync_states')
+                ->where('key', 'stored_login_credentials')
+                ->delete();
+            Log::info('[ApiService] Stored login credentials cleared.');
+        } catch (\Throwable $e) {
+            // Ignore
+        }
+    }
+
+    /**
+     * Attempt to refresh the API token by re-authenticating with stored credentials.
+     * Steps:
+     *  1. Load encrypted email/password from local DB.
+     *  2. Re-authenticate against the remote /login endpoint.
+     *  3. On success, update the token in session + DB.
+     *  4. On failure, clear the expired token and log a warning.
      */
     public function refreshToken(): bool
     {
-        try {
-            // Check if we still have connectivity before clearing the token
-            $testUrl = $this->baseUrl();
-            $response = Http::timeout(5)->get($testUrl);
-            if ($response->status() < 500) {
-                // Server is reachable — token is truly expired
-                $this->setToken(null);
-                Log::warning('[ApiService] Token refresh failed — session expired. User must re-login.');
-                return false;
-            }
-            // Server unreachable — keep the token for later retry
-            return false;
-        } catch (\Throwable $e) {
-            // Network issue — keep token
-            Log::warning('[ApiService] Cannot refresh token (network issue): ' . $e->getMessage());
+        $credentials = $this->loadCredentials();
+
+        if (!$credentials) {
+            Log::warning('[ApiService] Token refresh failed — no stored credentials available. User must re-login.');
+            $this->setToken(null);
             return false;
         }
+
+        try {
+            Log::info('[ApiService] Attempting token refresh via re-authentication...');
+            $response = self::loginToRemote($credentials['email'], $credentials['password']);
+
+            if (isset($response['token'])) {
+                $this->setToken($response['token']);
+                Log::info('[ApiService] Token refreshed successfully via re-authentication.');
+                return true;
+            }
+
+            Log::warning('[ApiService] Token refresh failed — re-authentication returned no token.');
+        } catch (\Throwable $e) {
+            Log::warning('[ApiService] Token refresh failed: ' . $e->getMessage());
+        }
+
+        // If we get here, re-authentication failed — clear token
+        $this->setToken(null);
+        return false;
     }
 
     private function send(string $method, string $path, array $options = []): array
     {
         $url = $this->baseUrl() . $path;
         $attempts = 0;
+        $refreshAttempted = false;
 
         while ($attempts <= self::MAX_RETRIES) {
             try {
                 $response = $this->client()->send($method, $url, $options);
 
                 if ($response->unauthorized()) {
-                    // Try to refresh token before giving up
-                    // refreshToken() already clears the token via setToken(null)
-                    $this->refreshToken();
+                    if (!$refreshAttempted) {
+                        $refreshAttempted = true;
+                        Log::info('[ApiService] Received 401, attempting token refresh and retry...');
+                        if ($this->refreshToken()) {
+                            // Token refreshed successfully — retry the request with new token
+                            // Don't increment $attempts, give it a fresh try
+                            continue;
+                        }
+                    }
+                    // Refresh failed or already attempted
                     throw new RuntimeException('Session expired. Please login again.');
                 }
 
