@@ -21,14 +21,15 @@ class ApiService
     public function __construct()
     {
         // 1. Try session first (fast, current request)
+        // Uses plaintext session key to avoid APP_KEY dependency
         try {
-            $encrypted = session('api_token');
-            if ($encrypted) {
-                $this->token = decrypt($encrypted);
+            $plain = session('api_token_raw');
+            if ($plain) {
+                $this->token = $plain;
                 return;
             }
         } catch (\Exception $e) {
-            session()->forget('api_token');
+            session()->forget('api_token_raw');
         }
 
         // 2. Fall back to persistent local DB storage (survives app restarts)
@@ -37,7 +38,7 @@ class ApiService
         // 3. If found in DB, restore to session for this request
         if ($this->token) {
             try {
-                session(['api_token' => encrypt($this->token)]);
+                session(['api_token_raw' => $this->token]);
             } catch (\Exception $e) {
                 // Session unavailable (e.g. CLI context) — token still usable in memory
             }
@@ -48,9 +49,9 @@ class ApiService
     {
         $this->token = $token;
         if ($token) {
-            // Persist to session
+            // Persist to session (stored in plaintext to avoid APP_KEY dependency)
             try {
-                session(['api_token' => encrypt($token)]);
+                session(['api_token_raw' => $token]);
             } catch (\Exception $e) {
                 // Session may not be available (CLI/startup sync context)
             }
@@ -58,6 +59,7 @@ class ApiService
             $this->saveTokenToDb($token);
         } else {
             try {
+                session()->forget('api_token_raw');
                 session()->forget('api_token');
             } catch (\Exception $e) {}
             $this->saveTokenToDb(null);
@@ -67,6 +69,13 @@ class ApiService
     /**
      * Load the API token from the local sync_states table.
      * Returns null if the table doesn't exist yet or has no token.
+     *
+     * IMPORTANT: The token is stored in PLAINTEXT (not encrypted) because:
+     * 1. The local SQLite database is only accessible on the device itself.
+     * 2. Encrypting with APP_KEY causes token loss when the key changes
+     *    between app builds or when config cache is cleared.
+     * 3. The token is a Sanctum bearer token — it's already designed to
+     *    be transmitted and stored by the client.
      */
     private function loadTokenFromDb(): ?string
     {
@@ -76,8 +85,22 @@ class ApiService
                 ->first();
             if (!$row) return null;
             $value = is_string($row->value) ? json_decode($row->value, true) : $row->value;
-            $encrypted = is_array($value) ? ($value['encrypted'] ?? null) : $value;
-            return $encrypted ? decrypt($encrypted) : null;
+            // Support both plaintext and legacy encrypted formats
+            if (is_array($value) && isset($value['encrypted'])) {
+                // Legacy format: try to decrypt, fall back to null
+                try {
+                    return decrypt($value['encrypted']);
+                } catch (\Exception $e) {
+                    Log::warning('[ApiService] Failed to decrypt legacy token format, clearing it');
+                    return null;
+                }
+            }
+            // New format: stored as plaintext string
+            if (is_array($value) && isset($value['plain'])) {
+                return $value['plain'];
+            }
+            // Direct string (oldest format or fallback)
+            return is_string($row->value) ? $row->value : null;
         } catch (\Exception $e) {
             return null;
         }
@@ -85,11 +108,12 @@ class ApiService
 
     /**
      * Persist (or clear) the API token in the local sync_states table.
+     * Stores in plaintext to avoid APP_KEY dependency (see loadTokenFromDb).
      */
     private function saveTokenToDb(?string $token): void
     {
         try {
-            $value = $token ? json_encode(['encrypted' => encrypt($token)]) : json_encode(null);
+            $value = $token ? json_encode(['plain' => $token]) : json_encode(null);
             $exists = \Illuminate\Support\Facades\DB::table('sync_states')
                 ->where('key', 'api_token')
                 ->exists();

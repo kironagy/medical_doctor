@@ -98,54 +98,47 @@ class WorkspaceController extends Controller
         $user = auth()->user();
         $categories = $this->getCategories($user);
 
-    // NativePHP (mobile): use the Hybrid repo which handles API + local fallback
-    // internally. On web, this resolves to Eloquent directly.
-    $patientsSource = 'none';
-    $patients = [];
-    try {
-        $patients = $this->patientRepo->all();
-        $patientsSource = (new \ReflectionClass($this->patientRepo))->getShortName() === 'HybridPatientRepository' ? 'hybrid' : 'eloquent';
-
-        // Sync to local SQLite for offline use (safe to call regardless of source)
-        if (is_array($patients)) {
-            $this->syncPatientsLocally($patients);
-        }
-
-        $uuids = collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
-        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::index() - repo returned', [
-            'source' => $patientsSource,
-            'count' => count($patients),
-            'uuids' => $uuids,
-        ]);
-    } catch (\Illuminate\Auth\AuthenticationException $e) {
-        Log::warning('[WorkspaceController] Auth error during index: ' . $e->getMessage());
-        $this->apiService->setToken(null);
-        $patientsSource = 'auth_error';
-    } catch (\Throwable $e) {
-        Log::warning('[WorkspaceController] Repo index failed, falling back to local: ' . $e->getMessage());
-        $patientsSource = 'repo_fallback';
-    }
-
-    // Last-resort fallback: ensure local SQLite is queried directly
-    if (empty($patients)) {
+        // STEP 1: Try local SQLite first (instant, works offline)
+        $patients = [];
         try {
             $patients = $this->eloquentPatientRepo->all();
-            $patientsSource = 'local_fallback';
-            $uuidsLocal = collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
-            Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::index() - got from local', [
-                'count' => count($patients),
-                'uuids' => $uuidsLocal,
-            ]);
         } catch (\Throwable $e) {
-            Log::error('[WorkspaceController] Local fallback also failed: ' . $e->getMessage());
+            Log::error('[WorkspaceController] Local SQLite load failed: ' . $e->getMessage());
             $patients = [];
         }
-    }
-        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::index() - FINAL', [
-            'source' => $patientsSource,
-            'count' => count($patients),
-            'uuids' => collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray(),
+
+        $localCount = count($patients);
+        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::index() - loaded from local SQLite', [
+            'count' => $localCount,
         ]);
+
+        // STEP 2: If local is empty and we're online, FORCE-fetch from API
+        // This ensures first-time users see patients immediately without waiting
+        // for the background sync to complete.
+        if ($localCount === 0 && NetworkStatusService::isOnline()) {
+            Log::info('[WorkspaceController] Local SQLite empty - attempting direct API fetch');
+            try {
+                $token = $this->apiService->getToken();
+                if ($token) {
+                    $apiPatients = $this->apiPatientRepo->all();
+                    if (is_array($apiPatients) && count($apiPatients) > 0) {
+                        Log::info('[WorkspaceController] API returned ' . count($apiPatients) . ' patients - saving to SQLite');
+                        // Save to local SQLite first
+                        $this->syncPatientsLocally($apiPatients);
+                        // Then re-read from SQLite to ensure consistent format (Eloquent model format)
+                        $patients = $this->eloquentPatientRepo->all();
+                        Log::info('[WorkspaceController] Re-read from SQLite: ' . count($patients) . ' patients');
+                    }
+                } else {
+                    Log::warning('[WorkspaceController] No API token available for bootstrap');
+                }
+            } catch (\Illuminate\Auth\AuthenticationException $e) {
+                Log::error('[WorkspaceController] API token invalid/expired: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::error('[WorkspaceController] API bootstrap failed: ' . $e->getMessage());
+                NetworkStatusService::setOnline(false);
+            }
+        }
 
         return Inertia::render('DoctorWorkspace', [
             'patients' => $patients,
@@ -165,109 +158,54 @@ class WorkspaceController extends Controller
     {
         $page = $request->input('page', 1);
         $status = $request->input('status');
-        $result = null;
-        $source = 'local';
         $authError = false;
 
-        // ONLINE: Try direct remote API call first
+        // OFFLINE-FIRST: Always load from local SQLite first for instant UI.
+        $result = $this->eloquentPatientRepo->paginated(10, $page, $status);
+        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - loaded from local SQLite', [
+            'page' => $page,
+            'local_count' => $result['meta']['total'] ?? 0,
+        ]);
+
+        // If local has data, return it immediately (non-blocking).
+        // Background sync happens separately via NativeSyncController.
+        if (($result['meta']['total'] ?? 0) > 0) {
+            return response()->json($result);
+        }
+
+        // FORCE-FETCH FROM API if local is empty and we're online.
+        // This is critical for first-time users who have no cached data yet.
         if (NetworkStatusService::isOnline()) {
             try {
                 $token = $this->apiService->getToken();
+                Log::info('[WorkspaceController] patientList bootstrap - token: ' . ($token ? 'YES' : 'NO'));
                 if ($token) {
                     $apiResult = $this->apiPatientRepo->paginated(10, $page, $status);
-                    if (isset($apiResult['data'])) {
-                        $source = 'api';
-                        $apiUuids = collect($apiResult['data'])->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
-                        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - API returned', [
-                            'page' => $page,
-                            'status' => $status,
-                            'api_total' => $apiResult['meta']['total'] ?? 'N/A',
-                            'api_count' => count($apiResult['data']),
-                            'api_uuids' => $apiUuids,
-                            'raw_api_keys' => array_keys($apiResult),
-                        ]);
-                        // Sync fetched data to local SQLite for offline use
+                    Log::info('[WorkspaceController] patientList bootstrap - API returned ' . (isset($apiResult['data']) ? count($apiResult['data']) : 0) . ' patients');
+                    if (isset($apiResult['data']) && count($apiResult['data']) > 0) {
                         $this->syncPatientsLocally($apiResult['data']);
-                        // Verify what's in local SQLite after sync
-                        $localAfterSync = Patient::latest()->take(20)->get();
-                        $localUuidsAfter = $localAfterSync->map(fn($p) => $p->uuid . ':' . $p->name . ':' . $p->code)->toArray();
-                        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - local SQLite after sync', [
-                            'local_count' => Patient::count(),
-                            'recent_local_uuids' => $localUuidsAfter,
-                        ]);
                         $result = $apiResult;
                     }
-                } else {
-                    Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - no API token');
                 }
             } catch (\Illuminate\Auth\AuthenticationException $e) {
                 Log::warning('[WorkspaceController] API token expired: ' . $e->getMessage());
                 $authError = true;
-                // Clear expired token
                 $this->apiService->setToken(null);
             } catch (\Throwable $e) {
-                Log::warning('[WorkspaceController] API call failed, falling back to local: ' . $e->getMessage());
+                Log::error('[WorkspaceController] API bootstrap failed: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
-                $source = 'api_error_fallback';
-            }
-        } else {
-            $source = 'offline_mode';
-            Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - offline mode');
-        }
-
-        // OFFLINE / Fallback: Use local EloquentPatientRepository (bypasses Hybrid)
-        if ($result === null) {
-            if ($authError) {
-                // Token expired and no local data — return error so frontend can prompt re-login
-                $localResult = $this->eloquentPatientRepo->paginated(10, $page, $status);
-                if (($localResult['meta']['total'] ?? 0) > 0) {
-                    $result = $localResult;
-                    $source = 'local_auth_error';
-                    $localUuids = collect($localResult['data'])->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
-                    Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - local (auth error, data exists)', [
-                        'uuids' => $localUuids,
-                        'total' => $localResult['meta']['total'] ?? 0,
-                    ]);
-                } else {
-                    Log::channel('single')->warning('[PATIENT_DEBUG] WorkspaceController::patientList() - auth error, no local data');
-                    return response()->json([
-                        'data' => [],
-                        'meta' => ['current_page' => 1, 'last_page' => 1, 'per_page' => 10, 'total' => 0, 'from' => null, 'to' => null],
-                        'auth_error' => true,
-                        'message' => 'Session expired. Please login again.',
-                    ]);
-                }
-            } else {
-                $result = $this->eloquentPatientRepo->paginated(10, $page, $status);
-                $source = 'local_fallback';
             }
         }
 
-        // Normalize API response format (Laravel paginator format -> { data, meta } format)
-        if (isset($result['current_page']) && !isset($result['meta'])) {
-            $result = [
-                'data' => $result['data'] ?? [],
-                'meta' => [
-                    'current_page' => $result['current_page'] ?? 1,
-                    'last_page' => $result['last_page'] ?? 1,
-                    'per_page' => $result['per_page'] ?? 10,
-                    'total' => $result['total'] ?? 0,
-                    'from' => $result['from'] ?? null,
-                    'to' => $result['to'] ?? null,
-                ],
-            ];
+        // Auth error with no data
+        if ($authError && ($result['meta']['total'] ?? 0) === 0) {
+            return response()->json([
+                'data' => [],
+                'meta' => ['current_page' => 1, 'last_page' => 1, 'per_page' => 10, 'total' => 0, 'from' => null, 'to' => null],
+                'auth_error' => true,
+                'message' => 'Session expired. Please login again.',
+            ]);
         }
-
-        $resultUuids = collect($result['data'] ?? [])->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
-        Log::channel('single')->info('[PATIENT_DEBUG] WorkspaceController::patientList() - FINAL response sent', [
-            'url' => $request->fullUrl(),
-            'status' => $status ?: 'active',
-            'page' => $page,
-            'source' => $source,
-            'count' => count($result['data'] ?? []),
-            'total' => $result['meta']['total'] ?? 0,
-            'uuids' => $resultUuids,
-        ]);
 
         return response()->json($result);
     }
@@ -372,56 +310,29 @@ class WorkspaceController extends Controller
     {
         $t0 = microtime(true);
 
-        // ONLINE: Try direct remote API call first
-        $patient = null;
-        $source = 'local';
-
-        if (NetworkStatusService::isOnline()) {
-            try {
-                $token = $this->apiService->getToken();
-                if ($token) {
-                    $apiResult = $this->apiPatientRepo->find($uuid);
-                    if ($apiResult) {
-                        $patient = $apiResult;
-                        $source = 'api';
-                        // Sync patient record to local SQLite for offline use
-                        $this->syncPatientsLocally([$apiResult]);
-                    }
-                }
-            } catch (\Illuminate\Auth\AuthenticationException $e) {
-                Log::warning('[WorkspaceController] API token expired for patient data: ' . $e->getMessage());
-                $this->apiService->setToken(null);
-            } catch (\Throwable $e) {
-                Log::warning('[WorkspaceController] API patient data failed, falling back to local: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
-            }
-        }
-
-        // Fallback: use local Eloquent repository
-        if ($patient === null) {
-            try {
-                $patient = $this->eloquentPatientRepo->findByUuid($uuid);
-            } catch (\Throwable $e) {
-                return response()->json(['error' => 'Patient not found'], 404);
-            }
+        // OFFLINE-FIRST: Load EVERYTHING from local SQLite instantly.
+        // The local cache is populated by FullSyncService::syncMetadataOnly()
+        // which runs before the UI is displayed (via syncAndRefresh).
+        //
+        // NO API CALLS HERE — the frontend handles background sync separately
+        // via syncAndRefresh(). Keeping this endpoint 100% local ensures
+        // instant response regardless of network conditions.
+        try {
+            $patient = $this->eloquentPatientRepo->findByUuid($uuid);
+        } catch (\Throwable $e) {
+            return response()->json(['error' => 'Patient not found'], 404);
         }
 
         $t1 = microtime(true);
 
-        // Get files: try API response first (includes visits + files), fall back to local repos
-        $allFiles = $source === 'api' && isset($patient['files'])
-            ? (is_array($patient['files']) ? $patient['files'] : [])
-            : $this->fileRepo->forPatient($uuid);
+        // Get files, notes, visits from LOCAL repositories (instant, always works).
+        $allFiles = $this->fileRepo->forPatient($uuid);
         $files = array_slice($allFiles, 0, 50);
 
         $t2 = microtime(true);
-        $notes = $source === 'api' && isset($patient['notes'])
-            ? (is_array($patient['notes']) ? $patient['notes'] : [])
-            : $this->noteRepo->forPatient($uuid);
+        $notes = $this->noteRepo->forPatient($uuid);
         $t3 = microtime(true);
-        $visits = $source === 'api' && isset($patient['visits'])
-            ? (is_array($patient['visits']) ? $patient['visits'] : [])
-            : $this->visitRepo->forPatient($uuid);
+        $visits = $this->visitRepo->forPatient($uuid);
         $t4 = microtime(true);
 
         $today = now()->toDateString();

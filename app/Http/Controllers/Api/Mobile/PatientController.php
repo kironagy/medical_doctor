@@ -47,7 +47,9 @@ class PatientController extends Controller
         $result = MobilePatientResource::collection($patients);
 
         // Detailed diagnostic log
-        $patientUuids = $patients->items()->map(fn($p) => $p->uuid . ':' . $p->name . ':' . $p->code);
+        // Use collect() because $patients->items() returns a plain array, not a Collection.
+        // Calling ->map() directly on an array would throw "Call to a member function map() on array".
+        $patientUuids = collect($patients->items())->map(fn($p) => $p->uuid . ':' . $p->name . ':' . $p->code);
         Log::channel('single')->info('[PATIENT_DEBUG] PatientController::index()', [
             'search' => $search,
             'per_page' => $perPage,

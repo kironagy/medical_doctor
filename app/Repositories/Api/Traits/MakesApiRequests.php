@@ -26,12 +26,9 @@ trait MakesApiRequests
         } catch (\Exception $e) {
             // If ApiService not bound yet, fall back to raw session
             try {
-                $encrypted = session('api_token');
-                if ($encrypted) {
-                    $token = decrypt($encrypted);
-                }
+                $token = session('api_token_raw');
             } catch (\Exception $se) {
-                session()->forget('api_token');
+                session()->forget('api_token_raw');
             }
         }
 

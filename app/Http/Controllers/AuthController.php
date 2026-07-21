@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Domains\Users\Models\User;
 use App\Services\Mobile\ApiService;
+use App\Services\FullSyncService;
 use App\Services\NetworkStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -42,12 +43,15 @@ class AuthController extends Controller
         if (Auth::attempt(['email' => $email, 'password' => $password], $request->boolean('remember'))) {
             $request->session()->regenerate();
 
-            // Best-effort remote token (non-blocking for offline)
-            $this->acquireRemoteToken($email, $password);
+    // Best-effort remote token (non-blocking for offline)
+    $this->acquireRemoteToken($email, $password);
 
-            if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
-                return response()->json(['redirect' => $this->getRoleBasedUrl($request)]);
-            }
+    // Trigger a lightweight background sync so patients are loaded immediately
+    $this->triggerStartupSync();
+
+    if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
+        return response()->json(['redirect' => $this->getRoleBasedUrl($request)]);
+    }
 
             return $this->roleBasedRedirect($request);
         }
@@ -72,6 +76,9 @@ class AuthController extends Controller
                         'user_id' => $localUser->id,
                         'email'   => $localUser->email,
                     ]);
+
+                    // Trigger a lightweight background sync so patients are loaded immediately
+                    $this->triggerStartupSync();
 
                     if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
                         return response()->json(['redirect' => $this->getRoleBasedUrl($request)]);
@@ -125,6 +132,49 @@ class AuthController extends Controller
      * Keeps the local password hash in sync with the supplied password so
      * subsequent offline Auth::attempt() calls succeed.
      */
+    /**
+     * Trigger a lightweight metadata sync immediately after login.
+     * This ensures the local SQLite is populated with the latest patients
+     * from the remote API before the DoctorWorkspace page renders.
+     *
+     * We use dispatch() so the sync runs synchronously in the current request.
+     * This adds ~1-3 seconds to login time but guarantees patients are ready
+     * when the DoctorWorkspace page loads.
+     *
+     * For NativePHP mobile, this is called AFTER the UI already has the
+     * Inertia props (which may be empty for first launch). The sync ensures
+     * that by the time the background syncAndRefresh() runs, the local
+     * SQLite is already populated.
+     */
+    private function triggerStartupSync(): void
+    {
+        // Only run on NativePHP mobile — the web version uses MySQL directly
+        // and doesn't need to sync to a local SQLite cache.
+        if (!env('NATIVEPHP_RUNNING', false)) {
+            return;
+        }
+
+        if (!NetworkStatusService::isOnline()) {
+            Log::info('[StartupSync] Skipping — device is offline');
+            return;
+        }
+
+        try {
+            $token = app(ApiService::class)->getToken();
+            if (!$token) {
+                Log::warning('[StartupSync] Skipping — no API token available');
+                return;
+            }
+
+            Log::info('[StartupSync] Starting background metadata sync after login...');
+            $syncService = app(FullSyncService::class);
+            $syncService->syncMetadataOnly();
+            Log::info('[StartupSync] Completed successfully');
+        } catch (\Throwable $e) {
+            Log::warning('[StartupSync] Failed (non-fatal): ' . $e->getMessage());
+        }
+    }
+
     private function mirrorRemoteUser(array $remoteUser, string $password): User
     {
         $attributes = [

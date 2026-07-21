@@ -28,50 +28,61 @@ private ApiPatientFileRepository $apiFile
 /**
  * Sync all pending operations with the remote, then pull fresh remote data
  * into local SQLite.
+ *
+ * IMPORTANT: This endpoint is called from the frontend (syncAndRefresh) AFTER
+ * the UI has already rendered. It runs in the background and should NEVER
+ * block the response — the frontend handles failures gracefully.
  */
 public function sync(Request $request)
 {
-Log::info('NativeSyncController: Starting Sync');
+    Log::info('NativeSyncController: Starting Sync');
 
-try {
-// 1. Push operations from sync_queue (queued by SyncMiddleware in online mode).
-$queueItems = $this->syncQueue->processPendingOperations();
+    // Log token status for debugging
+    try {
+        $token = app(\App\Services\Mobile\ApiService::class)->getToken();
+        Log::info('[NativeSyncController] Token available: ' . ($token ? 'YES (len=' . strlen($token) . ')' : 'NO'));
+    } catch (\Throwable $e) {
+        Log::warning('[NativeSyncController] Token check failed: ' . $e->getMessage());
+    }
 
-foreach ($queueItems as $item) {
-try {
-$this->pushItemToRemote($item);
+    // Log local patient count before sync
+    try {
+        $beforeCount = \App\Domains\Patients\Models\Patient::count();
+        Log::info('[NativeSyncController] Local patients BEFORE sync: ' . $beforeCount);
+    } catch (\Throwable $e) {
+        Log::warning('[NativeSyncController] Count before sync failed: ' . $e->getMessage());
+    }
 
-// Mark as synced only on success so a partial failure doesn't hide errors.
-$this->syncQueue->markItemResult($item, true);
-} catch (\Exception $e) {
-$this->syncQueue->markItemResult($item, false, $e->getMessage());
-// Continue with the next item rather than aborting the whole sync.
-}
-}
+    try {
+        // 1. Push any legacy PendingOperation records (pre-SyncQueue entries).
+        $pending = PendingOperation::oldest()->get();
+        foreach ($pending as $op) {
+            try {
+                $this->pushLegacyOperation($op);
+                $op->delete();
+            } catch (\Exception $e) {
+                Log::error(
+                    "Failed to push legacy operation {$op->id} ({$op->entity_type} {$op->action}): " . $e->getMessage()
+                );
+            }
+        }
 
-// 2. Push any legacy PendingOperation records (pre-SyncQueue entries).
-$pending = PendingOperation::oldest()->get();
-foreach ($pending as $op) {
-try {
-$this->pushLegacyOperation($op);
+        // 2. Pull remote data + push pending queue items (syncMetadataOnly handles both).
+        $this->fullSync->syncMetadataOnly();
 
-$op->delete();
-} catch (\Exception $e) {
-Log::error(
-"Failed to push legacy operation {$op->id} ({$op->entity_type} {$op->action}): " . $e->getMessage()
-);
-// Keep the PendingOperation so it can be retried next sync attempt.
-}
-}
+        // Log local patient count after sync
+        try {
+            $afterCount = \App\Domains\Patients\Models\Patient::count();
+            Log::info('[NativeSyncController] Local patients AFTER sync: ' . $afterCount);
+        } catch (\Throwable $e) {
+            Log::warning('[NativeSyncController] Count after sync failed: ' . $e->getMessage());
+        }
 
-// 3. Pull all remote data into the local SQLite database.
-$this->fullSync->syncAll();
-
-return response()->json(['success' => true]);
-} catch (\Exception $e) {
-Log::error('NativeSyncController error: ' . $e->getMessage());
-return response()->json(['error' => $e->getMessage()], 500);
-}
+        return response()->json(['success' => true]);
+    } catch (\Exception $e) {
+        Log::error('NativeSyncController error: ' . $e->getMessage());
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
 }
 
 /**
@@ -200,10 +211,13 @@ $this->apiVisit->delete((int) $item->record_uuid);
             $apiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
             $url = $apiUrl . '/patients/' . $patientUuid . '/files';
 
-            $encryptedToken = session('api_token');
             $token = null;
-            if ($encryptedToken) {
-                try { $token = decrypt($encryptedToken); } catch (\Exception $e) {}
+            try {
+                $token = app(\App\Services\Mobile\ApiService::class)->getToken();
+            } catch (\Throwable $e) {
+                try {
+                    $token = session('api_token_raw');
+                } catch (\Throwable $se) {}
             }
 
             $mimeType = $item->payload['mime_type'] ?? (mime_content_type($fullPath) ?: 'application/octet-stream');

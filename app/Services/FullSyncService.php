@@ -55,34 +55,40 @@ class FullSyncService
         }
     }
 
-    public function syncAll(): void
+    /**
+     * Lightweight metadata-only sync. Syncs patients, notes, visits, and file
+     * METADATA (no binary downloads). This is the primary sync method called
+     * by the frontend after the UI renders.
+     *
+     * File binaries are downloaded on-demand when the user opens a file.
+     */
+    public function syncMetadataOnly(): void
     {
-        $this->syncPendingOperations();
-
-        Log::info('[FullSyncService] Starting full database synchronization...');
+        Log::info('[FullSyncService] Starting lightweight metadata synchronization...');
 
         try {
             DB::statement('PRAGMA foreign_keys = OFF');
 
-            // Step A: Sync doctors FIRST so FK references from patients -> users work.
-            // Must use ApiUserRepository to fetch remote data.
+            // Step A: Push pending local changes first
+            $this->syncPendingOperations();
+
+            // Step B: Sync doctors
             Log::info('[FullSyncService] Syncing users...');
-            $remoteDoctors = $this->apiUserRepo->doctors();
-            $this->syncUsersLocally($remoteDoctors);
-            Log::info('[FullSyncService] Users sync completed. ' . count($remoteDoctors) . ' doctors.');
+            try {
+                $remoteDoctors = $this->apiUserRepo->doctors();
+                $this->syncUsersLocally($remoteDoctors);
+                Log::info('[FullSyncService] Users sync completed. ' . count($remoteDoctors) . ' doctors.');
+            } catch (\Throwable $e) {
+                Log::warning('[FullSyncService] Users sync failed: ' . $e->getMessage());
+            }
 
-        // Step B: Pull all patients from remote API and cache them locally
-        Log::info('[FullSyncService] Syncing patients...');
-        $patients = $this->apiPatientRepo->all();
-        $uuids_before = collect($patients)->map(fn($p) => ($p['uuid'] ?? '?') . ':' . ($p['name'] ?? '?') . ':' . ($p['code'] ?? '?'))->toArray();
-        Log::channel('single')->info('[PATIENT_DEBUG] FullSyncService::syncAll() - patients from remote', [
-            'remote_count' => count($patients),
-            'uuids' => $uuids_before,
-        ]);
-        $this->syncLocalCache($patients, Patient::class);
-        Log::info('[FullSyncService] Synchronized ' . count($patients) . ' patients.');
+            // Step C: Sync patients metadata
+            Log::info('[FullSyncService] Syncing patients...');
+            $patients = $this->apiPatientRepo->all();
+            $this->syncLocalCache($patients, Patient::class);
+            Log::info('[FullSyncService] Synchronized ' . count($patients) . ' patients.');
 
-            // Step C: Sync child resources for each patient
+            // Step D: Sync child resources metadata only (no file binary downloads)
             foreach ($patients as $p) {
                 if (empty($p['uuid'])) {
                     continue;
@@ -96,62 +102,17 @@ class FullSyncService
                     $this->syncLocalCache($files, PatientFile::class);
                     $this->syncLocalCache($notes, PatientNote::class);
                     $this->syncLocalCache($visits, PatientVisit::class);
-
-                    // Download file binaries and thumbnails for offline preview
-                    foreach ($files as $fileData) {
-                        $uuid = $fileData['uuid'] ?? null;
-                        if (!$uuid) {
-                            continue;
-                        }
-
-                        $fileModel = PatientFile::where('uuid', $uuid)->first();
-                        if (!$fileModel) {
-                            continue;
-                        }
-
-                        $filePath = $fileModel->file_path;
-                        $thumbPath = $fileModel->thumbnail_path;
-
-                        if ($filePath && !\Illuminate\Support\Facades\Storage::disk('local')->exists($filePath)) {
-                            try {
-                                $response = \App\Services\ApiProxy::get('/files/' . $uuid . '/stream');
-                                if ($response->successful()) {
-                                    \Illuminate\Support\Facades\Storage::disk('local')->put($filePath, $response->body());
-                                    Log::info("[FullSyncService] Downloaded file binary: {$filePath}");
-                                }
-                            } catch (\Throwable $dlErr) {
-                                Log::warning("[FullSyncService] Failed to download file binary for {$uuid}: " . $dlErr->getMessage());
-                            }
-                        }
-
-                        if ($thumbPath && !\Illuminate\Support\Facades\Storage::disk('local')->exists($thumbPath)) {
-                            try {
-                                $response = \App\Services\ApiProxy::get('/files/' . $uuid . '/thumbnail');
-                                if ($response->successful()) {
-                                    \Illuminate\Support\Facades\Storage::disk('local')->put($thumbPath, $response->body());
-                                    Log::info("[FullSyncService] Downloaded thumbnail binary: {$thumbPath}");
-                                }
-                            } catch (\Throwable $dlErr) {
-                                Log::warning("[FullSyncService] Failed to download thumbnail for {$uuid}: " . $dlErr->getMessage());
-                            }
-                        }
-                    }
+                    // NOTE: File binaries are NOT downloaded here.
+                    // They are downloaded on-demand when the user opens a file.
                 } catch (\Throwable $e) {
                     Log::warning("[FullSyncService] Failed to sync child resources for patient {$p['uuid']}: " . $e->getMessage());
                 }
             }
 
-        // Post-sync verification: count patients in local SQLite
-        $localCount = Patient::count();
-        $localAll = Patient::latest()->get();
-        $localUuids = $localAll->map(fn($p) => $p->uuid . ':' . $p->name . ':' . $p->code)->toArray();
-        Log::channel('single')->info('[PATIENT_DEBUG] FullSyncService::syncAll() - LOCAL SQLite after sync', [
-            'local_count' => $localCount,
-            'local_uuids' => $localUuids,
-        ]);
-        Log::info('[FullSyncService] Full database synchronization completed successfully.');
-    } catch (\Throwable $e) {
-            Log::error('[FullSyncService] Full database synchronization failed: ' . $e->getMessage());
+            $localCount = Patient::count();
+            Log::info("[FullSyncService] Metadata sync completed. {$localCount} patients in local SQLite.");
+        } catch (\Throwable $e) {
+            Log::error('[FullSyncService] Metadata synchronization failed: ' . $e->getMessage());
         } finally {
             try {
                 DB::statement('PRAGMA foreign_keys = ON');
@@ -159,6 +120,16 @@ class FullSyncService
                 // Ignore
             }
         }
+    }
+
+    /**
+     * Full synchronization including file binary downloads.
+     * Only called explicitly for full offline cache building.
+     */
+    public function syncAll(): void
+    {
+        // For backward compat, syncAll now calls syncMetadataOnly (no binary downloads)
+        $this->syncMetadataOnly();
     }
 
     private function pushQueueItem(SyncQueueItem $item): void
@@ -169,8 +140,85 @@ class FullSyncService
             'Patient' => $this->pushPatientToRemote($item, $payload),
             'PatientVisit' => $this->pushVisitToRemote($item, $payload),
             'PatientNote' => $this->pushNoteToRemote($item, $payload),
+            'PatientFile' => $this->pushFileToRemote($item, $payload),
             default => Log::warning("[FullSyncService] Unsupported queue entity: {$item->entity}"),
         };
+    }
+
+    private function pushFileToRemote(SyncQueueItem $item, array $payload): void
+    {
+        $patientUuid = $payload['patient_uuid'] ?? null;
+
+        if ($item->operation === 'delete' && $item->record_uuid) {
+            $this->apiFileRepo->delete($item->record_uuid);
+            return;
+        }
+
+        if ($item->operation === 'create' && $patientUuid) {
+            $localPath = $payload['local_path'] ?? null;
+            if (! $localPath) {
+                Log::warning("[FullSyncService] PatientFile create: no local_path for {$item->record_uuid}");
+                return;
+            }
+
+            $fullPath = \Illuminate\Support\Facades\Storage::disk('local')->path($localPath);
+            if (! file_exists($fullPath)) {
+                Log::warning("[FullSyncService] PatientFile create: file not found at {$fullPath}");
+                return;
+            }
+
+            // Use Http::attach() for multipart upload
+            $apiUrl = config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+            $url = $apiUrl . '/patients/' . $patientUuid . '/files';
+
+            // Get token from ApiService singleton (reads from session or DB)
+            $token = null;
+            try {
+                $token = app(\App\Services\Mobile\ApiService::class)->getToken();
+            } catch (\Throwable $e) {
+                // Last resort: try plaintext session key
+                try {
+                    $token = session('api_token_raw');
+                } catch (\Throwable $se) {}
+            }
+
+            $mimeType = $payload['mime_type'] ?? (mime_content_type($fullPath) ?: 'application/octet-stream');
+            $fileName = $payload['file_name'] ?? basename($fullPath);
+
+            $http = \Illuminate\Support\Facades\Http::timeout(120)
+                ->when($token, fn($c) => $c->withToken($token))
+                ->withHeaders(['Accept' => 'application/json'])
+                ->attach('file', file_get_contents($fullPath), $fileName, ['Content-Type' => $mimeType]);
+
+            $data = \Illuminate\Support\Arr::except($payload, ['patient_uuid', 'local_path', 'file', 'file_path', 'file_name', 'mime_type', 'size', 'upload_status']);
+            foreach ($data as $k => $v) {
+                if ($v !== null) $http = $http->attach($k, (string) $v);
+            }
+
+            $response = $http->post($url);
+            if ($response->failed()) {
+                throw new \RuntimeException("File upload failed: " . ($response->json('message') ?? $response->body()));
+            }
+
+            Log::info("[FullSyncService] Uploaded offline file {$fileName} for patient {$patientUuid}");
+
+            // CRITICAL: The remote API creates a new UUID for the file.
+            // We must update our local PatientFile record to use the remote
+            // UUID, otherwise the next metadata sync pull will create a
+            // DUPLICATE local record (matching on the old local UUID fails).
+            $responseData = $response->json();
+            $remoteFileUuid = $responseData['data']['uuid'] ?? null;
+            if ($remoteFileUuid && $item->record_uuid && $remoteFileUuid !== $item->record_uuid) {
+                try {
+                    // Direct update to avoid firing any model events
+                    PatientFile::where('uuid', $item->record_uuid)
+                        ->update(['uuid' => $remoteFileUuid]);
+                    Log::info("[FullSyncService] Updated local file UUID from {$item->record_uuid} to {$remoteFileUuid}");
+                } catch (\Throwable $e) {
+                    Log::warning("[FullSyncService] Failed to update local file UUID: " . $e->getMessage());
+                }
+            }
+        }
     }
 
     private function pushPatientToRemote(SyncQueueItem $item, array $payload): void
@@ -252,10 +300,16 @@ class FullSyncService
 
             try {
                 $modelClass::unguard();
-                $query->updateOrCreate(
-                    ['uuid' => $record['uuid']],
-                    $cleanRecord
-                );
+                // Suppress model events during sync so observers (e.g.
+                // PatientFileObserver) don't fire for records created from
+                // remote data. Without this, every file synced FROM the API
+                // would be enqueued for push BACK to the API.
+                $modelClass::withoutEvents(function () use ($query, $record, $cleanRecord) {
+                    $query->updateOrCreate(
+                        ['uuid' => $record['uuid']],
+                        $cleanRecord
+                    );
+                });
                 $modelClass::reguard();
             } catch (\Exception $e) {
                 try {

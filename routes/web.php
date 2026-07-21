@@ -159,5 +159,6 @@ Route::middleware('auth')->group(function () {
     });
 });
 
-// Added for Native PHP offline sync
-Route::post('/api/native/sync', [\App\Http\Controllers\NativeSyncController::class, 'sync'])->middleware('auth');
+// NativePHP sync route is registered in routes/api.php to avoid CSRF issues.
+// DO NOT duplicate here — api.php routes use the 'api' middleware group which
+// does NOT require CSRF tokens. Web routes require CSRF for POST requests.

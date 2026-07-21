@@ -33,6 +33,12 @@ const showSettings = ref(false);
 
 const lazyLoadedCategories = ref({});
 
+/** Tracks whether the initial background sync has completed at least once. */
+const initialSyncDone = ref(false);
+
+/** Dedup guard for syncAndRefresh — prevents parallel calls */
+let syncInProgress = null;
+
 if (typeof window !== "undefined") {
     let resizeTimer;
     window.addEventListener("resize", () => {
@@ -172,24 +178,6 @@ async function selectPatient(uuid) {
         cats.forEach((c) => {
             expandedCategories.value[c.slug] = true;
         });
-        
-        // Trigger background sync AFTER patient data loads (non-blocking)
-        // This syncs files, notes, and visits from the remote API into local SQLite
-        if (typeof navigator !== 'undefined' && navigator.onLine) {
-            axios.post('/api/native/sync').then(() => {
-                console.log('[selectPatient] Background sync completed for patient', uuid);
-                // Refresh workspace data after sync to pick up newly synced files/notes
-                if (selectedPatientId.value === uuid) {
-                    axios.get(`/api/v1/workspace/${uuid}`).then(refreshRes => {
-                        if (refreshRes.data && selectedPatientId.value === uuid) {
-                            workspaceData.value = refreshRes.data;
-                        }
-                    }).catch(() => {});
-                }
-            }).catch(e => {
-                console.warn('[selectPatient] Background sync warning:', e?.message || e);
-            });
-        }
     } catch (e) {
         console.error("Failed to load patient data", e);
         workspaceData.value = null;
@@ -364,6 +352,9 @@ async function addPatient(formData) {
         const res = await axios.post("/api/v1/workspace/patients", formData);
         const patient = res.data?.patient || res.data;
         if (patient?.uuid) {
+            // OFFLINE-FIRST: Add the patient to the local list immediately.
+            // The patient is already saved to local SQLite by the server.
+            // Adding it to the reactive list ensures instant UI update.
             upsertPatient(patient);
             selectedPatientId.value = patient.uuid;
             workspaceData.value = {
@@ -376,8 +367,12 @@ async function addPatient(formData) {
                 categories: workspaceData.value?.categories || [],
                 stats: { total_files: 0, total_notes: 0, total_visits: 0 },
             };
-            // Refresh patient list in background to ensure consistency with server
-            refreshPatientList(patientsMeta.value?.current_page || 1);
+            
+            // Background: refresh the patient list from local SQLite to ensure
+            // the sidebar is fully in sync (handles edge cases where the server
+            // returns slightly different data than what we have locally).
+            // This is fire-and-forget — it never blocks the UI.
+            refreshPatientList(patientsMeta.value?.current_page || 1).catch(() => {});
         }
         return { success: true, patient };
     } catch (e) {
@@ -391,7 +386,11 @@ async function updatePatient(uuid, formData) {
     loading.value = true;
     try {
         await axios.put(`/api/v1/workspace/patients/${uuid}`, formData);
-        await refreshPatientList(patientsMeta.value?.current_page || 1);
+        // Update the local list without waiting for server refresh
+        const localIdx = patients.value.findIndex((p) => p.uuid === uuid);
+        if (localIdx !== -1) {
+            patients.value[localIdx] = { ...patients.value[localIdx], ...formData };
+        }
         refreshWorkspaceData();
         return { success: true };
     } catch (e) {
@@ -404,16 +403,65 @@ async function updatePatient(uuid, formData) {
 const showArchived = ref(false);
 const authError = ref(null);
 
+/**
+ * SYNC-AND-REFRESH: Call /api/native/sync to pull latest data from the remote
+ * API into local SQLite, then refresh the patient list from local SQLite.
+ *
+ * Has built-in dedup: if a sync is already in progress, subsequent calls
+ * wait for the in-progress one to finish and reuse its result.
+ *
+ * This is the CORRECT sequence for all sync operations:
+ *   1. Sync remote → local SQLite (metadata only, no binary downloads)
+ *   2. Refresh patient list FROM local SQLite (fast, always works)
+ *   3. Refresh workspace data for the current patient (if any)
+ */
+async function syncAndRefresh(page = 1) {
+  // Dedup: if a sync is already in progress, return its promise
+  if (syncInProgress) {
+    return syncInProgress;
+  }
+
+  if (typeof navigator === 'undefined' || !navigator.onLine) {
+    // Offline: just refresh from local SQLite
+    return refreshPatientList(page);
+  }
+
+  syncInProgress = (async () => {
+    try {
+      await axios.post('/api/native/sync', {}, {
+        headers: { 'Accept': 'application/json' },
+        timeout: 30000, // 30s timeout for sync
+      });
+      console.log('[syncAndRefresh] Background sync completed');
+    } catch (e) {
+      console.warn('[syncAndRefresh] Background sync failed (non-fatal):', e?.message || e);
+      // Continue to refresh from local SQLite even if sync failed
+    }
+
+    await refreshPatientList(page);
+
+    // Also refresh workspace data if a patient is open
+    if (selectedPatientId.value) {
+      refreshWorkspaceData();
+    }
+
+    initialSyncDone.value = true;
+  })();
+
+  try {
+    return await syncInProgress;
+  } finally {
+    syncInProgress = null;
+  }
+}
+
  async function refreshPatientList(page = 1) {
   loadingPatients.value = true;
   try {
     const url = "/api/v1/workspace/patients-list";
-    console.log(`[refreshPatientList] Fetching: ${url}?page=${page}`);
     const res = await axios.get(url, {
       params: { page },
     });
-    console.log(`[refreshPatientList] Response status: ${res.status}`);
-    console.log(`[refreshPatientList] Response data keys: ${Object.keys(res.data || {}).join(', ')}`);
     
     const count = res.data?.data?.length || 0;
     const total = res.data?.meta?.total || 0;
@@ -423,10 +471,8 @@ const authError = ref(null);
       `[refreshPatientList] UUIDs on page: ${JSON.stringify(listUuids)}`
     );
     if (res.data?.data) {
-      console.log(`[refreshPatientList] Setting patients.value = ${res.data.data.length} patients (was ${patients.value.length})`);
       patients.value = res.data.data;
       patientsMeta.value = res.data.meta;
-      console.log(`[refreshPatientList] patients.value now has ${patients.value.length} patients`);
     } else {
       console.warn('[refreshPatientList] res.data?.data is falsy!', res.data);
     }
@@ -440,7 +486,6 @@ const authError = ref(null);
     console.error("[refreshPatientList] Failed to refresh patient list", e);
   } finally {
     loadingPatients.value = false;
-    console.log(`[refreshPatientList] Done. loadingPatients=false, patients count=${patients.value.length}`);
   }
 }
 
@@ -451,9 +496,6 @@ async function fetchArchivedPatients(page = 1) {
         const res = await axios.get(url, {
             params: { status: "archived", page },
         });
-        const count = res.data?.data?.length || 0;
-        const total = res.data?.meta?.total || 0;
-        console.log(`[PatientSidebar] GET ${url}?status=archived&page=${page} | Status: ${res.status} | Archived: ${count} | Total: ${total}`);
         if (res.data?.data) {
             archivedPatients.value = res.data.data;
             archivedPatientsMeta.value = res.data.meta;
@@ -584,5 +626,7 @@ export function useWorkspace() {
         restorePatient,
         forceDeletePatient,
         authError,
+        syncAndRefresh,
+        initialSyncDone,
     };
 }

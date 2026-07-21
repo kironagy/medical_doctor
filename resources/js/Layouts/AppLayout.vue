@@ -300,10 +300,8 @@ async function triggerSync() {
   if (isSyncing.value) return;
   isSyncing.value = true;
   try {
-    await window.axios.post('/api/native/sync', {}, { headers: { 'Accept': 'application/json' }});
     const ws = useWorkspace();
-    ws.refreshPatientList();
-    ws.refreshWorkspaceData();
+    await ws.syncAndRefresh();
   } catch (e) {
     // Silent fail for background sync
   } finally {

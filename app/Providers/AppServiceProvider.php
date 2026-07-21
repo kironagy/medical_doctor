@@ -7,7 +7,9 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Throwable;
 use App\Domains\Media\Models\PatientFile;
+use App\Domains\Patients\Models\PatientNote;
 use App\Observers\PatientFileObserver;
+use App\Observers\PatientNoteObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -25,13 +27,16 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Register model observers
+        // Register model observers for sync queue enqueueing
         PatientFile::observe(PatientFileObserver::class);
+        PatientNote::observe(PatientNoteObserver::class);
 
         // Only run on NativePHP (mobile) environment
         if (env('NATIVEPHP_RUNNING')) {
             $this->runMigrationsIfNeeded();
-            $this->scheduleStartupSync();
+            // NOTE: Startup sync is now triggered by the frontend AFTER the UI renders.
+            // We no longer block the first HTTP request with a synchronous sync.
+            // This ensures the app opens instantly from local SQLite.
         }
     }
 
@@ -71,31 +76,11 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
-     * Schedule a one-time background sync when the app first opens each session.
-     *
-     * We defer this to the `booted` event so all services are bound first.
-     * The sync runs in a try/catch so it never blocks page load.
+     * @deprecated Startup sync is now triggered by the frontend after UI renders.
+     * This method is retained for backward compatibility but does nothing.
      */
     protected function scheduleStartupSync(): void
     {
-        $this->app->booted(function () {
-            try {
-                // Only run once per PHP process (in-memory flag), not once per request.
-                // NativePHP spawns a new PHP process for each app launch, so this
-                // effectively runs once per app open — exactly what we want.
-                static $synced = false;
-                if ($synced) {
-                    return;
-                }
-                $synced = true;
-
-                $syncService = $this->app->make(\App\Services\FullSyncService::class);
-                $syncService->syncAll();
-
-                logger()->info('[AppServiceProvider] Startup sync completed.');
-            } catch (Throwable $e) {
-                logger()->warning('[AppServiceProvider] Startup sync failed: ' . $e->getMessage());
-            }
-        });
+        // No-op: sync is now non-blocking, triggered by frontend AJAX after UI renders.
     }
 }

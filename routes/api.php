@@ -90,25 +90,23 @@ Route::prefix('v1')->group(function () {
 });
 
 // NativePHP offline sync endpoints (authenticated mobile routes)
-Route::prefix('native/sync')->middleware('auth')->group(function () {
-Route::post('/sync', [\App\Http\Controllers\NativeSyncController::class, 'sync']);
-
-Route::get('/status', [\App\Http\Controllers\NativeSyncController::class, 'getStatus'])
-->name('native.sync.status');
-
-Route::post('/force', [\App\Http\Controllers\NativeSyncController::class, 'forceSync'])
-->name('native.sync.force');
-
-Route::post('/clear', function () {
-\Illuminate\Support\Facades\Log::info('Native sync clear endpoint called.');
-
-$count = app(\App\Services\SyncQueueService::class)->clearSyncedOperations(7);
-
-return response()->json([
-'success' => true,
-'cleared' => $count,
-'message' => "{$count} fully synced operations removed.",
-]);
-})->name('native.sync.clear');
+// IMPORTANT: These routes are in api.php so they use the 'api' middleware group
+// which does NOT include CSRF verification (unlike web.php routes).
+// The NativePHP WebView makes API requests that don't carry CSRF tokens.
+Route::middleware('auth')->group(function () {
+    Route::post('/native/sync', [\App\Http\Controllers\NativeSyncController::class, 'sync']);
+    Route::get('/native/sync/status', [\App\Http\Controllers\NativeSyncController::class, 'getStatus'])
+        ->name('native.sync.status');
+    Route::post('/native/sync/force', [\App\Http\Controllers\NativeSyncController::class, 'forceSync'])
+        ->name('native.sync.force');
+    Route::post('/native/sync/clear', function () {
+        \Illuminate\Support\Facades\Log::info('Native sync clear endpoint called.');
+        $count = app(\App\Services\SyncQueueService::class)->clearSyncedOperations(7);
+        return response()->json([
+            'success' => true,
+            'cleared' => $count,
+            'message' => "{$count} fully synced operations removed.",
+        ]);
+    })->name('native.sync.clear');
 });
 
