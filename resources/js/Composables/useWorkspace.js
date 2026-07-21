@@ -39,7 +39,32 @@ const initialSyncDone = ref(false);
 /** Dedup guard for syncAndRefresh — prevents parallel calls */
 let syncInProgress = null;
 
+/** Set of patient UUIDs created locally (not yet confirmed in API refresh).
+ *  Prevents refreshPatientList() from overwriting these patients out of the list. */
+const locallyCreatedPatients = new Set();
+
+/** Set of file UUIDs added locally (not yet confirmed by API workspace refresh).
+ *  Prevents refreshWorkspaceData() from discarding these files. */
+const locallyAddedFileUuids = new Set();
+
+/** Set of note UUIDs added locally. Same protection as files. */
+const locallyAddedNoteUuids = new Set();
+
+// Listen for sync-completed events dispatched by app.js after background sync finishes.
+// This ensures the Vue reactive state is refreshed whenever SQLite cache is updated.
 if (typeof window !== "undefined") {
+    window.addEventListener('sync-completed', () => {
+        console.log('[useWorkspace] sync-completed event received — refreshing UI from API');
+        // Debounce: ignore rapid successive events
+        clearTimeout(window._syncRefreshTimer);
+        window._syncRefreshTimer = setTimeout(() => {
+            refreshPatientList(patientsMeta.value?.current_page || 1).catch(() => {});
+            if (selectedPatientId.value) {
+                refreshWorkspaceData();
+            }
+        }, 500);
+    });
+
     let resizeTimer;
     window.addEventListener("resize", () => {
         clearTimeout(resizeTimer);
@@ -157,6 +182,7 @@ function isCategoryLoaded(slug) {
 
 function setPatients(patientList) {
     patients.value = patientList;
+    console.log(`[WRITE] setPatients() wrote ${patientList.length} patients to patients.value at ${new Date().toISOString()}`);
 }
 
 async function selectPatient(uuid) {
@@ -173,13 +199,51 @@ async function selectPatient(uuid) {
     lazyLoadedCategories.value = {};
     try {
         const res = await axios.get(`/api/v1/workspace/${uuid}`);
-        workspaceData.value = res.data;
-        const cats = res.data.categories || [];
+        const serverData = res.data;
+        const fileCount = serverData?.files?.length || 0;
+        const noteCount = serverData?.notes?.length || 0;
+        console.log(`[WRITE] selectPatient() API returned ${fileCount} files, ${noteCount} notes at ${new Date().toISOString()}`);
+        
+        // MERGE: Same protection as refreshWorkspaceData() — preserve locally-added
+        // files and notes that the server doesn't know about yet.
+        // This prevents selectPatient() from discarding items added via addFileLocally/addNoteLocally
+        // when a user switches patients and comes back.
+        if (workspaceData.value && workspaceData.value.patient?.uuid === uuid) {
+            // Only merge if we already have this patient's workspace data (not a fresh load)
+            if (locallyAddedFileUuids.size > 0 && serverData?.files) {
+                const serverUuids = new Set(serverData.files.map(f => f.uuid));
+                const localFiles = (workspaceData.value.files || []).filter(
+                    f => f.uuid && !serverUuids.has(f.uuid) && locallyAddedFileUuids.has(f.uuid)
+                );
+                if (localFiles.length > 0) {
+                    serverData.files = [...localFiles, ...serverData.files];
+                    console.log(`[WRITE] selectPatient() merged ${localFiles.length} locally-added files (API-first, protected)`);
+                }
+            }
+            if (locallyAddedNoteUuids.size > 0 && serverData?.notes) {
+                const serverNoteUuids = new Set(serverData.notes.map(n => n.uuid));
+                const localNotes = (workspaceData.value.notes || []).filter(
+                    n => n.uuid && !serverNoteUuids.has(n.uuid) && locallyAddedNoteUuids.has(n.uuid)
+                );
+                if (localNotes.length > 0) {
+                    serverData.notes = [...localNotes, ...serverData.notes];
+                    console.log(`[WRITE] selectPatient() merged ${localNotes.length} locally-added notes (API-first, protected)`);
+                }
+            }
+            
+            // Clean up confirmed UUIDs from tracking sets
+            serverData.files?.forEach(f => { if (f.uuid) locallyAddedFileUuids.delete(f.uuid); });
+            serverData.notes?.forEach(n => { if (n.uuid) locallyAddedNoteUuids.delete(n.uuid); });
+        }
+        
+        workspaceData.value = serverData;
+        const cats = serverData.categories || [];
         cats.forEach((c) => {
             expandedCategories.value[c.slug] = true;
         });
     } catch (e) {
         console.error("Failed to load patient data", e);
+        console.log(`[WRITE] selectPatient() set workspaceData=null (error) at ${new Date().toISOString()}`);
         workspaceData.value = null;
     } finally {
         loadingPatient.value = false;
@@ -214,6 +278,7 @@ function closePatient() {
     if (typeof window !== "undefined" && window.location.hash === "#patient") {
         window.history.back(); // Triggers popstate which closes it
     } else {
+        console.log(`[WRITE] closePatient() set workspaceData=null, selectedPatientId=null at ${new Date().toISOString()}`);
         selectedPatientId.value = null;
         workspaceData.value = null;
         mobilePatientListOpen.value = true;
@@ -221,40 +286,54 @@ function closePatient() {
 }
 
 function refreshWorkspaceData() {
-    if (selectedPatientId.value) {
-        const patientUuid = selectedPatientId.value;
-        loadingPatient.value = true;
-        axios
-            .get(`/api/v1/workspace/${patientUuid}`)
-            .then((res) => {
-                // Only update if still viewing the same patient
-                if (selectedPatientId.value === patientUuid) {
-                    // API-FIRST: Server response is authoritative when online.
-                    // Directly set workspace data from the server response.
-                    // Locally-created items not yet synced are preserved by the
-                    // create flow which calls addNoteLocally()/addFileLocally()
-                    // to insert them directly into workspaceData.value.
-                    workspaceData.value = res.data;
+    if (!selectedPatientId.value) return;
+    const patientUuid = selectedPatientId.value;
+    loadingPatient.value = true;
+    axios.get(`/api/v1/workspace/${patientUuid}`).then(function(response) {
+        if (selectedPatientId.value !== patientUuid) return;
+        const serverData = response.data;
+        const fileCount = serverData?.files?.length || 0;
+        const noteCount = serverData?.notes?.length || 0;
+        console.log(`[WRITE] refreshWorkspaceData() API returned ${fileCount} files, ${noteCount} notes at ${new Date().toISOString()}`);
+        if (workspaceData.value) {
+            if (locallyAddedFileUuids.size > 0 && serverData?.files) {
+                let serverUuids = new Set(serverData.files.map(f => f.uuid));
+                let localFiles = (workspaceData.value.files || []).filter(f => f.uuid && !serverUuids.has(f.uuid) && locallyAddedFileUuids.has(f.uuid));
+                if (localFiles.length > 0) {
+                    serverData.files = localFiles.concat(serverData.files);
+                    console.log(`[WRITE] refreshWorkspaceData() merged ${localFiles.length} locally-added files into workspaceData (API-first, protected)`);
                 }
-            })
-            .catch((e) => {
-                if (selectedPatientId.value === patientUuid) {
-                    // Only clear on 404 (patient was deleted).
-                    // Preserve current data on transient errors (timeout, network blip).
-                    if (e?.response?.status === 404) {
-                        console.warn('[refreshWorkspaceData] Patient not found (404), clearing data');
-                        workspaceData.value = null;
-                    } else {
-                        console.warn('[refreshWorkspaceData] Transient error, preserving current data:', e?.message || e);
-                    }
+            }
+            if (locallyAddedNoteUuids.size > 0 && serverData?.notes) {
+                let serverNoteUuids = new Set(serverData.notes.map(n => n.uuid));
+                let localNotes = (workspaceData.value.notes || []).filter(n => n.uuid && !serverNoteUuids.has(n.uuid) && locallyAddedNoteUuids.has(n.uuid));
+                if (localNotes.length > 0) {
+                    serverData.notes = localNotes.concat(serverData.notes);
+                    console.log(`[WRITE] refreshWorkspaceData() merged ${localNotes.length} locally-added notes into workspaceData (API-first, protected)`);
                 }
-            })
-            .finally(() => {
-                if (selectedPatientId.value === patientUuid) {
-                    loadingPatient.value = false;
-                }
-            });
-    }
+            }
+        }
+        if (serverData?.files) {
+            serverData.files.forEach(function(f) { if (f.uuid) locallyAddedFileUuids.delete(f.uuid); });
+        }
+        if (serverData?.notes) {
+            serverData.notes.forEach(function(n) { if (n.uuid) locallyAddedNoteUuids.delete(n.uuid); });
+        }
+        workspaceData.value = serverData;
+    }).catch(function(e) {
+        if (selectedPatientId.value === patientUuid) {
+            if (e?.response?.status === 404) {
+                console.log(`[WRITE] refreshWorkspaceData() set workspaceData=null (404) at ${new Date().toISOString()}`);
+                workspaceData.value = null;
+            } else {
+                console.log(`[WRITE] refreshWorkspaceData() PRESERVED workspaceData (transient error: ${e?.message || e}) at ${new Date().toISOString()}`);
+            }
+        }
+    }).finally(function() {
+        if (selectedPatientId.value === patientUuid) {
+            loadingPatient.value = false;
+        }
+    });
 }
 
 function syncWorkspaceStats(delta = 0) {
@@ -273,6 +352,8 @@ function syncWorkspaceStats(delta = 0) {
 
 function addFileLocally(file) {
     if (!file?.uuid) return;
+    // Track this UUID so refreshWorkspaceData() won't discard it
+    locallyAddedFileUuids.add(file.uuid);
     if (!workspaceData.value) {
         workspaceData.value = {
             files: [file],
@@ -282,6 +363,7 @@ function addFileLocally(file) {
             categories: [],
             stats: {},
         };
+        console.log(`[WRITE] addFileLocally() set workspaceData with 1 file ${file.uuid} (new workspace) at ${new Date().toISOString()}`);
         return;
     }
     if (!workspaceData.value.files) workspaceData.value.files = [];
@@ -290,12 +372,14 @@ function addFileLocally(file) {
     );
     if (existingIndex === -1) {
         workspaceData.value.files = [file, ...workspaceData.value.files];
+        console.log(`[WRITE] addFileLocally() prepended file ${file.uuid} to workspaceData.files (total=${workspaceData.value.files.length}) at ${new Date().toISOString()}`);
         syncWorkspaceStats(1);
     } else {
         workspaceData.value.files[existingIndex] = {
             ...workspaceData.value.files[existingIndex],
             ...file,
         };
+        console.log(`[WRITE] addFileLocally() updated file ${file.uuid} in workspaceData.files at ${new Date().toISOString()}`);
     }
     workspaceData.value = { ...workspaceData.value };
 }
@@ -316,8 +400,11 @@ function updateFileLocally(updatedFile) {
 
 function addNoteLocally(note) {
     if (!note?.uuid) return;
+    // Track this UUID so refreshWorkspaceData() won't discard it
+    locallyAddedNoteUuids.add(note.uuid);
     if (!workspaceData.value) {
         workspaceData.value = { notes: [note], files: [], visits: [], shares: [], categories: [], stats: {} };
+        console.log(`[WRITE] addNoteLocally() set workspaceData with 1 note ${note.uuid} (new workspace) at ${new Date().toISOString()}`);
         return;
     }
     if (!workspaceData.value.notes) workspaceData.value.notes = [];
@@ -326,17 +413,20 @@ function addNoteLocally(note) {
     );
     if (existingIndex === -1) {
         workspaceData.value.notes = [note, ...workspaceData.value.notes];
+        console.log(`[WRITE] addNoteLocally() prepended note ${note.uuid} to workspaceData.notes (total=${workspaceData.value.notes.length}) at ${new Date().toISOString()}`);
     } else {
         workspaceData.value.notes[existingIndex] = {
             ...workspaceData.value.notes[existingIndex],
             ...note,
         };
+        console.log(`[WRITE] addNoteLocally() updated note ${note.uuid} in workspaceData.notes at ${new Date().toISOString()}`);
     }
     workspaceData.value = { ...workspaceData.value };
-    console.log('[useWorkspace] Note added locally:', note.uuid);
 }
 
 function removeFileLocally(fileUuid) {
+    // Clean up tracking so a future refreshWorkspaceData doesn't try to re-merge it
+    locallyAddedFileUuids.delete(fileUuid);
     if (!workspaceData.value || !workspaceData.value.files) return;
     const before = workspaceData.value.files.length;
     workspaceData.value.files = workspaceData.value.files.filter(
@@ -355,6 +445,7 @@ function upsertPatient(patient) {
     );
     if (existingIndex === -1) {
         patients.value = [patient, ...patients.value];
+        console.log(`[WRITE] upsertPatient() prepended patient ${patient.uuid} to patients.value (new, total=${patients.value.length}) at ${new Date().toISOString()}`);
         if (patientsMeta.value?.total !== undefined) {
             patientsMeta.value = {
                 ...patientsMeta.value,
@@ -366,6 +457,7 @@ function upsertPatient(patient) {
             ...patients.value[existingIndex],
             ...patient,
         };
+        console.log(`[WRITE] upsertPatient() updated patient ${patient.uuid} in patients.value at ${new Date().toISOString()}`);
     }
 }
 
@@ -386,6 +478,9 @@ async function addPatient(formData) {
         const res = await axios.post("/api/v1/workspace/patients", formData);
         const patient = res.data?.patient || res.data;
         if (patient?.uuid) {
+            // Track this as locally created so refreshPatientList doesn't overwrite it out
+            locallyCreatedPatients.add(patient.uuid);
+            
             // OFFLINE-FIRST: Add the patient to the local list immediately.
             // The patient is already saved to local SQLite by the server.
             // Adding it to the reactive list ensures instant UI update.
@@ -402,10 +497,14 @@ async function addPatient(formData) {
                 stats: { total_files: 0, total_notes: 0, total_visits: 0 },
             };
             
-            // Background: refresh the patient list from the API to ensure
-            // the sidebar shows the latest data. The patient was just created
-            // on the API synchronously, so it will be in the API response.
-            refreshPatientList(patientsMeta.value?.current_page || 1).catch(() => {});
+            // NOTE: We do NOT call refreshPatientList() here because:
+            // 1) upsertPatient() already added the patient to patients.value (UI shows it immediately)
+            // 2) refreshPatientList() OVERWRITES patients.value with API data. If the API paginates
+            //    and the new patient is on page 2+, it DISAPPEARS from the UI.
+            // 3) The newly-created patient UUID is tracked in locallyCreatedPatients so future
+            //    refreshPatientList() calls will merge it back if the API doesn't return it.
+            // 4) The periodic background sync (every 2 min) will eventually push the patient
+            //    to the API and it will appear in normal paginated responses.
         }
         return { success: true, patient };
     } catch (e) {
@@ -526,15 +625,28 @@ async function syncAndRefresh(page = 1) {
     
     if (serverPatients) {
       // API-FIRST: When online, the server response is authoritative.
-      // Overwrite the patient list with the server data directly.
-      // Patients saved locally but not yet synced will be re-added by
-      // the create/update flow which calls upsertPatient().
+      // BUT: We MERGE locally-created patients that aren't in the API response yet.
+      // This prevents newly-created patients from disappearing when pagination
+      // or sync delay means the API doesn't include them yet.
+      const serverUuids = new Set(serverPatients.map(p => p.uuid));
+      const pendingLocalPatients = patients.value.filter(
+        p => p.uuid && !serverUuids.has(p.uuid) && locallyCreatedPatients.has(p.uuid)
+      );
+      
+      // Confirm which server patients we now know about
+      serverPatients.forEach(p => { if (p.uuid) locallyCreatedPatients.delete(p.uuid); });
+      
+      if (pendingLocalPatients.length > 0) {
+        // Merge: prepend locally-created patients not yet in API response
+        serverPatients = [...pendingLocalPatients, ...serverPatients];
+        console.log(`[WRITE] refreshPatientList() merged ${pendingLocalPatients.length} locally-created patients into list (API-first, protected)`);
+      }
+      
+      console.log(`[WRITE] refreshPatientList() set patients.value = ${serverPatients.length} patients (${serverPatients.length - (pendingLocalPatients?.length || 0)} from API, ${pendingLocalPatients?.length || 0} local-pending) at ${new Date().toISOString()}`);
       patients.value = serverPatients;
       
       const meta = res.data?.meta || {};
       patientsMeta.value = { ...meta };
-      
-      console.log(`[refreshPatientList] Set ${serverPatients.length} patients from server (API-first, no merge)`);
     } else {
       console.warn('[refreshPatientList] No patients array found in response. res.data keys:', respKeys, 'res.data:', res.data);
     }

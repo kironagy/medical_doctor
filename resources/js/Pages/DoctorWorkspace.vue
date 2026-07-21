@@ -361,7 +361,7 @@ let syncPromise = null
     // so the sidebar is populated IMMEDIATELY, before any async call.
     if (props.patients?.length) {
       patients.value = props.patients
-      console.log(`[DoctorWorkspace] Loaded ${patients.value.length} patients from local SQLite (instant)`);
+      console.log(`[WRITE] onMounted() set patients.value = ${patients.value.length} Inertia props (SQLite) at ${new Date().toISOString()}`);
     }
     
     // Open sidebar on mobile

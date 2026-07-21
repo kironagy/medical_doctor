@@ -67,30 +67,47 @@ window.addEventListener('online', () => {
       'Content-Type': 'application/json',
       'X-Requested-With': 'XMLHttpRequest',
     },
-  }).catch(() => {
-    // Silent fail — connectivity just restored, server may not be ready
   })
+    .then(() => triggerUiRefresh())
+    .catch(() => {
+      // Silent fail — connectivity just restored, server may not be ready
+    })
 })
 
 // ── Periodic background sync ───────────────────────────────────────
 // While the app is in the foreground, trigger sync every 2 minutes
 // to keep local SQLite up-to-date with remote changes.
+// After sync completes, dispatches a 'sync-completed' custom event
+// so the UI (DoctorWorkspace / useWorkspace) can refresh from the API.
 let periodicSyncInterval
 let periodicSyncActive = false
+
+function triggerUiRefresh() {
+  // Dispatch a custom event that useWorkspace.js listens for.
+  // This ensures the Vue reactive state is refreshed after background sync
+  // updates the local SQLite cache, without needing a direct composable import.
+  window.dispatchEvent(new CustomEvent('sync-completed', { detail: { source: 'periodic' } }));
+}
 
 function startPeriodicSync() {
   if (periodicSyncActive) return
   periodicSyncActive = true
-  periodicSyncInterval = setInterval(() => {
+  periodicSyncInterval = setInterval(async () => {
     if (navigator.onLine) {
-      fetch('/api/native/sync/background', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-      }).catch(() => {})
+      try {
+        await fetch('/api/native/sync/background', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+        });
+        // Sync completed — trigger UI refresh
+        triggerUiRefresh();
+      } catch (e) {
+        console.warn('[app.js] Periodic sync failed:', e);
+      }
     }
   }, 120000) // Every 2 minutes
 }
