@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Log;
 
 class NativeSyncController extends Controller
 {
-    public function __construct(
+        public function __construct(
         private FullSyncService $fullSync,
         private SyncQueueService $syncQueue,
         private ApiPatientRepository $apiPatient,
@@ -24,6 +24,29 @@ class NativeSyncController extends Controller
         private ApiPatientNoteRepository $apiNote,
         private ApiPatientFileRepository $apiFile
     ) {}
+
+    /**
+     * POST /api/native/sync/background
+     *
+     * Lightweight background sync endpoint called by the frontend
+     * when connectivity is restored or on periodic timer.
+     * Runs a quick push of pending operations + incremental pull.
+     * This endpoint is designed to be called frequently without
+     * blocking the UI or causing performance issues.
+     */
+    public function backgroundSync(Request $request)
+    {
+        Log::info('[NativeSyncController] Background sync requested.');
+
+        try {
+            $backgroundSync = app(\App\Services\BackgroundSyncService::class);
+            $backgroundSync->run();
+            return response()->json(['success' => true]);
+        } catch (\Throwable $e) {
+            Log::warning('[NativeSyncController] Background sync error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
 
 /**
  * Sync all pending operations with the remote, then pull fresh remote data

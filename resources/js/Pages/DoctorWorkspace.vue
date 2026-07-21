@@ -242,6 +242,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { router } from '@inertiajs/vue3'
 import { useWorkspace } from '@/Composables/useWorkspace'
+import { useSyncState } from '@/Composables/useSyncState'
 import { useDialog } from '@/Composables/useDialog'
 import { useToast } from '@/Composables/useToast'
 import axios from 'axios'
@@ -313,6 +314,7 @@ const {
 
 const dialog = useDialog()
 const toast = useToast()
+const { isOnline, refreshSyncState } = useSyncState()
 
 const { t, locale } = useI18n()
 const isRtl = computed(() => locale.value === 'ar')
@@ -411,6 +413,42 @@ watch(mobilePatientListOpen, (isOpen) => {
 
 onUnmounted(() => {
   document.body.style.overflow = ''
+})
+
+// ── Connectivity listener ────────────────────────────────────────
+// When connectivity is restored, trigger an automatic background sync
+// so the user always has the latest data without manual refresh.
+let wasOffline = false
+const connectivityCheckInterval = ref(null)
+
+watch(isOnline, (online) => {
+  if (online && wasOffline) {
+    console.log('[DoctorWorkspace] Connectivity restored — auto-triggering sync...')
+    wasOffline = false
+    // Debounce: wait 2 seconds after connectivity restore before syncing
+    setTimeout(() => {
+      syncAndRefresh().catch(e => console.warn('[DoctorWorkspace] Auto-sync after connectivity restore:', e?.message))
+    }, 2000)
+  }
+  wasOffline = !online
+})
+
+// Periodically check connectivity and sync state
+onMounted(() => {
+  connectivityCheckInterval.value = setInterval(() => {
+    if (navigator.onLine && isOnline.value) {
+      refreshSyncState()
+    }
+  }, 30000) // Every 30 seconds
+
+  // Ensure wasOffline is initialized correctly
+  wasOffline = !navigator.onLine
+})
+
+onUnmounted(() => {
+  if (connectivityCheckInterval.value) {
+    clearInterval(connectivityCheckInterval.value)
+  }
 })
 
 const showShareModal = ref(false)

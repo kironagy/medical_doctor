@@ -53,6 +53,67 @@ window.addEventListener('error', (event) => {
   event.preventDefault()
 })
 
+// ── Global connectivity listener ───────────────────────────────────
+// Uses the BackgroundSyncService (server-side) to trigger sync when
+// connectivity is restored. The frontend just notifies the server;
+// the server handles the actual sync logic.
+window.addEventListener('online', () => {
+  console.log('[app.js] Network online — notifying server for background sync')
+  // Fire-and-forget: notify server about connectivity restore
+  fetch('/api/native/sync/background', {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+  }).catch(() => {
+    // Silent fail — connectivity just restored, server may not be ready
+  })
+})
+
+// ── Periodic background sync ───────────────────────────────────────
+// While the app is in the foreground, trigger sync every 2 minutes
+// to keep local SQLite up-to-date with remote changes.
+let periodicSyncInterval
+let periodicSyncActive = false
+
+function startPeriodicSync() {
+  if (periodicSyncActive) return
+  periodicSyncActive = true
+  periodicSyncInterval = setInterval(() => {
+    if (navigator.onLine) {
+      fetch('/api/native/sync/background', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+      }).catch(() => {})
+    }
+  }, 120000) // Every 2 minutes
+}
+
+function stopPeriodicSync() {
+  if (periodicSyncInterval) {
+    clearInterval(periodicSyncInterval)
+    periodicSyncActive = false
+  }
+}
+
+// Visibility change: stop sync when tab is hidden, restart when visible
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    startPeriodicSync()
+  } else {
+    stopPeriodicSync()
+  }
+})
+
+// Start periodic sync on page load
+startPeriodicSync()
+
 const appName = import.meta.env.VITE_APP_NAME || 'prof hosam fekry ortho team';
 
 createInertiaApp({

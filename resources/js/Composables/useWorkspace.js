@@ -302,6 +302,28 @@ function updateFileLocally(updatedFile) {
     }
 }
 
+function addNoteLocally(note) {
+    if (!note?.uuid) return;
+    if (!workspaceData.value) {
+        workspaceData.value = { notes: [note], files: [], visits: [], shares: [], categories: [], stats: {} };
+        return;
+    }
+    if (!workspaceData.value.notes) workspaceData.value.notes = [];
+    const existingIndex = workspaceData.value.notes.findIndex(
+        (n) => n.uuid === note.uuid,
+    );
+    if (existingIndex === -1) {
+        workspaceData.value.notes = [note, ...workspaceData.value.notes];
+    } else {
+        workspaceData.value.notes[existingIndex] = {
+            ...workspaceData.value.notes[existingIndex],
+            ...note,
+        };
+    }
+    workspaceData.value = { ...workspaceData.value };
+    console.log('[useWorkspace] Note added locally:', note.uuid);
+}
+
 function removeFileLocally(fileUuid) {
     if (!workspaceData.value || !workspaceData.value.files) return;
     const before = workspaceData.value.files.length;
@@ -613,6 +635,7 @@ export function useWorkspace() {
         closePatient,
         refreshWorkspaceData,
         addFileLocally,
+        addNoteLocally,
         updateFileLocally,
         removeFileLocally,
         reloadPatientData,

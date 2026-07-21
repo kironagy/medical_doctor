@@ -182,21 +182,21 @@ class FullSyncService
                         // files would be orphaned — $patient->files() would return
                         // nothing because patient_files.patient_id wouldn't match
                         // patients.id locally.
-                        $this->syncFilesWithLocalPatientId($p['uuid'], $files);
+                        self::syncFilesWithLocalPatientId($p['uuid'], $files);
                     }
 
                     $notes = $this->apiNoteRepo->forPatient($p['uuid']);
                     if (!empty($notes)) {
                         $patientsWithNotes++;
                         $syncedNotesCount += count($notes);
-                        $this->syncChildRecordsWithLocalPatientId($p['uuid'], $notes, PatientNote::class);
+                        self::syncChildRecordsWithLocalPatientId($p['uuid'], $notes, PatientNote::class);
                     }
 
                     $visits = $this->apiVisitRepo->forPatient($p['uuid']);
                     if (!empty($visits)) {
                         $patientsWithVisits++;
                         $syncedVisitsCount += count($visits);
-                        $this->syncChildRecordsWithLocalPatientId($p['uuid'], $visits, PatientVisit::class);
+                        self::syncChildRecordsWithLocalPatientId($p['uuid'], $visits, PatientVisit::class);
                     }
                 } catch (\Throwable $e) {
                     Log::warning("[FullSyncService] Failed to sync child resources for patient {$p['uuid']}: " . $e->getMessage());
@@ -447,8 +447,10 @@ class FullSyncService
      * This is critical because the remote API returns the REMOTE patient_id,
      * but local SQLite has different auto-increment IDs. Without this mapping,
      * files appear orphaned.
+     *
+     * Made public static so SyncManager and other services can call it directly.
      */
-    private function syncFilesWithLocalPatientId(string $patientUuid, array $files): void
+    public static function syncFilesWithLocalPatientId(string $patientUuid, array $files): void
     {
         $modelClass = PatientFile::class;
         try {
@@ -500,7 +502,7 @@ class FullSyncService
     /**
      * Sync child records (notes, visits) from API, resolving patient_id to local ID.
      */
-    private function syncChildRecordsWithLocalPatientId(string $patientUuid, array $records, string $modelClass): void
+    public static function syncChildRecordsWithLocalPatientId(string $patientUuid, array $records, string $modelClass): void
     {
         // Resolve local patient ID
         $localPatientId = null;
@@ -641,7 +643,7 @@ class FullSyncService
         }
     }
 
-    private function syncUsersLocally(array $remoteDoctors): void
+    public function syncUsersLocally(array $remoteDoctors): void
     {
         foreach ($remoteDoctors as $doctorData) {
             $userId = $doctorData['id'] ?? null;

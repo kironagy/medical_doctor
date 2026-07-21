@@ -135,7 +135,7 @@ const emit = defineEmits(['update:modelValue', 'saved'])
 
 const toast = useToast()
 const { uploadFile } = useUploads()
-const { syncAndRefresh } = useWorkspace()
+const { syncAndRefresh, addNoteLocally } = useWorkspace()
 
 const activeTab = ref('text')
 const notes = ref('')
@@ -194,6 +194,18 @@ async function submit() {
       
       // Log success
       console.log('[AddRecordModal] Note created:', { uuid: noteResponse.data?.uuid, patient_uuid: props.patient.uuid });
+      
+      // IMMEDIATE UI UPDATE: Add note to local workspace state
+      addNoteLocally({
+        uuid: noteResponse.data?.uuid,
+        patient_id: props.patient.id,
+        content: notes.value,
+        category: props.categorySlug,
+        author_id: null,
+        type: 'note',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
       
       toast.success('تمت إضافة الملاحظة بنجاح')
       emit('saved')

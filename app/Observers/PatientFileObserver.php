@@ -24,6 +24,22 @@ class PatientFileObserver
 
     public function created(PatientFile $file)
     {
+        // Eager-load patient relationship if not loaded
+        if (!$file->relationLoaded('patient')) {
+            $file->load('patient');
+        }
+
+        // Ensure patient UUID is available
+        $patientUuid = $file->patient?->uuid;
+        if (!$patientUuid) {
+            Log::warning('[PatientFileObserver] Cannot enqueue sync: no patient UUID for file: ' . $file->uuid);
+            // Still proceed with video optimization if needed
+            if ($file->mime_type && str_starts_with($file->mime_type, 'video/')) {
+                OptimizeVideoForStreaming::dispatch($file->id);
+            }
+            return;
+        }
+
         // Dedup check: skip if already enqueued (e.g. by UploadController)
         if ($this->hasExistingPendingOperation($file->uuid, 'create')) {
             Log::info('[PatientFileObserver] Duplicate create event skipped for file: ' . $file->uuid);
@@ -41,7 +57,7 @@ class PatientFileObserver
                 'create',
                 $file->uuid,
                 [
-                    'patient_uuid' => $file->patient?->uuid,
+                    'patient_uuid' => $patientUuid,
                     'local_path'   => $file->file_path,
                     'file_name'    => $file->file_name,
                     'mime_type'    => $file->mime_type,
@@ -54,7 +70,7 @@ class PatientFileObserver
             );
             Log::info('[PatientFileObserver] Enqueued sync for new file', [
                 'uuid' => $file->uuid,
-                'patient_uuid' => $file->patient?->uuid,
+                'patient_uuid' => $patientUuid,
             ]);
         } catch (\Throwable $e) {
             // Silent fail — sync queue is best-effort

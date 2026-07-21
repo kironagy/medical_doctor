@@ -25,6 +25,9 @@ class SyncMiddleware
      * - ONLINE : let request through, enqueue for audit.
      * - OFFLINE: do NOT call the controller; enqueue in sync_queue and
      *            return a success payload so the mobile app does not retry.
+     *
+     * Also injects sync state headers into EVERY response (not just writes)
+     * so the frontend always knows the current sync status.
      */
     public function handle(Request $request, Closure $next)
     {
@@ -37,8 +40,11 @@ class SyncMiddleware
 
         [$entity, $operation, $recordUuid] = $this->resolveRouteContext($request);
 
+        // If no entity matched, let request through normally with sync headers
         if ($entity === null) {
-            return $next($request);
+            $response = $next($request);
+            $this->injectSyncStateHeaders($response);
+            return $response;
         }
 
         $payload = $request->except(['_token', '_method']);
@@ -47,10 +53,12 @@ class SyncMiddleware
             // ONLINE: let the request hit the controller directly.
             // The Hybrid repos handle their own sync-queue enqueue on API failure,
             // so we do NOT double-enqueue here on success.
-            return $next($request);
+            $response = $next($request);
+            $this->injectSyncStateHeaders($response);
+            return $response;
         }
 
-        // OFFLINE: skip controller execution, store in queue, return success.
+        // OFFLINE: skip controller execution entirely, store in queue, return success.
         Log::info("[SyncMiddleware] Offline — queuing {$entity} {$operation} instead of processing.");
 
         $this->syncQueue->enqueueOperation(
@@ -60,7 +68,7 @@ class SyncMiddleware
             $payload
         );
 
-        return response()->json([
+        $offlineResponse = response()->json([
             'success'        => true,
             'queued_offline' => true,
             'entity'         => $entity,
@@ -68,6 +76,35 @@ class SyncMiddleware
             'record_uuid'    => $recordUuid,
             'message'        => 'Operation queued and will be synced when connectivity is restored.',
         ]);
+        
+        $this->injectSyncStateHeaders($offlineResponse);
+        return $offlineResponse;
+    }
+
+    /**
+     * Inject sync state headers into the response so the frontend always
+     * knows the current sync status (pending count, last sync time, etc.).
+     */
+    private function injectSyncStateHeaders($response): void
+    {
+        try {
+            $pendingCount = $this->syncQueue->getPendingCount();
+            $lastSyncAt = null;
+            try {
+                $row = \Illuminate\Support\Facades\DB::table('sync_states')
+                    ->where('key', 'last_sync_at')
+                    ->first();
+                if ($row) {
+                    $lastSyncAt = $row->value;
+                }
+            } catch (\Throwable $e) {}
+
+            $response->header('X-Sync-Pending-Count', (string) $pendingCount);
+            $response->header('X-Sync-Last-At', $lastSyncAt ?? '');
+            $response->header('X-Sync-Online', NetworkStatusService::isOnline() ? '1' : '0');
+        } catch (\Throwable $e) {
+            // Headers are best-effort
+        }
     }
 
     /**

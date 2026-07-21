@@ -163,12 +163,23 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
 
         // Queue for offline sync — note: binary file cannot be re-uploaded from queue easily;
         // the file is already stored locally, so we mark it for upload when online
-        $this->syncQueue->enqueueOperation(
-            'PatientFile', 'create',
-            $localData['uuid'] ?? \Illuminate\Support\Str::uuid()->toString(),
-            array_merge($data, ['patient_uuid' => $patientUuid, 'local_path' => $localData['file_path'] ?? null]),
-            3 // higher priority so files upload before other operations
-        );
+        // DEDUP CHECK: Only enqueue if no pending operation already exists for this file UUID
+        $fileUuid = $localData['uuid'] ?? null;
+        $existingPending = $fileUuid ? \App\Models\SyncQueueItem::where('record_uuid', $fileUuid)
+            ->where('operation', 'create')
+            ->whereIn('status', ['pending', 'failed'])
+            ->exists() : false;
+
+        if (!$existingPending) {
+            $this->syncQueue->enqueueOperation(
+                'PatientFile', 'create',
+                $fileUuid ?? \Illuminate\Support\Str::uuid()->toString(),
+                array_merge($data, ['patient_uuid' => $patientUuid, 'local_path' => $localData['file_path'] ?? null]),
+                3 // higher priority so files upload before other operations
+            );
+        } else {
+            \Illuminate\Support\Facades\Log::info('[HybridPatientFileRepo] Skipping duplicate enqueue for file: ' . $fileUuid);
+        }
 
         return $localData;
     }

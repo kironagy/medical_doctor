@@ -99,6 +99,8 @@ Route::middleware('auth')->group(function () {
         ->name('native.sync.status');
     Route::post('/native/sync/force', [\App\Http\Controllers\NativeSyncController::class, 'forceSync'])
         ->name('native.sync.force');
+    Route::post('/native/sync/background', [\App\Http\Controllers\NativeSyncController::class, 'backgroundSync'])
+        ->name('native.sync.background');
     Route::post('/native/sync/clear', function () {
         \Illuminate\Support\Facades\Log::info('Native sync clear endpoint called.');
         $count = app(\App\Services\SyncQueueService::class)->clearSyncedOperations(7);
