@@ -4,6 +4,7 @@ namespace App\Repositories\Api;
 
 use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Repositories\Api\Traits\MakesApiRequests;
+use Illuminate\Support\Facades\Log;
 
 class ApiPatientRepository implements PatientRepositoryInterface
 {
