@@ -211,10 +211,15 @@ async function submit() {
       emit('saved')
       emit('update:modelValue', false)
       
-      // Background sync: push note to remote API
-      if (navigator.onLine) {
-        syncAndRefresh().catch(e => console.warn('[AddRecordModal] Background sync after note add:', e?.message));
-      }
+      // NOTE: We do NOT call syncAndRefresh() here because:
+      // 1) The note is already visible via addNoteLocally() above
+      // 2) syncAndRefresh() calls refreshWorkspaceData() which OVERWRITES
+      //    workspaceData with data from the local SQLite query. If the sync
+      //    hasn't pushed this note yet (e.g., due to auth errors), the server
+      //    response won't include the new note and it DISAPPEARS from the UI.
+      // 3) The periodic background sync (every 2 min) and pull-to-refresh
+      //    will sync the note when the server has it.
+      console.log('[AddRecordModal] Note added locally - background sync will handle server push');
     } catch (e) {
       console.error('Note add failed:', e)
       toast.error('فشل إضافة الملاحظة')
@@ -240,13 +245,11 @@ async function submit() {
       emit('saved')
       emit('update:modelValue', false)
       
-      // Background sync: push uploaded file to remote API
-      if (navigator.onLine) {
-        // Wait a bit for the upload job to start, then trigger sync
-        setTimeout(() => {
-          syncAndRefresh().catch(e => console.warn('[AddRecordModal] Background sync after file upload:', e?.message));
-        }, 1000);
-      }
+      // NOTE: We do NOT call syncAndRefresh() here because:
+      // 1) Upload progress and completion are shown via UploadManager component
+      // 2) syncAndRefresh() would overwrite workspaceData with stale server data
+      // 3) The periodic background sync (every 2 min) will sync completed uploads
+      console.log('[AddRecordModal] Files queued for upload - background sync will handle server push');
     } catch (e) {
       console.error('Upload failed:', e)
       toast.error('فشل بدء رفع الملفات')

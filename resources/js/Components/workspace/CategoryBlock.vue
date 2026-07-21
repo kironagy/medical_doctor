@@ -364,7 +364,7 @@
     :patient="selectedPatient"
     :categorySlug="slug"
     :initialTab="addRecordModalTab"
-    @saved="refreshWorkspaceData"
+    @saved="onAddRecordSaved"
   />
 
   <!-- View Note Content Modal -->
@@ -1252,6 +1252,14 @@ function printFile(file) {
 }
 
 const addRecordModalTab = ref('text')
+
+function onAddRecordSaved() {
+  // Note was already added locally via addNoteLocally() in AddRecordModal.vue
+  // File was already added via addFileLocally() in useUploads.js
+  // So we don't call refreshWorkspaceData() here — it would overwrite
+  // workspaceData with stale server data, causing the new note to disappear.
+  console.log('[CategoryBlock] AddRecord saved — UI already updated via local state');
+}
 
 function openAddRecord(tab = 'text') {
   addRecordModalTab.value = tab
