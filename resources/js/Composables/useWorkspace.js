@@ -273,9 +273,14 @@ function refreshWorkspaceData() {
                     }
                 }
             })
-            .catch(() => {
+            .catch((e) => {
                 if (selectedPatientId.value === patientUuid) {
-                    workspaceData.value = null;
+                    // PRESERVE current data on transient errors (network blip, timeout).
+                    // Only clear on 404 (patient was deleted).
+                    if (e?.response?.status === 404) {
+                        workspaceData.value = null;
+                    }
+                    // else: keep currentData — don't wipe the workspace on a transient error
                 }
             })
             .finally(() => {
@@ -536,12 +541,31 @@ async function syncAndRefresh(page = 1) {
       `[refreshPatientList] GET ${url}?page=${page} | Status: ${res.status} | Patients: ${count} | Total: ${total}\n` +
       `[refreshPatientList] UUIDs on page: ${JSON.stringify(listUuids)}`
     );
-    if (res.data?.data) {
+    
+    // DEBUG: Log response structure to identify format issues
+    const respType = typeof res.data;
+    const respIsArray = Array.isArray(res.data);
+    const respKeys = res.data ? Object.keys(res.data).join(',') : 'null';
+    console.log(`[refreshPatientList] Response type=${respType} isArray=${respIsArray} keys=[${respKeys}]`);
+    
+    // Determine the patients array from the response (handle multiple formats)
+    let serverPatients = null;
+    if (Array.isArray(res.data)) {
+      // Response is a raw array of patients
+      serverPatients = res.data;
+    } else if (res.data?.data && Array.isArray(res.data.data)) {
+      // Standard paginated format: { data: [...], meta: {...} }
+      serverPatients = res.data.data;
+    } else if (res.data?.patients && Array.isArray(res.data.patients)) {
+      // Alternative format: { patients: [...] }
+      serverPatients = res.data.patients;
+    }
+    
+    if (serverPatients) {
       // INCREMENTAL MERGE: Instead of overwriting the entire patients array,
       // we merge the server response with our existing local patients.
       // This ensures that patients created offline (or on other pages)
       // are NOT removed from the list when we refresh.
-      const serverPatients = res.data.data;
       const serverUuids = new Set(serverPatients.map(p => p.uuid));
       
       // Start with the server data (authoritative source)
@@ -565,19 +589,17 @@ async function syncAndRefresh(page = 1) {
       });
       
       patients.value = merged;
-      // Keep the server meta but update total to reflect any extra local patients
-      if (res.data.meta) {
-        patientsMeta.value = {
-          ...res.data.meta,
-          total: Math.max(res.data.meta.total || 0, merged.length),
-        };
-      } else {
-        patientsMeta.value = res.data.meta;
-      }
+      
+      // Keep the server meta if available, update total to reflect extra local patients
+      const meta = res.data?.meta || {};
+      patientsMeta.value = {
+        ...meta,
+        total: Math.max(meta.total || 0, merged.length),
+      };
       
       console.log(`[refreshPatientList] Merged ${serverPatients.length} server + ${merged.length - serverPatients.length} local-only patients = ${merged.length} total (sorted by date)`);
     } else {
-      console.warn('[refreshPatientList] res.data?.data is falsy!', res.data);
+      console.warn('[refreshPatientList] No patients array found in response. res.data keys:', respKeys, 'res.data:', res.data);
     }
     if (res.data?.auth_error) {
       authError.value = res.data?.message || 'Session expired. Please login again.';

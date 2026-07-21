@@ -137,7 +137,7 @@ class SyncManager
         Log::info('[SyncManager] Starting metadata pull...');
 
         try {
-            DB::statement('PRAGMA foreign_keys = OFF');
+            try { DB::statement('PRAGMA foreign_keys = OFF'); } catch (\Throwable $e) {}
 
             // Push pending first using dependency ordering
             $this->pushPendingWithDependencyOrder();

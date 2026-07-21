@@ -121,7 +121,7 @@ class FullSyncService
         Log::info('[FullSyncService] Starting lightweight metadata synchronization...');
 
         try {
-            DB::statement('PRAGMA foreign_keys = OFF');
+            try { DB::statement('PRAGMA foreign_keys = OFF'); } catch (\Throwable $e) {}
 
             $this->syncPendingOperations();
 
@@ -183,9 +183,7 @@ class FullSyncService
             Log::error('[FullSyncService] Metadata synchronization failed: ' . $e->getMessage());
         } finally {
             $this->syncQueue->releaseLock();
-            try {
-                DB::statement('PRAGMA foreign_keys = ON');
-            } catch (\Throwable $e) {}
+            try { DB::statement('PRAGMA foreign_keys = ON'); } catch (\Throwable $e) {}
         }
     }
 
