@@ -89,6 +89,13 @@ class FullSyncService
             Log::info('[FullSyncService] Synchronized ' . count($patients) . ' patients.');
 
             // Step D: Sync child resources metadata only (no file binary downloads)
+            $syncedFilesCount = 0;
+            $syncedNotesCount = 0;
+            $syncedVisitsCount = 0;
+            $patientsWithFiles = 0;
+            $patientsWithNotes = 0;
+            $patientsWithVisits = 0;
+
             foreach ($patients as $p) {
                 if (empty($p['uuid'])) {
                     continue;
@@ -96,21 +103,40 @@ class FullSyncService
 
                 try {
                     $files = $this->apiFileRepo->forPatient($p['uuid']);
-                    $notes = $this->apiNoteRepo->forPatient($p['uuid']);
-                    $visits = $this->apiVisitRepo->forPatient($p['uuid']);
+                    if (!empty($files)) {
+                        $patientsWithFiles++;
+                        $syncedFilesCount += count($files);
+                        // CRITICAL: Resolve local patient_id from UUID before saving
+                        // The API returns the REMOTE patient_id, but local SQLite
+                        // has different auto-increment IDs. Without this mapping,
+                        // files would be orphaned — $patient->files() would return
+                        // nothing because patient_files.patient_id wouldn't match
+                        // patients.id locally.
+                        $this->syncFilesWithLocalPatientId($p['uuid'], $files);
+                    }
 
-                    $this->syncLocalCache($files, PatientFile::class);
-                    $this->syncLocalCache($notes, PatientNote::class);
-                    $this->syncLocalCache($visits, PatientVisit::class);
-                    // NOTE: File binaries are NOT downloaded here.
-                    // They are downloaded on-demand when the user opens a file.
+                    $notes = $this->apiNoteRepo->forPatient($p['uuid']);
+                    if (!empty($notes)) {
+                        $patientsWithNotes++;
+                        $syncedNotesCount += count($notes);
+                        $this->syncChildRecordsWithLocalPatientId($p['uuid'], $notes, PatientNote::class);
+                    }
+
+                    $visits = $this->apiVisitRepo->forPatient($p['uuid']);
+                    if (!empty($visits)) {
+                        $patientsWithVisits++;
+                        $syncedVisitsCount += count($visits);
+                        $this->syncChildRecordsWithLocalPatientId($p['uuid'], $visits, PatientVisit::class);
+                    }
                 } catch (\Throwable $e) {
                     Log::warning("[FullSyncService] Failed to sync child resources for patient {$p['uuid']}: " . $e->getMessage());
                 }
             }
 
+            Log::info("[FullSyncService] Metadata sync completed. Synced files: {$syncedFilesCount} (from {$patientsWithFiles} patients), notes: {$syncedNotesCount} (from {$patientsWithNotes} patients), visits: {$syncedVisitsCount} (from {$patientsWithVisits} patients).");
+
             $localCount = Patient::count();
-            Log::info("[FullSyncService] Metadata sync completed. {$localCount} patients in local SQLite.");
+            Log::info("[FullSyncService] {$localCount} patients in local SQLite.");
         } catch (\Throwable $e) {
             Log::error('[FullSyncService] Metadata synchronization failed: ' . $e->getMessage());
         } finally {
@@ -264,8 +290,188 @@ class FullSyncService
         }
     }
 
+    /**
+     * Sync file records from API, resolving patient_id to local patient ID.
+     * This is critical because the remote API returns the REMOTE patient_id,
+     * but local SQLite has different auto-increment IDs. Without this mapping,
+     * files appear orphaned.
+     */
+    private function syncFilesWithLocalPatientId(string $patientUuid, array $files): void
+    {
+        // Resolve local patient ID once (efficient for bulk sync)
+        $localPatientId = null;
+        try {
+            $localPatient = Patient::withoutGlobalScopes()
+                ->where('uuid', $patientUuid)
+                ->first();
+            $localPatientId = $localPatient?->id;
+        } catch (\Throwable $e) {
+            Log::warning("[FullSyncService] Cannot resolve local patient for UUID {$patientUuid}: " . $e->getMessage());
+        }
+
+        $modelClass = PatientFile::class;
+        try {
+            $modelInstance = new $modelClass;
+            $validColumns = array_merge(
+                $modelInstance->getFillable(),
+                ['id', 'created_at', 'updated_at', 'deleted_at']
+            );
+        } catch (\Exception $e) {
+            $validColumns = [];
+        }
+
+        $query = $modelClass::withoutGlobalScopes();
+
+        foreach ($files as $record) {
+            if (empty($record['uuid'])) {
+                continue;
+            }
+
+            $cleanRecord = [];
+            foreach ($record as $key => $value) {
+                // Map description -> desc (API response uses 'description', model uses 'desc')
+                if ($key === 'description' && !isset($record['desc'])) {
+                    $cleanRecord['desc'] = $value;
+                    continue;
+                }
+                // Skip non-fillable complex fields
+                if (in_array($key, ['id', 'patient', 'creator', 'uploader', 'url', 'thumbnail_url', 'description'], true)) {
+                    continue;
+                }
+                if (empty($validColumns) || in_array($key, $validColumns)) {
+                    if (is_array($value) && !array_key_exists($key, (new $modelClass)->getCasts())) {
+                        $cleanRecord[$key] = json_encode($value);
+                    } else {
+                        $cleanRecord[$key] = $value;
+                    }
+                }
+            }
+
+            // CRITICAL: Use the resolved local patient_id, not the remote one from API
+            if ($localPatientId) {
+                $cleanRecord['patient_id'] = $localPatientId;
+            }
+
+            // Ensure uploaded_by_id has a fallback
+            if (empty($cleanRecord['uploaded_by_id'])) {
+                if (isset($record['uploader']['id'])) {
+                    $cleanRecord['uploaded_by_id'] = $record['uploader']['id'];
+                } elseif (auth()->check()) {
+                    $cleanRecord['uploaded_by_id'] = auth()->id();
+                }
+            }
+
+            try {
+                $modelClass::unguard();
+                $modelClass::withoutEvents(function () use ($query, $record, $cleanRecord) {
+                    $query->updateOrCreate(
+                        ['uuid' => $record['uuid']],
+                        $cleanRecord
+                    );
+                });
+                $modelClass::reguard();
+            } catch (\Exception $e) {
+                try {
+                    $modelClass::reguard();
+                } catch (\Throwable $ignored) {}
+
+                Log::warning(
+                    "[FullSyncService] Failed to cache file {$record['uuid']}: " . $e->getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * Sync child records (notes, visits) from API, resolving patient_id to local ID.
+     */
+    private function syncChildRecordsWithLocalPatientId(string $patientUuid, array $records, string $modelClass): void
+    {
+        // Resolve local patient ID
+        $localPatientId = null;
+        try {
+            $localPatient = Patient::withoutGlobalScopes()
+                ->where('uuid', $patientUuid)
+                ->first();
+            $localPatientId = $localPatient?->id;
+        } catch (\Throwable $e) {
+            Log::warning("[FullSyncService] Cannot resolve local patient for UUID {$patientUuid}: " . $e->getMessage());
+        }
+
+        if (empty($records)) {
+            return;
+        }
+
+        try {
+            $modelInstance = new $modelClass;
+            $validColumns = array_merge(
+                $modelInstance->getFillable(),
+                ['id', 'created_at', 'updated_at', 'deleted_at']
+            );
+        } catch (\Exception $e) {
+            $validColumns = [];
+        }
+
+        $query = $modelClass::withoutGlobalScopes();
+
+        foreach ($records as $record) {
+            if (empty($record['uuid'])) {
+                continue;
+            }
+
+            $cleanRecord = [];
+            foreach ($record as $key => $value) {
+                // Skip non-fillable complex fields
+                if (in_array($key, ['id', 'patient', 'author', 'url', 'thumbnail_url'], true)) {
+                    continue;
+                }
+                if (empty($validColumns) || in_array($key, $validColumns)) {
+                    if (is_array($value) && !array_key_exists($key, (new $modelClass)->getCasts())) {
+                        $cleanRecord[$key] = json_encode($value);
+                    } else {
+                        $cleanRecord[$key] = $value;
+                    }
+                }
+            }
+
+            // Use local patient_id
+            if ($localPatientId) {
+                $cleanRecord['patient_id'] = $localPatientId;
+            }
+
+            try {
+                $modelClass::unguard();
+                $modelClass::withoutEvents(function () use ($query, $record, $cleanRecord) {
+                    $query->updateOrCreate(
+                        ['uuid' => $record['uuid']],
+                        $cleanRecord
+                    );
+                });
+                $modelClass::reguard();
+            } catch (\Exception $e) {
+                try {
+                    $modelClass::reguard();
+                } catch (\Throwable $ignored) {}
+
+                Log::warning(
+                    "[FullSyncService] Failed to cache " . class_basename($modelClass) .
+                    " {$record['uuid']}: " . $e->getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * Generic local cache sync (kept for backward compatibility).
+     */
     private function syncLocalCache(array $records, string $modelClass): void
     {
+        if ($modelClass === PatientFile::class || $modelClass === PatientNote::class || $modelClass === PatientVisit::class) {
+            // These should use the specific methods with patient_id resolution.
+            // The generic method will still work but won't resolve patient_id.
+            Log::warning("[FullSyncService] syncLocalCache called for {$modelClass} — use typed method instead for proper patient_id resolution.");
+        }
+
         if (empty($records)) {
             return;
         }
@@ -300,10 +506,6 @@ class FullSyncService
 
             try {
                 $modelClass::unguard();
-                // Suppress model events during sync so observers (e.g.
-                // PatientFileObserver) don't fire for records created from
-                // remote data. Without this, every file synced FROM the API
-                // would be enqueued for push BACK to the API.
                 $modelClass::withoutEvents(function () use ($query, $record, $cleanRecord) {
                     $query->updateOrCreate(
                         ['uuid' => $record['uuid']],

@@ -121,6 +121,7 @@
 import { ref, watch } from 'vue'
 import { useToast } from '@/Composables/useToast'
 import { useUploads } from '@/Composables/useUploads'
+import { useWorkspace } from '@/Composables/useWorkspace'
 import axios from 'axios'
 
 const props = defineProps({
@@ -134,6 +135,7 @@ const emit = defineEmits(['update:modelValue', 'saved'])
 
 const toast = useToast()
 const { uploadFile } = useUploads()
+const { syncAndRefresh } = useWorkspace()
 
 const activeTab = ref('text')
 const notes = ref('')
@@ -185,13 +187,22 @@ async function submit() {
     }
     saving.value = true
     try {
-      await axios.post(`/api/v1/patients/${props.patient.uuid}/notes`, {
+      const noteResponse = await axios.post(`/api/v1/patients/${props.patient.uuid}/notes`, {
         content: notes.value,
         category: props.categorySlug,
       })
+      
+      // Log success
+      console.log('[AddRecordModal] Note created:', { uuid: noteResponse.data?.uuid, patient_uuid: props.patient.uuid });
+      
       toast.success('تمت إضافة الملاحظة بنجاح')
       emit('saved')
       emit('update:modelValue', false)
+      
+      // Background sync: push note to remote API
+      if (navigator.onLine) {
+        syncAndRefresh().catch(e => console.warn('[AddRecordModal] Background sync after note add:', e?.message));
+      }
     } catch (e) {
       console.error('Note add failed:', e)
       toast.error('فشل إضافة الملاحظة')
@@ -216,6 +227,14 @@ async function submit() {
       toast.success('بدء رفع الملفات بنجاح')
       emit('saved')
       emit('update:modelValue', false)
+      
+      // Background sync: push uploaded file to remote API
+      if (navigator.onLine) {
+        // Wait a bit for the upload job to start, then trigger sync
+        setTimeout(() => {
+          syncAndRefresh().catch(e => console.warn('[AddRecordModal] Background sync after file upload:', e?.message));
+        }, 1000);
+      }
     } catch (e) {
       console.error('Upload failed:', e)
       toast.error('فشل بدء رفع الملفات')

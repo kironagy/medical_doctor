@@ -359,27 +359,48 @@ class WorkspaceController extends Controller
             try {
                 $token = $this->apiService->getToken();
                 if ($token) {
+                    \Illuminate\Support\Facades\Log::info('[WorkspaceController] Bootstrap: fetching files from API', ['patient_uuid' => $uuid]);
                     $apiFiles = $this->apiFileRepo->forPatient($uuid);
                     if (!empty($apiFiles)) {
-                        // Save to local SQLite
+                        \Illuminate\Support\Facades\Log::info('[WorkspaceController] Bootstrap: API returned ' . count($apiFiles) . ' files', ['patient_uuid' => $uuid]);
+                        // Save to local SQLite with proper patient_id mapping
                         foreach ($apiFiles as $fileData) {
                             if (isset($fileData['uuid'])) {
                                 $cleanData = \Illuminate\Support\Arr::except($fileData, ['id', 'patient', 'creator', 'uploader', 'description', 'url', 'thumbnail_url']);
+                                
+                                // Map description -> desc
                                 if (isset($cleanData['desc']) || isset($fileData['description'])) {
                                     $cleanData['desc'] = $cleanData['desc'] ?? $fileData['description'];
                                 }
                                 unset($cleanData['description'], $cleanData['url'], $cleanData['thumbnail_url']);
+
+                                // CRITICAL: Resolve local patient_id from UUID
+                                // The API returns the REMOTE patient_id, but local
+                                // SQLite has different auto-increment IDs.
                                 try {
                                     $patientModel = Patient::where('uuid', $uuid)->first();
                                     if ($patientModel) {
                                         $cleanData['patient_id'] = $patientModel->id;
                                     }
-                                } catch (\Throwable $e) {}
+                                } catch (\Throwable $e) {
+                                    \Illuminate\Support\Facades\Log::warning('[WorkspaceController] Bootstrap: Cannot resolve local patient_id', ['uuid' => $uuid, 'error' => $e->getMessage()]);
+                                }
+
+                                // Ensure uploaded_by_id has a fallback
+                                if (empty($cleanData['uploaded_by_id'])) {
+                                    if (isset($fileData['uploader']['id'])) {
+                                        $cleanData['uploaded_by_id'] = $fileData['uploader']['id'];
+                                    } elseif (auth()->check()) {
+                                        $cleanData['uploaded_by_id'] = auth()->id();
+                                    }
+                                }
+
                                 try {
                                     PatientFile::withoutGlobalScopes()->updateOrCreate(
                                         ['uuid' => $fileData['uuid']],
                                         $cleanData
                                     );
+                                    \Illuminate\Support\Facades\Log::info('[WorkspaceController] Bootstrap: Saved file to SQLite', ['uuid' => $fileData['uuid'], 'patient_id' => $cleanData['patient_id'] ?? 'MISSING']);
                                 } catch (\Exception $e) {
                                     \Illuminate\Support\Facades\Log::warning("[WorkspaceController] Failed to sync file {$fileData['uuid']}: " . $e->getMessage());
                                 }
@@ -387,11 +408,18 @@ class WorkspaceController extends Controller
                         }
                         // Re-read from SQLite
                         $allFiles = $this->eloquentFileRepo->forPatient($uuid);
+                        \Illuminate\Support\Facades\Log::info('[WorkspaceController] Bootstrap: Re-read from SQLite: ' . count($allFiles) . ' files', ['patient_uuid' => $uuid]);
+                    } else {
+                        \Illuminate\Support\Facades\Log::info('[WorkspaceController] Bootstrap: API returned empty files list', ['patient_uuid' => $uuid]);
                     }
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('[WorkspaceController] Bootstrap: No API token available', ['patient_uuid' => $uuid]);
                 }
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning("[WorkspaceController] File API bootstrap failed: " . $e->getMessage());
             }
+        } else {
+            \Illuminate\Support\Facades\Log::info('[WorkspaceController] Loaded files from local SQLite', ['count' => count($allFiles), 'patient_uuid' => $uuid]);
         }
 
         $files = array_slice($allFiles, 0, 50);
