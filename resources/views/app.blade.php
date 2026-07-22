@@ -77,14 +77,7 @@
 
         @auth
             @php
-                try {
-                    $tokenRow = Illuminate\Support\Facades\DB::table('sync_states')
-                        ->where('key', 'api_token')
-                        ->first();
-                    $apiToken = $tokenRow ? json_decode($tokenRow->value, true)['plain'] ?? null : null;
-                } catch (\Throwable $e) {
-                    $apiToken = null;
-                }
+                $apiToken = session('api_token_raw');
             @endphp
             @if($apiToken)
                 <meta name="api-token" content="{{ $apiToken }}">

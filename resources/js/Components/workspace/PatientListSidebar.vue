@@ -162,7 +162,6 @@ const {
   patientsMeta,
   archivedPatientsMeta,
   refreshPatientList,
-  syncAndRefresh,
   loadingPatients,
   loadingArchived,
   openSettings,
@@ -170,10 +169,7 @@ const {
 } = useWorkspace()
 
 // Pull-to-refresh for the sidebar patient list
-// Uses syncAndRefresh() (same as main workspace PTR) to:
-// 1. Push pending local changes to production API
-// 2. Fetch fresh data from production API
-// 3. Refresh UI reactively
+// Uses refreshPatientList() to fetch fresh data from the API.
 import { usePullToRefresh } from '@/Composables/usePullToRefresh'
 const sidebarScrollRef = ref(null)
 let sidebarRefreshPromise = null
@@ -190,8 +186,8 @@ const {
   onRefresh: async () => {
     if (sidebarRefreshPromise) return
     sidebarRefreshPromise = (async () => {
-      console.log('[PTRefresh-Sidebar] Pull-to-refresh triggered (sync+refresh)')
-      await syncAndRefresh(patientsMeta.value?.current_page || 1)
+      console.log('[PTRefresh-Sidebar] Pull-to-refresh triggered')
+      await refreshPatientList(patientsMeta.value?.current_page || 1)
       console.log(`[PTRefresh-Sidebar] Done. ${patients.value.length} patients`)
     })()
     try { await sidebarRefreshPromise } finally { sidebarRefreshPromise = null }

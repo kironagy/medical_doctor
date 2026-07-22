@@ -10,7 +10,6 @@ use App\Domains\Media\Models\PatientFile;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
-use App\Services\NetworkStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -24,8 +23,7 @@ class CategoryFileController extends Controller
 
     public function files(Request $request, string $patientUuid, string $slug)
     {
-        // Gracefully handle missing patient — return empty results instead of 404
-        // This prevents 'Load Files Error' on mobile when patient data hasn't synced yet
+// Gracefully handle missing patient — return empty results instead of 404
         $patient = Patient::withoutGlobalScope(DoctorIsolationScope::class)
             ->where('uuid', $patientUuid)->first();
         

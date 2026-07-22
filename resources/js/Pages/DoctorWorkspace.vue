@@ -242,7 +242,6 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { router } from '@inertiajs/vue3'
 import { useWorkspace } from '@/Composables/useWorkspace'
-import { useSyncState } from '@/Composables/useSyncState'
 import { useDialog } from '@/Composables/useDialog'
 import { useToast } from '@/Composables/useToast'
 import axios from 'axios'
@@ -308,13 +307,10 @@ const {
   restorePatient,
   patients,
   loadingPatients,
-  syncAndRefresh,
-  initialSyncDone,
 } = useWorkspace()
 
 const dialog = useDialog()
 const toast = useToast()
-const { isOnline, refreshSyncState } = useSyncState()
 
 const { t, locale } = useI18n()
 const isRtl = computed(() => locale.value === 'ar')
@@ -325,15 +321,11 @@ const {
   pullDistance, pullProgress, isPulling, isRefreshing, thresholdReached,
   handleTouchStart, handleTouchMove, handleTouchEnd,
 } = usePullToRefresh({
-  scrollContainer,
-  onRefresh: async () => {
+  scrollContainer,   onRefresh: async () => {
     if (refreshPromise) return
     refreshPromise = (async () => {
-      console.log('[PTRefresh] Pull-to-refresh triggered: sync + refresh')
-      // 1. Sync remote → local SQLite (metadata only)
-      // 2. Refresh patient list from local SQLite
-      // 3. Refresh workspace data for the selected patient (if any)
-      await syncAndRefresh(patientsMeta.value?.current_page || 1)
+      console.log('[PTRefresh] Pull-to-refresh triggered')
+      await refreshPatientList(patientsMeta.value?.current_page || 1)
       console.log('[PTRefresh] Pull-to-refresh complete')
     })()
     try { await refreshPromise } finally { refreshPromise = null }
@@ -354,14 +346,11 @@ const ptrContentStyle = computed(() => ({
 }))
 
 let refreshPromise = null
-let syncPromise = null
 
  onMounted(() => {
-    // OFFLINE-FIRST: Load initial patients from Inertia props (from local SQLite)
-    // so the sidebar is populated IMMEDIATELY, before any async call.
+    // Load initial patients from Inertia props so the sidebar is populated immediately.
     if (props.patients?.length) {
       patients.value = props.patients
-      console.log(`[WRITE] onMounted() set patients.value = ${patients.value.length} Inertia props (SQLite) at ${new Date().toISOString()}`);
     }
     
     // Open sidebar on mobile
@@ -369,26 +358,10 @@ let syncPromise = null
       mobilePatientListOpen.value = true
     }
 
-    // BACKGROUND SYNC + REFRESH: After UI renders, sync from API then refresh.
-    // This is the CORRECT sequence:
-    //   1. UI renders immediately with local SQLite data (from Inertia props)
-    //   2. Background: sync remote API → local SQLite
-    //   3. Background: refresh patient list FROM local SQLite
-    //   4. UI updates silently (reactively)
-    if (!syncPromise) {
-      syncPromise = (async () => {
-        try {
-          // Wait a tick so the UI renders first
-          await new Promise(r => setTimeout(r, 100));
-          console.log('[DoctorWorkspace] Starting background sync+refresh...');
-          await syncAndRefresh();
-          console.log(`[DoctorWorkspace] Background sync+refresh complete: ${patients.value.length} patients`);
-        } catch (e) {
-          console.warn('[DoctorWorkspace] Background sync warning:', e?.message || e);
-        }
-      })();
-      syncPromise.finally(() => { syncPromise = null; });
-    }
+    // Background refresh after UI renders
+    setTimeout(() => {
+      refreshPatientList().catch(e => console.warn('[DoctorWorkspace] Background refresh warning:', e?.message || e));
+    }, 100);
 })
 
 const summaryRef = ref(null)
@@ -413,42 +386,6 @@ watch(mobilePatientListOpen, (isOpen) => {
 
 onUnmounted(() => {
   document.body.style.overflow = ''
-})
-
-// ── Connectivity listener ────────────────────────────────────────
-// When connectivity is restored, trigger an automatic background sync
-// so the user always has the latest data without manual refresh.
-let wasOffline = false
-const connectivityCheckInterval = ref(null)
-
-watch(isOnline, (online) => {
-  if (online && wasOffline) {
-    console.log('[DoctorWorkspace] Connectivity restored — auto-triggering sync...')
-    wasOffline = false
-    // Debounce: wait 2 seconds after connectivity restore before syncing
-    setTimeout(() => {
-      syncAndRefresh().catch(e => console.warn('[DoctorWorkspace] Auto-sync after connectivity restore:', e?.message))
-    }, 2000)
-  }
-  wasOffline = !online
-})
-
-// Periodically check connectivity and sync state
-onMounted(() => {
-  connectivityCheckInterval.value = setInterval(() => {
-    if (navigator.onLine && isOnline.value) {
-      refreshSyncState()
-    }
-  }, 30000) // Every 30 seconds
-
-  // Ensure wasOffline is initialized correctly
-  wasOffline = !navigator.onLine
-})
-
-onUnmounted(() => {
-  if (connectivityCheckInterval.value) {
-    clearInterval(connectivityCheckInterval.value)
-  }
 })
 
 const showShareModal = ref(false)
@@ -844,24 +781,6 @@ async function deleteNote(note) {
 async function submitNoteForm() {
   if (!noteFormContent.value || !selectedPatient.value?.uuid) return
 
-  // OFFLINE CHECK: Add to local reactive state immediately so it appears in the UI.
-  // The SyncMiddleware (T008) handles saving to local SQLite when offline on NativePHP.
-  // On web browser offline, the background sync will push when connectivity returns.
-  if (!navigator.onLine) {
-    const noteUuid = crypto.randomUUID ? crypto.randomUUID() : 'note-' + Date.now()
-    addNoteLocally({
-      uuid: noteUuid,
-      content: noteFormContent.value,
-      created_at: new Date().toISOString(),
-      category: 'general',
-    })
-    toast.success(t('workspace.note_added') + ' (offline)')
-    showNoteModal.value = false
-    editingNote.value = null
-    noteFormContent.value = ''
-    return
-  }
-
   try {
     if (editingNote.value) {
       await axios.put(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${editingNote.value.uuid}`, {
@@ -879,23 +798,8 @@ async function submitNoteForm() {
     noteFormContent.value = ''
     refreshWorkspaceData()
   } catch (e) {
-    // Network error after online call — fall back to local reactive state
-    if (!navigator.onLine || e?.code === 'ERR_NETWORK' || e?.message?.includes('Network Error')) {
-      const noteUuid = crypto.randomUUID ? crypto.randomUUID() : 'note-' + Date.now()
-      addNoteLocally({
-        uuid: noteUuid,
-        content: noteFormContent.value,
-        created_at: new Date().toISOString(),
-        category: 'general',
-      })
-      toast.warning(t('workspace.note_added') + ' (offline)')
-      showNoteModal.value = false
-      editingNote.value = null
-      noteFormContent.value = ''
-    } else {
-      console.error('Note save failed', e)
-      toast.error(t('common.error'))
-    }
+    console.error('Note save failed', e)
+    toast.error(t('common.error'))
   }
 }
 
@@ -933,29 +837,6 @@ async function submitVisitForm() {
     reason: visitForm.value.reason || '',
   }
 
-  // OFFLINE CHECK: Add visit to local reactive state immediately.
-  // The SyncMiddleware handles saving to SQLite on NativePHP.
-  if (!navigator.onLine && !editingVisit.value) {
-    const visitUuid = crypto.randomUUID ? crypto.randomUUID() : 'visit-' + Date.now()
-    if (workspaceData.value) {
-      workspaceData.value = {
-        ...workspaceData.value,
-        visits: [
-          {
-            uuid: visitUuid,
-            ...payload,
-            created_at: new Date().toISOString(),
-          },
-          ...(workspaceData.value.visits || []),
-        ],
-      }
-    }
-    toast.success(t('workspace.visit_added') + ' (offline)')
-    closeVisitModal()
-    savingVisit.value = false
-    return
-  }
-
   try {
     if (editingVisit.value) {
       await axios.put(`/api/v1/patients/${selectedPatient.value.uuid}/visits/${editingVisit.value.uuid}`, payload)
@@ -967,28 +848,8 @@ async function submitVisitForm() {
     closeVisitModal()
     await refreshWorkspaceData()
   } catch (e) {
-    // Network error after online call — add to local reactive state
-    if (!navigator.onLine || e?.code === 'ERR_NETWORK' || e?.message?.includes('Network Error')) {
-      if (!editingVisit.value && workspaceData.value) {
-        const visitUuid = crypto.randomUUID ? crypto.randomUUID() : 'visit-' + Date.now()
-        workspaceData.value = {
-          ...workspaceData.value,
-          visits: [
-            {
-              uuid: visitUuid,
-              ...payload,
-              created_at: new Date().toISOString(),
-            },
-            ...(workspaceData.value.visits || []),
-          ],
-        }
-      }
-      toast.warning(t('workspace.visit_added') + ' (offline)')
-      closeVisitModal()
-    } else {
-      console.error('Visit save failed', e)
-      toast.error(t('common.error'))
-    }
+    console.error('Visit save failed', e)
+    toast.error(t('common.error'))
   } finally {
     savingVisit.value = false
   }

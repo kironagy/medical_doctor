@@ -8,34 +8,18 @@ use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Domains\Mobile\Resources\MobilePatientNoteResource;
-use App\Helpers\NativePhp;
-use App\Services\NetworkStatusService;
-use App\Services\Mobile\ApiService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Log;
 
 class NoteController extends Controller
 {
     public function __construct(
-        private readonly ApiService $api,
         private readonly PatientNoteRepositoryInterface $noteRepo,
         private readonly PatientRepositoryInterface $patientRepo
     ) {}
 
     public function index(string $uuid)
     {
-        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
-            try {
-                $response = $this->api->get("/patients/{$uuid}/notes");
-                $notes = $response['data'] ?? $response;
-                $this->cacheNotesLocally($uuid, $notes);
-                return response()->json($response);
-            } catch (\Throwable $e) {
-                Log::warning('[NoteController] API index failed, falling back to local: ' . $e->getMessage());
-            }
-        }
-
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('view', $patient);
 
@@ -43,24 +27,10 @@ class NoteController extends Controller
         return response()->json([
             'data' => $notes->map(fn($n) => new MobilePatientNoteResource($n))->values(),
         ]);
+    }
 
     public function store(Request $request, string $uuid)
     {
-        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
-            try {
-                $validated = $request->validate([
-                    'content' => 'required|string|max:65535',
-                    'category' => 'nullable|string|max:100',
-                ]);
-
-                $response = $this->api->post("/patients/{$uuid}/notes", $validated);
-                $this->cacheNotesLocally($uuid, [$response['data'] ?? $response]);
-                return response()->json($response, 201);
-            } catch (\Throwable $e) {
-                Log::warning('[NoteController] API store failed, falling back to local: ' . $e->getMessage());
-            }
-        }
-
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('update', $patient);
 
@@ -73,7 +43,6 @@ class NoteController extends Controller
         $validated['author_id'] = $request->user()->id;
         $result = $this->noteRepo->create($uuid, $validated);
 
-        // Build model for resource formatting
         $note = new PatientNote();
         $note->forceFill(\Illuminate\Support\Arr::except($result, ['author']));
         $note->exists = true;
@@ -86,24 +55,9 @@ class NoteController extends Controller
 
     public function update(Request $request, string $uuid, string $noteUuid)
     {
-        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
-            try {
-                $validated = $request->validate([
-                    'content' => 'required|string|max:65535',
-                ]);
-
-                $response = $this->api->put("/patients/{$uuid}/notes/{$noteUuid}", $validated);
-                $this->cacheNotesLocally($uuid, [$response['data'] ?? $response]);
-                return response()->json($response);
-            } catch (\Throwable $e) {
-                Log::warning('[NoteController] API update failed, falling back to local: ' . $e->getMessage());
-            }
-        }
-
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('view', $patient);
 
-        // Author check: repository doesn't enforce ownership, so check manually
         $noteData = $this->noteRepo->forPatient($uuid);
         $noteData = collect($noteData)->firstWhere('uuid', $noteUuid);
         if (!$noteData) abort(404);
@@ -130,15 +84,6 @@ class NoteController extends Controller
 
     public function destroy(Request $request, string $uuid, string $noteUuid)
     {
-        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
-            try {
-                $this->api->delete("/patients/{$uuid}/notes/{$noteUuid}");
-                return response()->json(['message' => 'Note deleted successfully']);
-            } catch (\Throwable $e) {
-                Log::warning('[NoteController] API delete failed, falling back to local: ' . $e->getMessage());
-            }
-        }
-
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         $noteData = $this->noteRepo->forPatient($uuid);
         $noteData = collect($noteData)->firstWhere('uuid', $noteUuid);
@@ -150,27 +95,5 @@ class NoteController extends Controller
 
         $this->noteRepo->delete($uuid, $noteUuid);
         return response()->json(['message' => 'Note deleted successfully']);
-    }
-
-    private function cacheNotesLocally(string $patientUuid, array $notes): void
-    {
-        $patient = Patient::where('uuid', $patientUuid)->first();
-        if (!$patient) return;
-
-        foreach ($notes as $note) {
-            if (!isset($note['uuid'])) continue;
-
-            $cleanData = \Illuminate\Support\Arr::except($note, ['id', 'patient', 'author']);
-            $cleanData['patient_id'] = $patient->id;
-
-            try {
-                PatientNote::withoutGlobalScopes()->updateOrCreate(
-                    ['uuid' => $note['uuid']],
-                    $cleanData
-                );
-            } catch (\Throwable $e) {
-                Log::warning('[NoteController] Failed to cache note locally: ' . $e->getMessage());
-            }
-        }
     }
 }

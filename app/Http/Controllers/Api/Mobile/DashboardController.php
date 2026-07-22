@@ -6,30 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Models\PatientFile;
 use App\Domains\Mobile\Resources\MobilePatientResource;
-use App\Helpers\NativePhp;
-use App\Services\NetworkStatusService;
-use App\Services\Mobile\ApiService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class DashboardController extends Controller
 {
-    public function __construct(
-        private readonly ApiService $api
-    ) {}
-
     public function stats(Request $request)
     {
-        if (NativePhp::isRunning() && NetworkStatusService::isOnline()) {
-            try {
-                $response = $this->api->get('/dashboard/stats');
-                return response()->json($response);
-            } catch (\Throwable $e) {
-                Log::warning('[DashboardController] API stats failed, falling back to local: ' . $e->getMessage());
-            }
-        }
-
         $user = $request->user();
         $isSuperAdmin = $user->hasRole('super-admin');
 

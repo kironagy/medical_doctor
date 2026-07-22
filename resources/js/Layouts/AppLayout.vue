@@ -122,23 +122,7 @@
         <GlobalSearch />
       </header>
 
-      <!-- Offline / Sync Indicators -->
-      <div v-if="isOffline" class="bg-rose-500 text-white text-xs font-semibold py-1 px-4 flex items-center justify-center">
-        <svg class="w-4 h-4 me-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243-2.829a4.978 4.978 0 011.415-2.829m-1.415 5.656a5 5 0 01-7.072 0m7.072 0l2.829 2.829M8.464 15.536A5 5 0 018.464 8.464m0 0L5.636 5.636M15.536 15.536L8.464 8.464" /></svg>
-        {{ $t('offline_mode') || 'Offline Mode - Changes will be saved locally' }}
-      </div>
-      <div v-if="isSyncing" class="bg-blue-500 text-white text-xs font-semibold py-1 px-4 flex items-center justify-center">
-        <svg class="animate-spin w-4 h-4 me-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-        {{ $t('syncing') || 'Syncing changes...' }}
-      </div>
-      <div v-if="syncCompleted" class="bg-green-500 text-white text-xs font-semibold py-1 px-4 flex items-center justify-center transition-opacity">
-        <svg class="w-4 h-4 me-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-        {{ $t('sync_completed') || 'Sync completed successfully' }}
-      </div>
-      <div v-if="syncError" class="bg-rose-600 text-white text-xs font-semibold py-1 px-4 flex items-center justify-center transition-opacity">
-        <svg class="w-4 h-4 me-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-        {{ $t('sync_failed') || 'Sync failed. Will retry later.' }}
-      </div>
+
 
       <PullToRefresh
         class="flex-1 flex flex-col"
@@ -208,21 +192,7 @@ watch(mobileMenuOpen, (isOpen) => {
   }
 });
 
-// Offline Mode & Sync State
-const isOffline = ref(!navigator.onLine);
-const isSyncing = ref(false);
-const syncCompleted = ref(false);
-const syncError = ref(false);
 
-const checkOnlineStatus = () => {
-    const wasOffline = isOffline.value;
-    isOffline.value = !navigator.onLine;
-
-    if (wasOffline && !isOffline.value) {
-        toast.success('Back online');
-        triggerSync();
-    }
-};
 
 let refreshPromise = null
 
@@ -256,54 +226,16 @@ function syncStatusBar(t) {
   if (meta) {
     meta.content = color;
   }
-  if (window.native?.theme) {
-    try {
-      window.native.theme.setStatusBarColor(color);
-    } catch (e) {}
-  }
 }
-
-const periodicSyncTimer = ref(null);
 
 onMounted(() => {
   syncStatusBar(theme.value);
   watch(theme, (val) => syncStatusBar(val), { immediate: false });
-  
-  window.addEventListener('online', checkOnlineStatus);
-  window.addEventListener('offline', checkOnlineStatus);
-
-  // NOTE: Initial sync+refresh is NOT triggered here because:
-  // 1) DoctorWorkspace.vue onMounted handles it with proper sequencing
-  //    (Inertia props first, then background sync after 100ms delay)
-  // 2) Running triggerSync() here AND in DoctorWorkspace causes duplicate
-  //    syncAndRefresh calls that compete for state writes (race condition)
-  // 3) syncAndRefresh has a dedup guard, but the Inertia props write
-  //    and the API refresh still race on patients.value
-  // See useWorkspace.js for dedup guards on refreshPatientList/refreshWorkspaceData
 });
 
 onUnmounted(() => {
-  window.removeEventListener('online', checkOnlineStatus);
-  window.removeEventListener('offline', checkOnlineStatus);
-  if (periodicSyncTimer.value) {
-    clearInterval(periodicSyncTimer.value);
-    periodicSyncTimer.value = null;
-  }
   document.body.style.overflow = '';
 });
-
-async function triggerSync() {
-  if (isSyncing.value) return;
-  isSyncing.value = true;
-  try {
-    const ws = useWorkspace();
-    await ws.syncAndRefresh();
-  } catch (e) {
-    // Silent fail for background sync
-  } finally {
-    isSyncing.value = false;
-  }
-}
 
 defineProps({
   title: {

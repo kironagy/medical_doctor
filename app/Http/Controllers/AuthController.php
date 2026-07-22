@@ -2,13 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Domains\Users\Models\User;
 use App\Services\Mobile\ApiService;
-use App\Jobs\FullSyncJob;
-use App\Services\NetworkStatusService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 
@@ -23,11 +19,8 @@ class AuthController extends Controller
     }
 
     /**
-     * Hybrid login:
-     *  1. Try local SQLite first (works offline, fast).
-     *  2. If local fails but we are online, try the remote API — if it succeeds,
-     *     mirror the remote user into local SQLite so future logins work offline.
-     *  3. If both fail, return the standard "invalid credentials" error.
+     * API-first login: authenticate against the remote API,
+     * then establish a local session.
      */
     public function login(Request $request)
     {
@@ -39,214 +32,78 @@ class AuthController extends Controller
         $email = $credentials['email'];
         $password = $credentials['password'];
 
-        // Step 1: try local SQLite auth
-        if (Auth::attempt(['email' => $email, 'password' => $password], $request->boolean('remember'))) {
-            $request->session()->regenerate();
+        try {
+            $remoteResponse = ApiService::loginToRemote($email, $password);
 
-    // Best-effort remote token (non-blocking for offline)
-    $this->acquireRemoteToken($email, $password);
+            if (isset($remoteResponse['token'], $remoteResponse['user'])) {
+                $remoteUser = $remoteResponse['user'];
 
-    // Store credentials for automatic token refresh on 401
-    app(\App\Services\Mobile\ApiService::class)->storeCredentials($email, $password);
+                // Create or update local user record from remote API response
+                $localUser = \App\Domains\Users\Models\User::updateOrCreate(
+                    ['email' => $remoteUser['email']],
+                    [
+                        'name'     => $remoteUser['name'] ?? 'User',
+                        'password' => \Illuminate\Support\Facades\Hash::make($password),
+                        'role'     => $remoteUser['role'] ?? 'doctor',
+                        'phone'    => $remoteUser['phone'] ?? null,
+                        'code'     => $remoteUser['code'] ?? null,
+                        'uuid'     => $remoteUser['uuid'] ?? (string) \Illuminate\Support\Str::uuid(),
+                    ]
+                );
 
-    // Trigger a lightweight background sync so patients are loaded immediately
-    $this->triggerStartupSync();
+                $roleName = $remoteUser['role'] ?? 'doctor';
+                if (in_array($roleName, ['super-admin', 'doctor'], true)) {
+                    $localUser->syncRoles([$roleName]);
 
-    if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
-        return response()->json(['redirect' => $this->getRoleBasedUrl($request)]);
-    }
-
-            return $this->roleBasedRedirect($request);
-        }
-
-        // Step 2: try remote API if local auth failed and we are online
-        if (NetworkStatusService::isOnline()) {
-            try {
-                $remoteResponse = ApiService::loginToRemote($email, $password);
-
-                if (isset($remoteResponse['token'], $remoteResponse['user'])) {
-                    $remoteUser = $remoteResponse['user'];
-
-                    // Mirror/refresh the remote user into local SQLite so future
-                    // offline logins work against the local database.
-                    $localUser = $this->mirrorRemoteUser($remoteUser, $password);
-
-                    Auth::login($localUser, $request->boolean('remember'));
-                    $request->session()->regenerate();
-
-                    app(ApiService::class)->setToken($remoteResponse['token']);
-                    Log::info('Hybrid login: authenticated via remote API and mirrored user locally.', [
-                        'user_id' => $localUser->id,
-                        'email'   => $localUser->email,
-                    ]);
-
-                    // Store credentials for automatic token refresh on 401
-                    app(ApiService::class)->storeCredentials($email, $password);
-
-                    // Trigger a lightweight background sync so patients are loaded immediately
-                    $this->triggerStartupSync();
-
-                    if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
-                        return response()->json(['redirect' => $this->getRoleBasedUrl($request)]);
-                    }
-
-                    return $this->roleBasedRedirect($request);
+        session(['api_token_raw' => $response['token']]);
                 }
-            } catch (\Throwable $e) {
-                Log::warning('Hybrid login: remote API login attempt failed.', [
-                    'email'  => $email,
-                    'reason' => $e->getMessage(),
+
+                Auth::login($localUser, $request->boolean('remember'));
+                $request->session()->regenerate();
+
+                app(ApiService::class)->setToken($remoteResponse['token']);
+                app(ApiService::class)->storeCredentials($email, $password);
+
+                Log::info('API login successful', [
+                    'user_id' => $localUser->id,
+                    'email'   => $localUser->email,
                 ]);
-            }
-        }
 
-        // Step 3: both paths failed
-        if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
-            return response()->json([
-                'errors' => ['email' => ['The provided credentials do not match our records.']]
-            ], 422);
-        }
-
-        return back()->withErrors([
-            'email' => 'The provided credentials do not match our records.',
-        ])->onlyInput('email');
-    }
-
-    /**
-     * Best-effort remote token acquisition — must never block the login flow
-     * when the device is offline.
-     */
-    private function acquireRemoteToken(string $email, string $password): void
-    {
-        if (!NetworkStatusService::isOnline()) {
-            return;
-        }
-
-        try {
-            $tokenResponse = ApiService::loginToRemote($email, $password);
-            if (isset($tokenResponse['token'])) {
-                app(ApiService::class)->setToken($tokenResponse['token']);
-                Log::info('Remote API token acquired successfully');
-            }
-        } catch (\Throwable $e) {
-            Log::warning('Remote API login failed, sidebar will use local data: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Create or update the local user record from the remote API response.
-     * Keeps the local password hash in sync with the supplied password so
-     * subsequent offline Auth::attempt() calls succeed.
-     */
-    /**
-     * Trigger a background metadata sync after login.
-     * Dispatches a FullSyncJob to the queue so the sync runs in the
-     * background and the login response returns immediately (no more
-     * 15-second block on login).
-     *
-     * The first workspace page load will fetch patients from the API via
-     * the Hybrid repository, so the local SQLite pre-population is not
-     * critical for a responsive first experience.
-     */
-    private function triggerStartupSync(): void
-    {
-        // Only run on NativePHP mobile — the web version uses MySQL directly
-        // and doesn't need to sync to a local SQLite cache.
-        if (!env('NATIVEPHP_RUNNING', false)) {
-            return;
-        }
-
-        if (!NetworkStatusService::isOnline()) {
-            Log::info('[StartupSync] Skipping — device is offline');
-            return;
-        }
-
-        try {
-            $token = app(ApiService::class)->getToken();
-            if (!$token) {
-                Log::warning('[StartupSync] Skipping — no API token available');
-                return;
-            }
-
-            Log::info('[StartupSync] Dispatching background FullSyncJob after login...');
-            FullSyncJob::dispatch();
-            Log::info('[StartupSync] FullSyncJob dispatched successfully');
-        } catch (\Throwable $e) {
-            Log::warning('[StartupSync] Failed (non-fatal): ' . $e->getMessage());
-        }
-    }
-
-    private function mirrorRemoteUser(array $remoteUser, string $password): User
-    {
-        $uuid = $remoteUser['uuid'] ?? null;
-
-        // If the login response didn't include UUID, fetch it from the /me endpoint
-        if (!$uuid && !empty($remoteUser['id'])) {
-            try {
-                $apiService = app(\App\Services\Mobile\ApiService::class);
-                if ($apiService->getToken()) {
-                    $meResponse = $apiService->get('/me');
-                    $uuid = $meResponse['uuid'] ?? $meResponse['data']['uuid'] ?? null;
+                if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
+                    return response()->json(['redirect' => $this->getRoleBasedUrl($request)]);
                 }
-            } catch (\Throwable $e) {
-                Log::warning('[AuthController] Failed to fetch user UUID from /me endpoint: ' . $e->getMessage());
+
+                return $this->roleBasedRedirect($request);
             }
+
+            throw new \RuntimeException('Invalid response from server.');
+        } catch (\Throwable $e) {
+            Log::warning('API login failed', [
+                'email'  => $email,
+                'reason' => $e->getMessage(),
+            ]);
+
+            if ($request->wantsJson() && $request->header('X-Inertia') !== 'true') {
+                return response()->json([
+                    'errors' => ['email' => [$e->getMessage() ?: 'The provided credentials do not match our records.']]
+                ], 422);
+            }
+
+            return back()->withErrors([
+                'email' => $e->getMessage() ?: 'The provided credentials do not match our records.',
+            ])->onlyInput('email');
         }
-
-        // Last resort: generate a local UUID (only used as fallback)
-        if (!$uuid) {
-            $uuid = (string) \Illuminate\Support\Str::uuid();
-            Log::warning('[AuthController] No remote UUID available, generated local UUID: ' . $uuid);
-        }
-
-        $attributes = [
-            'name'     => $remoteUser['name'] ?? 'Remote User',
-            'email'    => $remoteUser['email'],
-            'password' => Hash::make($password),
-            'role'     => $remoteUser['role'] ?? 'doctor',
-            'phone'    => $remoteUser['phone'] ?? null,
-            'code'     => $remoteUser['code'] ?? null,
-            'uuid'     => $uuid,
-        ];
-
- $localUser = User::where('email', $attributes['email'])->first();
-
- if ($localUser) {
-     $localUser->update($attributes);
- } else {
-     $localUser = User::create($attributes);
- }
-
- $roleName = $attributes['role'] ?? 'doctor';
- if (in_array($roleName, ['super-admin', 'doctor'], true)) {
-     $localUser->syncRoles([$roleName]);
- } else {
-     $localUser->syncRoles(['doctor']);
- }
-
- if (!empty($remoteUser['id'])) {
-     $localUser->id = $remoteUser['id'];
-     $localUser->saveQuietly();
- }
-
-        return $localUser->fresh();
     }
 
-    /**
-     * Redirect to the role-appropriate landing page after successful login.
-     */
     private function getRoleBasedUrl(Request $request): string
     {
         $user = $request->user();
         if ($user && ($user->role === 'super-admin' || $user->hasRole('super-admin'))) {
             return '/admin/doctors';
         }
-    return '/workspace';
-}
+        return '/workspace';
+    }
 
-/**
- * Redirect to the role-appropriate landing page after successful login.
-     */
     private function roleBasedRedirect(Request $request)
     {
         return redirect()->intended($this->getRoleBasedUrl($request));
@@ -254,7 +111,6 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        // Clear the persisted API token from local DB (so startup sync doesn't reuse it)
         try {
             app(ApiService::class)->setToken(null);
             app(ApiService::class)->clearCredentials();

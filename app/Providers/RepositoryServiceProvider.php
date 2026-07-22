@@ -7,58 +7,28 @@ use App\Contracts\Repositories\PatientNoteRepositoryInterface;
 use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Contracts\Repositories\PatientVisitRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
-use App\Repositories\Eloquent\EloquentPatientFileRepository;
-use App\Repositories\Eloquent\EloquentPatientNoteRepository;
-use App\Repositories\Eloquent\EloquentPatientRepository;
-use App\Repositories\Eloquent\EloquentPatientVisitRepository;
+use App\Repositories\Api\ApiPatientFileRepository;
+use App\Repositories\Api\ApiPatientNoteRepository;
+use App\Repositories\Api\ApiPatientRepository;
+use App\Repositories\Api\ApiPatientVisitRepository;
 use App\Repositories\Eloquent\EloquentUserRepository;
-use App\Repositories\Hybrid\HybridPatientFileRepository;
-use App\Repositories\Hybrid\HybridPatientNoteRepository;
-use App\Repositories\Hybrid\HybridPatientRepository;
-use App\Repositories\Hybrid\HybridPatientVisitRepository;
-use App\Services\BackgroundSyncService;
-use App\Services\Sync\ConflictResolver;
-use App\Services\Sync\IncrementalSyncService;
+use App\Services\Mobile\ApiService;
 use Illuminate\Support\ServiceProvider;
 
 class RepositoryServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $isNative = (bool) env('NATIVEPHP_RUNNING', false);
-
+        // API-first architecture: all repositories communicate directly with the remote API.
+        // No local SQLite, no hybrid fallback, no sync services.
+        // The API is the single source of truth.
         $this->app->bind(UserRepositoryInterface::class, EloquentUserRepository::class);
+        $this->app->bind(PatientRepositoryInterface::class, ApiPatientRepository::class);
+        $this->app->bind(PatientFileRepositoryInterface::class, ApiPatientFileRepository::class);
+        $this->app->bind(PatientNoteRepositoryInterface::class, ApiPatientNoteRepository::class);
+        $this->app->bind(PatientVisitRepositoryInterface::class, ApiPatientVisitRepository::class);
 
-        // Always use Hybrid repos for NativePHP (mobile) — ensures offline-first.
-        // On web server, Eloquent repos are fine (no local SQLite cache needed).
-        // IMPORTANT: Hybrid repos try API first, fall back to local SQLite.
-        // This is critical for the mobile app to work both online and offline.
-        if ($isNative) {
-            // In NativePHP (mobile): use Hybrid repos for offline support + sync
-            $this->app->bind(PatientRepositoryInterface::class, HybridPatientRepository::class);
-            $this->app->bind(PatientFileRepositoryInterface::class, HybridPatientFileRepository::class);
-            $this->app->bind(PatientNoteRepositoryInterface::class, HybridPatientNoteRepository::class);
-            $this->app->bind(PatientVisitRepositoryInterface::class, HybridPatientVisitRepository::class);
-        } else {
-            // On the web server: use Eloquent directly (no local SQLite cache needed)
-            $this->app->bind(PatientRepositoryInterface::class, EloquentPatientRepository::class);
-            $this->app->bind(PatientFileRepositoryInterface::class, EloquentPatientFileRepository::class);
-            $this->app->bind(PatientNoteRepositoryInterface::class, EloquentPatientNoteRepository::class);
-            $this->app->bind(PatientVisitRepositoryInterface::class, EloquentPatientVisitRepository::class);
-        }
-
-        // In Native mode, also alias the Hybrid repos so WorkspaceController
-        // receives Hybrid through the interface binding.
-        if ($isNative) {
-            $this->app->singleton(HybridPatientRepository::class);
-            $this->app->singleton(HybridPatientFileRepository::class);
-            $this->app->singleton(HybridPatientNoteRepository::class);
-            $this->app->singleton(HybridPatientVisitRepository::class);
-        }
-
-        // Register new sync architecture services globally (both native and web)
-        $this->app->singleton(ConflictResolver::class);
-        $this->app->singleton(IncrementalSyncService::class);
-        $this->app->singleton(BackgroundSyncService::class);
+        // Singleton for API service (manages token lifecycle)
+        $this->app->singleton(ApiService::class);
     }
 }

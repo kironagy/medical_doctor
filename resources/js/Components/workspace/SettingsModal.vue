@@ -50,26 +50,6 @@
               <span class="text-xs font-semibold text-slate-400">{{ locale === 'ar' ? 'العربية' : 'English' }}</span>
             </button>
 
-            <!-- 3. Sync Records (سجلات المزامنة) -->
-            <button
-              type="button"
-              @click="runSync"
-              :disabled="syncing"
-              class="w-full flex items-center justify-between px-5 py-3 border border-teal-500/30 dark:border-teal-500/20 text-teal-700 dark:text-teal-400 bg-teal-50/10 hover:bg-teal-50/30 rounded-xl text-sm font-bold transition-all active:scale-[0.98] disabled:opacity-60"
-            >
-              <span class="flex items-center gap-2">
-                <svg v-if="!syncing" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 8H18" />
-                </svg>
-                <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                سجلات المزامنة
-              </span>
-              <span class="text-[10px] text-teal-600 font-bold" v-if="syncing">جاري المزامنة...</span>
-            </button>
-
             <!-- Admin Categories Manager (إدارة الأقسام) -->
             <button
               v-if="$page.props.auth?.user?.role === 'super-admin'"
@@ -154,7 +134,6 @@ const { theme } = useTheme()
 const { locale } = useLocale()
 const toast = useToast()
 
-const syncing = ref(false)
 const version = ref('v1.0.0')
 const downloadUrl = ref('')
 const downloadingApp = ref(false)
@@ -200,23 +179,6 @@ function toggleTheme() {
 function toggleLocale() {
   locale.value = locale.value === 'ar' ? 'en' : 'ar'
   toast.success('تم تغيير لغة التطبيق')
-}
-
-async function runSync() {
-  syncing.value = true
-  try {
-    await axios.post('/api/native/sync')
-    toast.success('تم مزامنة السجلات الطبية بنجاح')
-    // Close settings modal and reload page to show updated data
-    emit('update:modelValue', false)
-    setTimeout(() => {
-      router.reload({ only: [] })
-    }, 500)
-  } catch (e) {
-    toast.error('حدث خطأ أثناء مزامنة السجلات')
-  } finally {
-    syncing.value = false
-  }
 }
 
 function handleDownloadApp() {

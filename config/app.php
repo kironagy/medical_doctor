@@ -125,18 +125,5 @@ return [
 
     'mobile_api_url' => env('MOBILE_API_URL', 'https://prof-hosam-fekry.online/api/v1/mobile'),
 
-    /*
-    |--------------------------------------------------------------------------
-    | Encrypt API Token
-    |--------------------------------------------------------------------------
-    |
-    | When true, the API token stored in the local SQLite database is encrypted
-    | using APP_KEY. When false (default for NativePHP), the token is stored
-    | in plaintext to avoid token loss when APP_KEY changes during app updates.
-    |
-    | Production servers should set this to true.
-    |
-    */
-    'encrypt_api_token' => env('ENCRYPT_API_TOKEN', false),
 
 ];

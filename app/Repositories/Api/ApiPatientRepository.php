@@ -93,7 +93,7 @@ class ApiPatientRepository implements PatientRepositoryInterface
         if ($search && strlen($search) >= 2) {
             $params['search'] = $search;
         }
-        // Incremental sync: only fetch records updated since the given timestamp
+// Only fetch records updated since the given timestamp
         if ($updatedSince) {
             $params['updated_since'] = $updatedSince;
         }

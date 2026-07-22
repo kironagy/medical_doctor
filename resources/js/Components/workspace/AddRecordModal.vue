@@ -135,7 +135,7 @@ const emit = defineEmits(['update:modelValue', 'saved'])
 
 const toast = useToast()
 const { uploadFile } = useUploads()
-const { syncAndRefresh, addNoteLocally } = useWorkspace()
+const { addNoteLocally } = useWorkspace()
 
 const activeTab = ref('text')
 const notes = ref('')
@@ -211,15 +211,11 @@ async function submit() {
       emit('saved')
       emit('update:modelValue', false)
       
-      // NOTE: We do NOT call syncAndRefresh() here because:
+      // NOTE: We do not call refreshWorkspaceData() here because:
       // 1) The note is already visible via addNoteLocally() above
-      // 2) syncAndRefresh() calls refreshWorkspaceData() which OVERWRITES
-      //    workspaceData with data from the local SQLite query. If the sync
-      //    hasn't pushed this note yet (e.g., due to auth errors), the server
-      //    response won't include the new note and it DISAPPEARS from the UI.
-      // 3) The periodic background sync (every 2 min) and pull-to-refresh
-      //    will sync the note when the server has it.
-      console.log('[AddRecordModal] Note added locally - background sync will handle server push');
+      // 2) refreshWorkspaceData() would overwrite workspaceData with stale server data
+      // 3) Pull-to-refresh will fetch the latest data.
+      // Note will be refreshed by refreshWorkspaceData()
     } catch (e) {
       console.error('Note add failed:', e)
       toast.error('فشل إضافة الملاحظة')
@@ -245,11 +241,11 @@ async function submit() {
       emit('saved')
       emit('update:modelValue', false)
       
-      // NOTE: We do NOT call syncAndRefresh() here because:
+      // NOTE: We do not call refreshWorkspaceData() here because:
       // 1) Upload progress and completion are shown via UploadManager component
-      // 2) syncAndRefresh() would overwrite workspaceData with stale server data
-      // 3) The periodic background sync (every 2 min) will sync completed uploads
-      console.log('[AddRecordModal] Files queued for upload - background sync will handle server push');
+      // 2) refreshWorkspaceData() would overwrite workspaceData with stale server data
+      // 3) Pull-to-refresh will fetch the latest data.
+      // Files will be refreshed by refreshWorkspaceData() after upload.
     } catch (e) {
       console.error('Upload failed:', e)
       toast.error('فشل بدء رفع الملفات')

@@ -4,7 +4,6 @@ namespace App\Services\Mobile;
 
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -19,21 +18,11 @@ class ApiService
 
     public function __construct()
     {
-        // DB is the SINGLE SOURCE OF TRUTH for the API token.
-        // Session is a read-through cache for performance only.
-        //
-        // Always load from DB first, then restore to session.
-        // This prevents desync between session and DB when one
-        // write succeeds and the other fails.
-        $this->token = $this->loadTokenFromDb();
-
-        // Restore to session for this request
-        if ($this->token) {
-            try {
-                session(['api_token_raw' => $this->token]);
-            } catch (\Exception $e) {
-                // Session unavailable (e.g. CLI context) — token still usable in memory
-            }
+        // Load token from session on construct
+        try {
+            $this->token = session('api_token_raw');
+        } catch (\Exception $e) {
+            $this->token = null;
         }
     }
 
@@ -41,105 +30,40 @@ class ApiService
     {
         $this->token = $token;
 
-        // DB is authoritative — persist to DB FIRST
-        $this->saveTokenToDb($token);
-
-        // Session is read-through cache — write AFTER DB
+        // Store token in session only (no SQLite persistence)
         if ($token) {
             try {
                 session(['api_token_raw' => $token]);
             } catch (\Exception $e) {
-                // Session may not be available (CLI/startup sync context)
+                // Session may not be available
             }
         } else {
             try {
                 session()->forget('api_token_raw');
-                session()->forget('api_token');
             } catch (\Exception $e) {}
-        }
-    }
-
-    /**
-     * Check if encrypted token storage is enabled.
-     * When true, token is encrypted with APP_KEY before storage.
-     * When false (default for NativePHP), token is stored in plaintext
-     * to avoid token loss on APP_KEY changes during app updates.
-     * Production deployments should set this to true.
-     */
-    private function useEncryptedToken(): bool
-    {
-        return config('app.encrypt_api_token', false);
-    }
-
-    /**
-     * Load the API token from the local sync_states table.
-     * Returns null if the table doesn't exist yet or has no token.
-     *
-     * Supports three formats:
-     * 1. Encrypted: {'encrypted': '...'} — decrypted with APP_KEY
-     * 2. Plaintext: {'plain': '...'} — stored as-is (default for NativePHP)
-     * 3. Legacy: direct string — upgraded to format 2 on save
-     */
-    private function loadTokenFromDb(): ?string
-    {
-        try {
-            $row = \Illuminate\Support\Facades\DB::table('sync_states')
-                ->where('key', 'api_token')
-                ->first();
-            if (!$row) return null;
-            $value = is_string($row->value) ? json_decode($row->value, true) : $row->value;
-            if (is_array($value) && isset($value['encrypted'])) {
-                try {
-                    return decrypt($value['encrypted']);
-                } catch (\Exception $e) {
-                    Log::warning('[ApiService] Failed to decrypt legacy token format, clearing it');
-                    return null;
-                }
-            }
-            if (is_array($value) && isset($value['plain'])) {
-                return $value['plain'];
-            }
-            return is_string($row->value) ? $row->value : null;
-        } catch (\Exception $e) {
-            return null;
-        }
-    }
-
-    /**
-     * Persist (or clear) the API token in the local sync_states table.
-     * Uses APP_KEY encryption when encrypt_api_token config is enabled.
-     */
-    private function saveTokenToDb(?string $token): void
-    {
-        try {
-            if ($token && $this->useEncryptedToken()) {
-                $value = json_encode(['encrypted' => encrypt($token)]);
-            } else {
-                $value = $token ? json_encode(['plain' => $token]) : json_encode(null);
-            }
-            $exists = \Illuminate\Support\Facades\DB::table('sync_states')
-                ->where('key', 'api_token')
-                ->exists();
-            if ($exists) {
-                \Illuminate\Support\Facades\DB::table('sync_states')
-                    ->where('key', 'api_token')
-                    ->update(['value' => $value, 'updated_at' => now()]);
-            } else {
-                \Illuminate\Support\Facades\DB::table('sync_states')
-                    ->insert(['key' => 'api_token', 'value' => $value, 'created_at' => now(), 'updated_at' => now()]);
-            }
-
-            if ($token && $this->useEncryptedToken()) {
-                Log::info('[ApiService] API token stored with encryption.');
-            }
-        } catch (\Exception $e) {
-            // DB not ready yet (first boot before migrations) — ignore
         }
     }
 
     public function getToken(): ?string
     {
         return $this->token;
+    }
+
+    public function storeCredentials(string $email, string $password): void
+    {
+        // No-op: credentials are only needed for automatic token refresh,
+        // which was part of the removed SQLite/sync architecture.
+        // The API service now relies on session-based tokens only.
+    }
+
+    public function loadCredentials(): ?array
+    {
+        return null;
+    }
+
+    public function clearCredentials(): void
+    {
+        // No-op: credentials storage was removed.
     }
 
     private function client(): PendingRequest
@@ -198,32 +122,7 @@ class ApiService
         $response = $request->post($url, $data);
 
         if ($response->unauthorized()) {
-            // Attempt token refresh and retry the upload once
-            Log::info('[ApiService] Upload received 401, attempting token refresh...');
-            if ($this->refreshToken()) {
-                // Rebuild request with new token and retry
-                $retryRequest = $this->client();
-                foreach ($files as $k => $f) {
-                    if ($f instanceof \Illuminate\Http\UploadedFile) {
-                        $retryRequest->attach($k, file_get_contents($f->getRealPath()), $f->getClientOriginalName());
-                    } elseif (is_string($f) && file_exists($f)) {
-                        $retryRequest->attach($k, file_get_contents($f), basename($f));
-                    }
-                }
-                $response = $retryRequest->post($url, $data);
-
-                if ($response->successful()) {
-                    Log::info('[ApiService] Upload retry succeeded after token refresh.');
-                    return $response->json() ?? [];
-                }
-
-                if (!$response->unauthorized()) {
-                    $body = $response->json();
-                    $message = is_array($body) ? ($body['message'] ?? 'Upload failed.') : 'Upload failed.';
-                    throw new RuntimeException($message);
-                }
-            }
-
+            Log::info('[ApiService] Upload received 401, session expired.');
             $this->setToken(null);
             throw new RuntimeException('Session expired. Please login again.');
         }
@@ -244,21 +143,7 @@ class ApiService
         $response = $this->client()->sink($destination)->get($url);
 
         if ($response->unauthorized()) {
-            // Attempt token refresh and retry the download once
-            Log::info('[ApiService] Download received 401, attempting token refresh...');
-            if ($this->refreshToken()) {
-                $response = $this->client()->sink($destination)->get($url);
-
-                if ($response->successful()) {
-                    Log::info('[ApiService] Download retry succeeded after token refresh.');
-                    return true;
-                }
-
-                if (!$response->unauthorized()) {
-                    return false;
-                }
-            }
-
+            Log::info('[ApiService] Download received 401, session expired.');
             $this->setToken(null);
             throw new RuntimeException('Session expired. Please login again.');
         }
@@ -266,157 +151,11 @@ class ApiService
         return $response->successful();
     }
 
-    /**
-     * Store login credentials securely for automatic token refresh.
-     * Credentials are encrypted before storage.
-     */
-    public function storeCredentials(string $email, string $password): void
-    {
-        try {
-            $value = json_encode([
-                'email'    => Crypt::encryptString($email),
-                'password' => Crypt::encryptString($password),
-            ]);
-
-            $exists = \Illuminate\Support\Facades\DB::table('sync_states')
-                ->where('key', 'stored_login_credentials')
-                ->exists();
-
-            if ($exists) {
-                \Illuminate\Support\Facades\DB::table('sync_states')
-                    ->where('key', 'stored_login_credentials')
-                    ->update(['value' => $value, 'updated_at' => now()]);
-            } else {
-                \Illuminate\Support\Facades\DB::table('sync_states')
-                    ->insert(['key' => 'stored_login_credentials', 'value' => $value, 'created_at' => now(), 'updated_at' => now()]);
-            }
-
-            Log::info('[ApiService] Login credentials stored securely for auto-refresh.');
-        } catch (\Throwable $e) {
-            Log::warning('[ApiService] Failed to store credentials: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Load stored login credentials for automatic token refresh.
-     * Returns ['email' => string, 'password' => string] or null.
-     */
-    public function loadCredentials(): ?array
-    {
-        try {
-            $row = \Illuminate\Support\Facades\DB::table('sync_states')
-                ->where('key', 'stored_login_credentials')
-                ->first();
-
-            if (!$row || empty($row->value)) {
-                return null;
-            }
-
-            $data = json_decode($row->value, true);
-            if (!is_array($data) || empty($data['email']) || empty($data['password'])) {
-                return null;
-            }
-
-            return [
-                'email'    => Crypt::decryptString($data['email']),
-                'password' => Crypt::decryptString($data['password']),
-            ];
-        } catch (\Throwable $e) {
-            Log::warning('[ApiService] Failed to load stored credentials: ' . $e->getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Clear stored login credentials (e.g., on explicit logout).
-     */
-    public function clearCredentials(): void
-    {
-        try {
-            \Illuminate\Support\Facades\DB::table('sync_states')
-                ->where('key', 'stored_login_credentials')
-                ->delete();
-            Log::info('[ApiService] Stored login credentials cleared.');
-        } catch (\Throwable $e) {
-            // Ignore
-        }
-    }
-
-    /**
-     * Attempt to refresh the API token by re-authenticating with stored credentials.
-     *
-     * Features:
-     *  1. Cache lock prevents concurrent refresh storms (only one refresh at a time).
-     *  2. Exponential backoff (1s, 2s, 4s, 8s...) to avoid hammering the login throttle.
-     *  3. Double-check: if another request already refreshed the token, skip the login call.
-     *  4. Backoff counter resets on success, expires after 4 hours.
-     *
-     * Steps:
-     *  1. Acquire a cache lock (wait up to 10s for another in-progress refresh).
-     *  2. Check if token was already refreshed by another request (race condition guard).
-     *  3. Load encrypted email/password from local DB.
-     *  4. Sleep for 2^attempts seconds (backoff) before hitting the login endpoint.
-     *  5. Re-authenticate against the remote /login endpoint.
-     *  6. On success, update the token in session + DB and reset backoff counter.
-     *  7. On failure, increment backoff counter, clear the expired token.
-     */
     public function refreshToken(): bool
     {
-        $lock = \Illuminate\Support\Facades\Cache::lock('token_refresh_lock', 10);
-
-        try {
-            if (!$lock->get()) {
-                Log::warning('[ApiService] Token refresh skipped — another refresh already in progress.');
-                return $this->token !== null;
-            }
-
-            $currentToken = $this->loadTokenFromDb();
-            if ($currentToken && $currentToken !== $this->token) {
-                $this->token = $currentToken;
-                Log::info('[ApiService] Token was already refreshed by another request.');
-                try { session(['api_token_raw' => $currentToken]); } catch (\Throwable $e) {}
-                return true;
-            }
-
-            $attemptKey = 'token_refresh_attempts';
-            $attempts = (int) \Illuminate\Support\Facades\Cache::get($attemptKey, 0);
-
-            if ($attempts > 0) {
-                $delay = min(pow(2, $attempts), 30);
-                Log::info("[ApiService] Backing off token refresh: attempt #{$attempts}, waiting {$delay}s");
-                sleep($delay);
-            }
-
-            $credentials = $this->loadCredentials();
-            if (!$credentials) {
-                Log::warning('[ApiService] Token refresh failed — no stored credentials available. User must re-login.');
-                $this->setToken(null);
-                \Illuminate\Support\Facades\Cache::forget($attemptKey);
-                return false;
-            }
-
-            Log::info('[ApiService] Attempting token refresh via re-authentication...');
-            $response = self::loginToRemote($credentials['email'], $credentials['password']);
-
-            if (isset($response['token'])) {
-                $this->setToken($response['token']);
-                Log::info('[ApiService] Token refreshed successfully via re-authentication.');
-                \Illuminate\Support\Facades\Cache::forget($attemptKey);
-                return true;
-            }
-
-            Log::warning('[ApiService] Token refresh failed — re-authentication returned no token.');
-        } catch (\Throwable $e) {
-            Log::warning('[ApiService] Token refresh failed: ' . $e->getMessage());
-        } finally {
-            $lock?->release();
-        }
-
-        $attemptKey = 'token_refresh_attempts';
-        $attempts = (int) \Illuminate\Support\Facades\Cache::get($attemptKey, 0);
-        \Illuminate\Support\Facades\Cache::put($attemptKey, $attempts + 1, 14400);
-
-        $this->setToken(null);
+        // Token refresh via stored credentials has been removed.
+        // The app is API-only now — if the token expires, the user
+        // will be prompted to login again via 401 handling.
         return false;
     }
 
@@ -424,23 +163,13 @@ class ApiService
     {
         $url = $this->baseUrl() . $path;
         $attempts = 0;
-        $refreshAttempted = false;
 
         while ($attempts <= self::MAX_RETRIES) {
             try {
                 $response = $this->client()->send($method, $url, $options);
 
                 if ($response->unauthorized()) {
-                    if (!$refreshAttempted) {
-                        $refreshAttempted = true;
-                        Log::info('[ApiService] Received 401, attempting token refresh and retry...');
-                        if ($this->refreshToken()) {
-                            // Token refreshed successfully — retry the request with new token
-                            // Don't increment $attempts, give it a fresh try
-                            continue;
-                        }
-                    }
-                    // Refresh failed or already attempted
+                    $this->setToken(null);
                     throw new RuntimeException('Session expired. Please login again.');
                 }
 
@@ -467,8 +196,6 @@ class ApiService
     {
         try {
             $loginUrl = str_replace('/mobile', '', config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile')) . '/login';
-            // Short timeout (5s) so offline / unreachable networks fail fast and
-            // don't make the login button spin forever.
             $response = Http::timeout(5)
                 ->connectTimeout(3)
                 ->post(

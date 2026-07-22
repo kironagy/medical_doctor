@@ -30,7 +30,7 @@ Route::get('/debug-state', function () {
     $info = [
         'user_id' => auth()->id(),
         'user_email' => auth()->user()?->email ?? 'guest',
-        'is_online' => \App\Services\NetworkStatusService::isOnline(),
+        'is_online' => true,
         'time' => now()->toIso8601String(),
     ];
     try {
@@ -163,25 +163,4 @@ Route::middleware('auth')->group(function () {
     });
 });
 
-// NativePHP offline sync endpoints
-// MOVED FROM api.php: uses web session auth (inside the auth middleware group)
-// instead of auth:sanctum because the frontend sends session cookies, not Bearer tokens.
-// CSRF is bypassed for these routes via bootstrap/app.php exceptions.
-Route::middleware(['auth', 'throttle:30,1'])->group(function () {
-    Route::post('/api/native/sync', [\App\Http\Controllers\NativeSyncController::class, 'sync']);
-    Route::get('/api/native/sync/status', [\App\Http\Controllers\NativeSyncController::class, 'getStatus'])
-        ->name('native.sync.status');
-    Route::post('/api/native/sync/force', [\App\Http\Controllers\NativeSyncController::class, 'forceSync'])
-        ->name('native.sync.force');
-    Route::post('/api/native/sync/background', [\App\Http\Controllers\NativeSyncController::class, 'backgroundSync'])
-        ->name('native.sync.background');
-    Route::post('/api/native/sync/clear', function () {
-        \Illuminate\Support\Facades\Log::info('Native sync clear endpoint called.');
-        $count = app(\App\Services\SyncQueueService::class)->clearSyncedOperations(7);
-        return response()->json([
-            'success' => true,
-            'cleared' => $count,
-            'message' => "{$count} fully synced operations removed.",
-        ]);
-    })->name('native.sync.clear');
-});
+

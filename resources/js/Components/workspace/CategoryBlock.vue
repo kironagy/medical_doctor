@@ -429,7 +429,7 @@ const props = defineProps({
   allCategories: { type: Array, default: () => [] },
 })
 
-const { toggleCategory, isCategoryExpanded, canEdit, canDelete, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile, allFiles, allNotes, updateFileLocally, removeFileLocally, syncAndRefresh } = useWorkspace()
+const { toggleCategory, isCategoryExpanded, canEdit, canDelete, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile, allFiles, allNotes, updateFileLocally, removeFileLocally } = useWorkspace()
 const { uploadFile, cancelUpload, pauseUpload, resumeUpload, retryUpload, uploads } = useUploads()
 const dialog = useDialog()
 const toast = useToast()
@@ -792,9 +792,9 @@ async function deleteFileDirectly(file) {
     await axios.delete(`/api/v1/files/${file.uuid}`)
     handleFileDeleted(file)
     toast.success('تم حذف الملف بنجاح')
-    // Background sync: sync deletion to remote API
+    // Refresh workspace data after deletion
     if (navigator.onLine) {
-      syncAndRefresh().catch(e => console.warn('[CategoryBlock] Delete sync trigger:', e?.message));
+      refreshWorkspaceData();
     }
   } catch (e) {
     console.error('Delete failed:', e)
@@ -907,9 +907,9 @@ watch(uploads, (list) => {
     localCompleteCount.value = c
     if (initialLoadDone.value) {
       loadCategoryData(currentPage.value)
-      // Background sync: push uploaded file to remote API
+      // Refresh workspace data after upload
       if (navigator.onLine) {
-        syncAndRefresh().catch(e => console.warn('[CategoryBlock] Upload sync trigger:', e?.message));
+        refreshWorkspaceData();
       }
     }
     toast.success('Upload complete')
@@ -1228,9 +1228,9 @@ async function deleteNoteDirectly(note) {
       await axios.delete(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`)
       refreshWorkspaceData()
       toast.success('تم حذف الملاحظة بنجاح')
-      // Background sync: sync note deletion to remote API
+      // Refresh workspace data after deletion
       if (navigator.onLine) {
-        syncAndRefresh().catch(e => console.warn('[CategoryBlock] Note delete sync trigger:', e?.message));
+        refreshWorkspaceData();
       }
     } catch (e) {
       console.error('Delete note failed', e)
