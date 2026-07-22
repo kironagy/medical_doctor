@@ -52,11 +52,19 @@ class AuthController extends Controller
                 );
 
                 $roleName = $remoteUser['role'] ?? 'doctor';
-                if (in_array($roleName, ['super-admin', 'doctor'], true)) {
-                    $localUser->syncRoles([$roleName]);
-
-        session(['api_token_raw' => $response['token']]);
+                if (in_array($roleName, ['super-admin', 'doctor', 'admin', 'assistant', 'receptionist'], true)) {
+                    // Ensure roles and permissions exist before assigning
+                    try {
+                        $localUser->syncRoles([$roleName]);
+                    } catch (\Spatie\Permission\Exceptions\RoleDoesNotExist $e) {
+                        // Role doesn't exist yet — create it via PermissionService
+                        app(\App\Domains\Users\Services\PermissionService::class)
+                            ->setupDefaultRolesAndPermissions();
+                        $localUser->syncRoles([$roleName]);
+                    }
                 }
+
+                session(['api_token_raw' => $remoteResponse['token']]);
 
                 Auth::login($localUser, $request->boolean('remember'));
                 $request->session()->regenerate();
