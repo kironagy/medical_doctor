@@ -3,7 +3,10 @@
 namespace App\Http\Controllers\Api\Mobile;
 
 use App\Http\Controllers\Controller;
+use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
+use App\Domains\Patients\Models\PatientVisit;
+use App\Domains\Media\Models\PatientFile;
 use App\Domains\Mobile\Resources\MobilePatientResource;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
 use App\Helpers\NativePhp;
@@ -17,7 +20,8 @@ class PatientController extends Controller
 {
     public function __construct(
         private readonly ActivityLogger $logger,
-        private readonly ApiService $api
+        private readonly ApiService $api,
+        private readonly PatientRepositoryInterface $patientRepo
     ) {}
 
     public function index(Request $request)
@@ -41,20 +45,16 @@ class PatientController extends Controller
         $perPage = min($request->integer('per_page', 20), 100);
         $search = $request->get('search');
 
-        $query = Patient::query()
-            ->with('primaryDoctor:id,name,email')
-            ->orderBy('created_at', 'desc');
+        $patients = Patient::with('primaryDoctor:id,name,email')
+            ->orderBy('created_at', 'desc')
+            ->when($search, fn($q, $s) => $q->where(function ($q) use ($s) {
+                $q->where('name', 'like', "%{$s}%")
+                    ->orWhere('code', 'like', "%{$s}%")
+                    ->orWhere('phone', 'like', "%{$s}%")
+                    ->orWhere('diagnosis', 'like', "%{$s}%");
+            }))
+            ->paginate($perPage);
 
-        if ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('code', 'like', "%{$search}%")
-                    ->orWhere('phone', 'like', "%{$search}%")
-                    ->orWhere('diagnosis', 'like', "%{$search}%");
-            });
-        }
-
-        $patients = $query->paginate($perPage);
         return MobilePatientResource::collection($patients);
     }
 
@@ -154,9 +154,11 @@ class PatientController extends Controller
         ]);
 
         if (empty($validated['code'])) {
-            do {
-                $validated['code'] = (string) random_int(100000, 999999);
-            } while (Patient::where('code', $validated['code'])->exists());
+            \Illuminate\Support\Facades\DB::transaction(function () use (&$validated) {
+                do {
+                    $validated['code'] = (string) random_int(100000, 999999);
+                } while (Patient::where('code', $validated['code'])->exists());
+            });
         } elseif (Patient::where('code', $validated['code'])->exists()) {
             return response()->json(['message' => 'Code already exists', 'errors' => ['code' => ['This code is already in use.']]], 422);
         }
@@ -164,11 +166,15 @@ class PatientController extends Controller
         $validated['primary_doctor_id'] = $request->user()->id;
         $validated['created_by_id'] = $request->user()->id;
 
-        $patient = Patient::create($validated);
+        $result = $this->patientRepo->create($validated);
 
-        $this->logger->log('patient_created', 'Patient', $patient->uuid, [
-            'patient_name' => $patient->name,
+        $this->logger->log('patient_created', 'Patient', $result['uuid'] ?? '', [
+            'patient_name' => $result['name'] ?? 'Unknown',
         ]);
+
+        $patient = new Patient();
+        $patient->forceFill($result);
+        $patient->exists = true;
 
         return response()->json(new MobilePatientResource($patient), 201);
     }
@@ -202,9 +208,6 @@ class PatientController extends Controller
             }
         }
 
-        $patient = Patient::where('uuid', $uuid)->firstOrFail();
-        Gate::authorize('update', $patient);
-
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'phone' => 'nullable|string|max:255',
@@ -223,13 +226,17 @@ class PatientController extends Controller
             'code' => 'nullable|string|max:255',
         ]);
 
-        $patient->update($validated);
+        $updated = $this->patientRepo->update($uuid, $validated);
 
-        $this->logger->log('patient_updated', 'Patient', $patient->uuid, [
-            'patient_name' => $patient->name,
+        $this->logger->log('patient_updated', 'Patient', $uuid, [
+            'patient_name' => $validated['name'] ?? 'Unknown',
         ]);
 
-        return response()->json(new MobilePatientResource($patient->fresh()));
+        $patient = new Patient();
+        $patient->forceFill($updated);
+        $patient->exists = true;
+
+        return response()->json(new MobilePatientResource($patient));
     }
 
     public function destroy(string $uuid)
@@ -243,13 +250,16 @@ class PatientController extends Controller
             }
         }
 
-        $patient = Patient::where('uuid', $uuid)->firstOrFail();
+        $patientData = $this->patientRepo->findByUuid($uuid);
+        $patient = new Patient();
+        $patient->forceFill($patientData);
+        $patient->exists = true;
+
         Gate::authorize('delete', $patient);
+        $this->patientRepo->delete($uuid);
 
-        $patient->delete();
-
-        $this->logger->log('patient_deleted', 'Patient', $patient->uuid, [
-            'patient_name' => $patient->name,
+        $this->logger->log('patient_deleted', 'Patient', $uuid, [
+            'patient_name' => $patientData['name'] ?? 'Unknown',
         ]);
 
         return response()->json(['message' => 'Patient deleted successfully']);

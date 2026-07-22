@@ -58,15 +58,26 @@ class SyncMiddleware
             return $response;
         }
 
-        // OFFLINE: skip controller execution entirely, store in queue, return success.
-        Log::info("[SyncMiddleware] Offline — queuing {$entity} {$operation} instead of processing.");
+        // OFFLINE: Save to local SQLite first. The model observers
+        // (PatientObserver, PatientFileObserver, PatientNoteObserver)
+        // automatically enqueue sync operations when the model is
+        // created/updated/deleted. This ensures data persists in the
+        // local SQLite cache AND syncs when connectivity returns.
+        Log::info("[SyncMiddleware] Offline — saving {$entity} {$operation} to local SQLite.");
 
-        $this->syncQueue->enqueueOperation(
-            $entity,
-            $operation,
-            $recordUuid,
-            $payload
-        );
+        // Inject the parent patient UUID from URL segments for child entities
+        // (notes, visits, files) so saveLocally can resolve patient_id.
+        $patientUuid = $this->resolveParentPatientUuid($segments);
+        if ($patientUuid && !isset($payload['patient_uuid'])) {
+            $payload['patient_uuid'] = $patientUuid;
+        }
+
+        try {
+            $this->saveLocally($entity, $operation, $recordUuid, $payload);
+            Log::info("[SyncMiddleware] Successfully saved {$entity} {$operation} locally (sync via observer).");
+        } catch (\Throwable $e) {
+            Log::error("[SyncMiddleware] Failed to save {$entity} {$operation} locally: " . $e->getMessage());
+        }
 
         $offlineResponse = response()->json([
             'success'        => true,
@@ -74,7 +85,7 @@ class SyncMiddleware
             'entity'         => $entity,
             'operation'      => $operation,
             'record_uuid'    => $recordUuid,
-            'message'        => 'Operation queued and will be synced when connectivity is restored.',
+            'message'        => 'Operation saved locally and will be synced when connectivity is restored.',
         ]);
         
         $this->injectSyncStateHeaders($offlineResponse);
@@ -252,5 +263,192 @@ class SyncMiddleware
             '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i',
             $value
         );
+    }
+
+    /**
+     * Extract the parent patient UUID from URL segments for child resource routes.
+     * E.g., for /patients/{patientUuid}/notes, returns {patientUuid}.
+     * Looks for a UUID segment immediately before a known resource keyword (notes, visits, files, shares).
+     */
+    private function resolveParentPatientUuid(array $segments): ?string
+    {
+        $childResources = ['notes', 'visits', 'files', 'shares'];
+        $prev = null;
+        foreach ($segments as $segment) {
+            if (in_array($segment, $childResources) && $prev && $this->isUuid($prev)) {
+                return $prev;
+            }
+            $prev = $segment;
+        }
+        return null;
+    }
+
+    /**
+     * Save an offline operation to local SQLite using the appropriate Eloquent model.
+     * The model's observer will automatically enqueue a sync operation.
+     */
+    private function saveLocally(string $entity, string $operation, ?string $recordUuid, array $payload): bool
+    {
+        try {
+            switch ($entity) {
+                case 'Patient':
+                    return $this->savePatientLocally($operation, $recordUuid, $payload);
+
+                case 'PatientVisit':
+                    return $this->saveVisitLocally($operation, $recordUuid, $payload);
+
+                case 'PatientNote':
+                    return $this->saveNoteLocally($operation, $recordUuid, $payload);
+
+                case 'PatientFile':
+                    // File upload middleware is handled via multipart — skip for offline
+                    // since binary file data is not available in the JSON payload.
+                    // File deletions are handled.
+                    if ($operation === 'delete' && $recordUuid) {
+                        $file = \App\Domains\Media\Models\PatientFile::where('uuid', $recordUuid)->first();
+                        if ($file) {
+                            $file->delete();
+                            return true;
+                        }
+                    }
+                    Log::warning('[SyncMiddleware] Offline file ' . $operation . ' not supported via middleware.');
+                    return false;
+
+                case 'PatientShare':
+                    if ($operation === 'create') {
+                        \App\Domains\Patients\Models\PatientShare::create($payload);
+                        return true;
+                    } elseif ($operation === 'delete' && $recordUuid) {
+                        $share = \App\Domains\Patients\Models\PatientShare::where('uuid', $recordUuid)->first();
+                        if ($share) {
+                            $share->delete();
+                            return true;
+                        }
+                    }
+                    return false;
+
+                default:
+                    Log::warning("[SyncMiddleware] Unknown entity for offline save: {$entity}");
+                    return false;
+            }
+        } catch (\Throwable $e) {
+            Log::error("[SyncMiddleware] Error in saveLocally({$entity}): " . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function savePatientLocally(string $operation, ?string $recordUuid, array $payload): bool
+    {
+        if ($operation === 'create') {
+            if (!isset($payload['uuid'])) {
+                $payload['uuid'] = (string) \Illuminate\Support\Str::uuid();
+            }
+            if (!isset($payload['primary_doctor_id'])) {
+                try {
+                    $payload['primary_doctor_id'] = auth()->id();
+                } catch (\Throwable $e) {}
+            }
+            if (!isset($payload['created_by_id'])) {
+                try {
+                    $payload['created_by_id'] = auth()->id();
+                } catch (\Throwable $e) {}
+            }
+            if (!isset($payload['code'])) {
+                do {
+                    $payload['code'] = (string) random_int(100000, 999999);
+                } while (\App\Domains\Patients\Models\Patient::where('code', $payload['code'])->exists());
+            }
+            \App\Domains\Patients\Models\Patient::create($payload);
+            return true;
+        }
+
+        if ($recordUuid) {
+            $patient = \App\Domains\Patients\Models\Patient::where('uuid', $recordUuid)->first();
+            if (!$patient) {
+                return false;
+            }
+
+            if ($operation === 'update') {
+                $patient->update($payload);
+                return true;
+            } elseif ($operation === 'delete') {
+                $patient->delete();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function saveNoteLocally(string $operation, ?string $recordUuid, array $payload): bool
+    {
+        $patientUuid = $payload['patient_uuid'] ?? null;
+
+        if ($operation === 'create') {
+            if (!isset($payload['uuid'])) {
+                $payload['uuid'] = (string) \Illuminate\Support\Str::uuid();
+            }
+            if ($patientUuid) {
+                $patient = \App\Domains\Patients\Models\Patient::where('uuid', $patientUuid)->first();
+                if ($patient) {
+                    $payload['patient_id'] = $patient->id;
+                }
+            }
+            \App\Domains\Patients\Models\PatientNote::create($payload);
+            return true;
+        }
+
+        if ($recordUuid) {
+            $note = \App\Domains\Patients\Models\PatientNote::where('uuid', $recordUuid)->first();
+            if (!$note) {
+                return false;
+            }
+
+            if ($operation === 'update') {
+                $note->update($payload);
+                return true;
+            } elseif ($operation === 'delete') {
+                $note->delete();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function saveVisitLocally(string $operation, ?string $recordUuid, array $payload): bool
+    {
+        $patientUuid = $payload['patient_uuid'] ?? null;
+
+        if ($operation === 'create') {
+            if (!isset($payload['uuid'])) {
+                $payload['uuid'] = (string) \Illuminate\Support\Str::uuid();
+            }
+            if ($patientUuid) {
+                $patient = \App\Domains\Patients\Models\Patient::where('uuid', $patientUuid)->first();
+                if ($patient) {
+                    $payload['patient_id'] = $patient->id;
+                }
+            }
+            \App\Domains\Patients\Models\PatientVisit::create($payload);
+            return true;
+        }
+
+        if ($recordUuid) {
+            $visit = \App\Domains\Patients\Models\PatientVisit::where('uuid', $recordUuid)->first();
+            if (!$visit) {
+                return false;
+            }
+
+            if ($operation === 'update') {
+                $visit->update($payload);
+                return true;
+            } elseif ($operation === 'delete') {
+                $visit->delete();
+                return true;
+            }
+        }
+
+        return false;
     }
 }

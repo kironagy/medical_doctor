@@ -133,6 +133,9 @@ class SyncQueueService
                 Log::error("[SyncQueueService] Item {$item->uuid} permanently failed after {$item->retry_count} attempts: {$errorMessage}");
             } else {
                 $item->status = 'failed';
+                // Escalate priority on retry: failed items get higher priority (lower number)
+                // so critical operations (patient creates) are not blocked behind non-critical retries
+                $item->priority = max(1, 5 - $item->retry_count);
                 Log::warning("[SyncQueueService] Item {$item->uuid} failed (attempt {$item->retry_count}/" . self::MAX_RETRIES . "): {$errorMessage}");
             }
             $item->last_error = $errorMessage ?? 'Unknown error';
@@ -166,13 +169,18 @@ class SyncQueueService
             ])
             ->take($batchSize);
 
-        // Batch reset failed items to pending (avoids per-item events)
-        $failedIds = $items->where('status', 'failed')->pluck('id');
-        if ($failedIds->isNotEmpty()) {
-            SyncQueueItem::whereIn('id', $failedIds)->update(['status' => 'pending']);
-        }
+        // NOTE: Failed items are NOT batch-reset to pending here.
+        // The caller (FullSyncService::syncPendingOperations) resets each
+        // failed item individually right before processing, so if the
+        // process crashes mid-batch, only the item being processed loses
+        // its 'failed' status — the rest remain 'failed' and are safely
+        // retried on the next cycle with their retry_count preserved.
+        //
+        // This prevents losing retry_count history across all items when
+        // a crash occurs mid-batch.
 
-        Log::info("[SyncQueueService] Fetched {$items->count()} pending operations for processing.");
+        $previouslyFailedCount = $items->where('status', 'failed')->count();
+        Log::info("[SyncQueueService] Fetched {$items->count()} pending operations for processing ({$previouslyFailedCount} previously failed — will be reset per-item during processing).");
 
         return $items;
     }
@@ -297,7 +305,7 @@ class SyncQueueService
      * 2. We use a heartbeat-based expiry mechanism
      * 3. Old locks are automatically released after LOCK_TTL seconds
      */
-    private const LOCK_TTL = 300;
+    public const LOCK_TTL = 30;
 
     public function acquireLock(): bool
     {
@@ -333,6 +341,18 @@ class SyncQueueService
             'sync_in_progress' => false,
             'sync_lock_acquired_at' => null,
             'last_sync_at' => now()->toDateTimeString(),
+        ]);
+    }
+
+    /**
+     * Extend the lock TTL by updating the acquired-at timestamp.
+     * Called periodically during long sync operations to prevent
+     * the lock from expiring (and a concurrent sync from starting).
+     */
+    public function touchLock(): void
+    {
+        $this->updateState([
+            'sync_lock_acquired_at' => now()->toIso8601String(),
         ]);
     }
 }

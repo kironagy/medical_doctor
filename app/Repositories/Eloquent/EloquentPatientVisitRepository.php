@@ -27,19 +27,19 @@ class EloquentPatientVisitRepository implements PatientVisitRepositoryInterface
         return $visit->toArray();
     }
 
-    public function update(int $visitId, array $data): array
+    public function update(string $visitUuid, array $data): array
     {
-        $visit = PatientVisit::find($visitId);
+        $visit = PatientVisit::where('uuid', $visitUuid)->first();
         if (!$visit) {
-            throw new \RuntimeException('Visit not found: ' . $visitId);
+            throw new \RuntimeException('Visit not found: ' . $visitUuid);
         }
         $visit->update($data);
         return $visit->fresh()->toArray();
     }
 
-    public function delete(int $visitId): void
+    public function delete(string $visitUuid): void
     {
-        $visit = PatientVisit::find($visitId);
+        $visit = PatientVisit::where('uuid', $visitUuid)->first();
         if ($visit) {
             $visit->delete();
         }

@@ -48,12 +48,13 @@ class NetworkStatusService
             'status' => $response->status(),
         ]);
 
-        // Cache success for 60 seconds
-        \Illuminate\Support\Facades\Cache::put($cacheKey, $online, $online ? 60 : 15);
+        // Cache for 5 seconds on success, 5 seconds on failure
+        // Reduced from 60s/15s to react faster to connectivity changes
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $online, 5);
         return self::$isOnline = $online;
     } catch (ConnectionException $e) {
-            // Cache failure for 15 seconds only so we re-check quickly when connection returns
-            \Illuminate\Support\Facades\Cache::put($cacheKey, false, 15);
+            // Cache failure for 5 seconds so we re-check quickly when connection returns
+            \Illuminate\Support\Facades\Cache::put($cacheKey, false, 5);
             return self::$isOnline = false;
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Cache::put($cacheKey, false, 15);

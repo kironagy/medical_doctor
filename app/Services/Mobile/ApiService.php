@@ -19,22 +19,15 @@ class ApiService
 
     public function __construct()
     {
-        // 1. Try session first (fast, current request)
-        // Uses plaintext session key to avoid APP_KEY dependency
-        try {
-            $plain = session('api_token_raw');
-            if ($plain) {
-                $this->token = $plain;
-                return;
-            }
-        } catch (\Exception $e) {
-            session()->forget('api_token_raw');
-        }
-
-        // 2. Fall back to persistent local DB storage (survives app restarts)
+        // DB is the SINGLE SOURCE OF TRUTH for the API token.
+        // Session is a read-through cache for performance only.
+        //
+        // Always load from DB first, then restore to session.
+        // This prevents desync between session and DB when one
+        // write succeeds and the other fails.
         $this->token = $this->loadTokenFromDb();
 
-        // 3. If found in DB, restore to session for this request
+        // Restore to session for this request
         if ($this->token) {
             try {
                 session(['api_token_raw' => $this->token]);
@@ -47,21 +40,22 @@ class ApiService
     public function setToken(?string $token): void
     {
         $this->token = $token;
+
+        // DB is authoritative — persist to DB FIRST
+        $this->saveTokenToDb($token);
+
+        // Session is read-through cache — write AFTER DB
         if ($token) {
-            // Persist to session (stored in plaintext to avoid APP_KEY dependency)
             try {
                 session(['api_token_raw' => $token]);
             } catch (\Exception $e) {
                 // Session may not be available (CLI/startup sync context)
             }
-            // Persist to DB so the token survives process restarts
-            $this->saveTokenToDb($token);
         } else {
             try {
                 session()->forget('api_token_raw');
                 session()->forget('api_token');
             } catch (\Exception $e) {}
-            $this->saveTokenToDb(null);
         }
     }
 

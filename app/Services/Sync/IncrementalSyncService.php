@@ -44,49 +44,67 @@ class IncrementalSyncService
     }
 
     /**
-     * Pull patients updated since the given timestamp.
+     * Pull patients updated since the given timestamp using paginated API calls.
      */
     private function pullIncrementalPatients(?Carbon $since): void
     {
         try {
             $apiPatientRepo = app(\App\Repositories\Api\ApiPatientRepository::class);
 
-            $params = ['per_page' => 100];
-            if ($since) {
-                $params['updated_since'] = $since->toIso8601String();
-            }
+            $updatedSinceStr = $since?->toIso8601String();
+            $allPatients = [];
+            $page = 1;
+            $perPage = 100;
+            $hasMore = true;
 
-            $body = $apiPatientRepo->all(); // With per_page=1000
-            $patients = $body['data'] ?? $body['patients'] ?? $body ?? [];
-
-            if (empty($patients)) {
-                Log::info('[IncrementalSync] No new/updated patients to sync.');
-                return;
-            }
-
-            $count = 0;
-            foreach ($patients as $item) {
-                if (empty($item['uuid'])) continue;
-
-                $cleanData = \Illuminate\Support\Arr::except($item, [
-                    'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes'
-                ]);
-
+            while ($hasMore) {
                 try {
-                    Patient::unguard();
-                    Patient::withoutGlobalScopes()->updateOrCreate(
-                        ['uuid' => $item['uuid']],
-                        $cleanData
-                    );
-                    Patient::reguard();
-                    $count++;
-                } catch (\Exception $e) {
-                    Patient::reguard();
-                    Log::warning("[IncrementalSync] Failed to sync patient {$item['uuid']}: " . $e->getMessage());
+                    $body = $apiPatientRepo->paginated($perPage, $page, null, null, $updatedSinceStr);
+                    $patients = $body['data'] ?? $body['patients'] ?? [];
+
+                    if (empty($patients)) {
+                        $hasMore = false;
+                        break;
+                    }
+
+                    foreach ($patients as $item) {
+                        if (empty($item['uuid'])) continue;
+
+                        $cleanData = \Illuminate\Support\Arr::except($item, [
+                            'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes'
+                        ]);
+
+                        try {
+                            Patient::unguard();
+                            Patient::withoutGlobalScopes()->updateOrCreate(
+                                ['uuid' => $item['uuid']],
+                                $cleanData
+                            );
+                            Patient::reguard();
+                        } catch (\Exception $e) {
+                            Patient::reguard();
+                            Log::warning("[IncrementalSync] Failed to sync patient {$item['uuid']}: " . $e->getMessage());
+                        }
+                    }
+
+                    $allPatients = array_merge($allPatients, $patients);
+
+                    $meta = $body['meta'] ?? [];
+                    $currentPage = $meta['current_page'] ?? $page;
+                    $lastPage = $meta['last_page'] ?? $page;
+
+                    if ($currentPage >= $lastPage) {
+                        $hasMore = false;
+                    } else {
+                        $page++;
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("[IncrementalSync] Failed to fetch patients page {$page}: " . $e->getMessage());
+                    $hasMore = false;
                 }
             }
 
-            Log::info("[IncrementalSync] Synced {$count} patients incrementally.");
+            Log::info("[IncrementalSync] Incremental patient sync: " . count($allPatients) . " patients (since {$updatedSinceStr}).");
         } catch (\Throwable $e) {
             Log::warning('[IncrementalSync] Incremental patient pull failed: ' . $e->getMessage());
         }
@@ -94,10 +112,12 @@ class IncrementalSyncService
 
     /**
      * Pull child resources (files, notes, visits) updated since the timestamp.
+     * Calls API repos directly with updated_since filter.
      */
     private function pullIncrementalChildResources(?Carbon $since): void
     {
         $patients = Patient::withoutGlobalScopes()->pluck('uuid');
+        $updatedSinceStr = $since?->toIso8601String();
 
         $syncedFiles = 0;
         $syncedNotes = 0;
@@ -105,25 +125,25 @@ class IncrementalSyncService
 
         foreach ($patients as $patientUuid) {
             try {
-                // Files — using FullSyncService's static method which handles patient_id resolution
+                // Files
                 $apiFileRepo = app(\App\Repositories\Api\ApiPatientFileRepository::class);
-                $files = $apiFileRepo->forPatient($patientUuid);
+                $files = $apiFileRepo->forPatient($patientUuid, $updatedSinceStr) ?? [];
                 if (!empty($files)) {
                     FullSyncService::syncFilesWithLocalPatientId($patientUuid, $files);
                     $syncedFiles += count($files);
                 }
 
-                // Notes — using FullSyncService's static method
+                // Notes
                 $apiNoteRepo = app(\App\Repositories\Api\ApiPatientNoteRepository::class);
-                $notes = $apiNoteRepo->forPatient($patientUuid);
+                $notes = $apiNoteRepo->forPatient($patientUuid, $updatedSinceStr) ?? [];
                 if (!empty($notes)) {
                     FullSyncService::syncChildRecordsWithLocalPatientId($patientUuid, $notes, PatientNote::class);
                     $syncedNotes += count($notes);
                 }
 
-                // Visits — using FullSyncService's static method
+                // Visits
                 $apiVisitRepo = app(\App\Repositories\Api\ApiPatientVisitRepository::class);
-                $visits = $apiVisitRepo->forPatient($patientUuid);
+                $visits = $apiVisitRepo->forPatient($patientUuid, $updatedSinceStr) ?? [];
                 if (!empty($visits)) {
                     FullSyncService::syncChildRecordsWithLocalPatientId($patientUuid, $visits, PatientVisit::class);
                     $syncedVisits += count($visits);
@@ -133,7 +153,7 @@ class IncrementalSyncService
             }
         }
 
-        Log::info("[IncrementalSync] Incremental child sync: {$syncedFiles} files, {$syncedNotes} notes, {$syncedVisits} visits.");
+        Log::info("[IncrementalSync] Incremental child sync: {$syncedFiles} files, {$syncedNotes} notes, {$syncedVisits} visits (since {$updatedSinceStr}).");
     }
 
     /**
@@ -156,6 +176,16 @@ class IncrementalSyncService
         } catch (\Exception $e) {
             return null;
         }
+    }
+
+    /**
+     * Seed the incremental sync timestamp without performing a sync.
+     * Used after a full sync to ensure the next cycle uses incremental.
+     */
+    public function seedTimestamp(): void
+    {
+        $this->setLastSyncTimestamp(now());
+        Log::info('[IncrementalSync] Timestamp seeded after full sync.');
     }
 
     /**

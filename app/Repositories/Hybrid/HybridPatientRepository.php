@@ -7,7 +7,6 @@ use App\Domains\Patients\Models\Patient;
 use App\Repositories\Api\ApiPatientRepository;
 use App\Repositories\Eloquent\EloquentPatientRepository;
 use App\Services\NetworkStatusService;
-use App\Services\SyncQueueService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Log;
 
@@ -16,7 +15,6 @@ class HybridPatientRepository implements PatientRepositoryInterface
     public function __construct(
         private ApiPatientRepository $apiRepo,
         private EloquentPatientRepository $localRepo,
-        private SyncQueueService $syncQueue,
     ) {}
 
     /**
@@ -127,13 +125,10 @@ class HybridPatientRepository implements PatientRepositoryInterface
             }
         }
 
-        // OFFLINE FALLBACK: Save to local SQLite and queue for background sync
+        // OFFLINE FALLBACK: Save to local SQLite.
+        // SYNC NOTE: PatientObserver::created() handles enqueuing the sync operation.
+        // We DO NOT enqueue here to avoid duplicate sync queue items.
         $localData = $this->localRepo->create($data);
-        $localUuid = $localData['uuid'] ?? null;
-
-        if ($localUuid) {
-            $this->syncQueue->enqueueOperation('Patient', 'create', $localUuid, $localData);
-        }
 
         return $localData;
     }
@@ -155,7 +150,8 @@ class HybridPatientRepository implements PatientRepositoryInterface
             }
         }
 
-        $this->syncQueue->enqueueOperation('Patient', 'update', $uuid, $data);
+        // SYNC NOTE: PatientObserver::updated() handles enqueuing the sync operation.
+        // No need to enqueue here.
         return $localData;
     }
 
@@ -173,7 +169,8 @@ class HybridPatientRepository implements PatientRepositoryInterface
             }
         }
 
-        $this->syncQueue->enqueueOperation('Patient', 'delete', $uuid, null);
+        // SYNC NOTE: PatientObserver::deleted() handles enqueuing the sync operation.
+        // No need to enqueue here.
     }
 
     public function search(string $term): array
@@ -284,7 +281,8 @@ class HybridPatientRepository implements PatientRepositoryInterface
             }
         }
 
-        $this->syncQueue->enqueueOperation('Patient', 'restore', $uuid, null);
+        // SYNC NOTE: PatientObserver::restored() handles enqueuing the sync operation.
+        // No need to enqueue here.
     }
 
     public function forceDelete(string $uuid): void
@@ -301,6 +299,7 @@ class HybridPatientRepository implements PatientRepositoryInterface
             }
         }
 
-        $this->syncQueue->enqueueOperation('Patient', 'forceDelete', $uuid, null);
+        // SYNC NOTE: PatientObserver::deleted() handles enqueuing the sync operation.
+        // No need to enqueue here.
     }
 }

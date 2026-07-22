@@ -74,6 +74,22 @@
 
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @inertiaHead
+
+        @auth
+            @php
+                try {
+                    $tokenRow = Illuminate\Support\Facades\DB::table('sync_states')
+                        ->where('key', 'api_token')
+                        ->first();
+                    $apiToken = $tokenRow ? json_decode($tokenRow->value, true)['plain'] ?? null : null;
+                } catch (\Throwable $e) {
+                    $apiToken = null;
+                }
+            @endphp
+            @if($apiToken)
+                <meta name="api-token" content="{{ $apiToken }}">
+            @endif
+        @endauth
     </head>
     <body class="font-sans antialiased text-slate-900">
         @inertia

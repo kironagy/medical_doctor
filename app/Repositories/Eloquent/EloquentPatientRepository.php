@@ -20,12 +20,23 @@ class EloquentPatientRepository implements PatientRepositoryInterface
         return $patients;
     }
 
-    public function paginated(int $perPage = 10, int $page = 1, ?string $status = null): array
+    public function paginated(int $perPage = 10, int $page = 1, ?string $status = null, ?string $search = null): array
     {
         $query = Patient::latest();
 
         if ($status === 'archived') {
             $query = Patient::onlyTrashed()->latest();
+        }
+
+        // Apply search filter if provided
+        if ($search && strlen($search) >= 2) {
+            $searchTerm = $search;
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('name', 'like', "%{$searchTerm}%")
+                  ->orWhere('code', 'like', "%{$searchTerm}%")
+                  ->orWhere('phone', 'like', "%{$searchTerm}%")
+                  ->orWhere('diagnosis', 'like', "%{$searchTerm}%");
+            });
         }
 
         $paginator = $query->paginate(

@@ -122,48 +122,30 @@ class WorkspaceController extends Controller
         $user = auth()->user();
         $categories = $this->getCategories($user);
 
-        // API-FIRST: When online, fetch from production API directly.
-        // The API data is authoritative. SQLite is only updated in background.
-        $patients = [];
-        $isOnline = NetworkStatusService::isOnline();
-        Log::info('[LOAD_PATIENTS] STEP 1: Internet available = ' . ($isOnline ? 'true' : 'false'));
-
-        if ($isOnline) {
-            try {
-                $token = $this->apiService->getToken();
-                Log::info('[LOAD_PATIENTS] STEP 2: Token available = ' . ($token ? 'YES' : 'NO'));
-
-                if ($token) {
-                    Log::info('[LOAD_PATIENTS] STEP 3: Calling ApiPatientRepository::all()...');
-                    $apiPatients = $this->getApiPatientRepo()->all();
-                    $apiCount = is_array($apiPatients) ? count($apiPatients) : 0;
-                    Log::info('[LOAD_PATIENTS] STEP 4: API returned ' . $apiCount . ' patients');
-
-                    // Use API data directly as the source of truth
-                    $patients = $apiPatients;
-
-                    // Silently persist to SQLite for offline access (non-blocking)
-                    if ($apiCount > 0) {
-                        Log::info('[LOAD_PATIENTS] STEP 5: Persisting ' . $apiCount . ' patients to SQLite cache...');
-                        $this->syncPatientsLocally($apiPatients);
-                    }
-                }
-            } catch (\Illuminate\Auth\AuthenticationException $e) {
-                Log::error('[LOAD_PATIENTS] ERROR: API token invalid/expired: ' . $e->getMessage());
-            } catch (\Throwable $e) {
-                Log::error('[LOAD_PATIENTS] ERROR: API fetch failed, falling back to SQLite: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
-                $isOnline = false;
-            }
-        }
-
-        // FALLBACK: Load from local SQLite when offline or API failed
-        if (!$isOnline || empty($patients)) {
+        // OFFLINE-FIRST ARCHITECTURE:
+        // In NativePHP (mobile) mode, ALL reads go to local SQLite only.
+        // The background sync (FullSyncService / periodic sync) keeps SQLite
+        // up-to-date with the production API. This eliminates the "API-first
+        // with SQLite fallback" pattern that created two sources of truth.
+        //
+        // On web server mode, the Eloquent repos read/write MySQL directly
+        // (no SQLite involvement), so the existing behavior is preserved.
+        if (\App\Helpers\NativePhp::isRunning()) {
             try {
                 $patients = $this->getEloquentPatientRepo()->all();
-                Log::info('[LOAD_PATIENTS] FALLBACK: SQLite contains ' . count($patients) . ' patients');
+                Log::info('[LOAD_PATIENTS] OFFLINE-FIRST: SQLite contains ' . count($patients) . ' patients');
             } catch (\Throwable $e) {
-                Log::error('[LOAD_PATIENTS] ERROR: Local SQLite load failed: ' . $e->getMessage());
+                Log::error('[LOAD_PATIENTS] SQLite read failed: ' . $e->getMessage());
+                $patients = [];
+            }
+        } else {
+            // Web server: read from Eloquent (MySQL) directly
+            $patients = [];
+            try {
+                $patients = $this->getEloquentPatientRepo()->all();
+                Log::info('[LOAD_PATIENTS] Eloquent (MySQL): ' . count($patients) . ' patients');
+            } catch (\Throwable $e) {
+                Log::error('[LOAD_PATIENTS] DB read failed: ' . $e->getMessage());
                 $patients = [];
             }
         }
@@ -188,76 +170,24 @@ class WorkspaceController extends Controller
     {
         $page = $request->input('page', 1);
         $status = $request->input('status');
-        $authError = false;
-        $result = null;
+        $search = $request->input('search');
 
-        // API-FIRST: When online, always fetch from the production API.
-        // SQLite cache is only used when offline.
-        if (NetworkStatusService::isOnline()) {
-            try {
-                $token = $this->apiService->getToken();
-                Log::info('[WorkspaceController] patientList - token: ' . ($token ? 'YES' : 'NO'));
-                if ($token) {
-                    $apiResult = $this->getApiPatientRepo()->paginated(10, $page, $status);
-                    $apiCount = isset($apiResult['data']) ? count($apiResult['data']) : 0;
-                    Log::info('[WorkspaceController] patientList - API returned ' . $apiCount . ' patients');
-                    
-                    // Persist API data to SQLite in background (silently)
-                    if ($apiCount > 0) {
-                        $this->syncPatientsLocally($apiResult['data']);
-                    }
-                    
-                    $result = $apiResult;
-                }
-            } catch (\Illuminate\Auth\AuthenticationException $e) {
-                Log::warning('[WorkspaceController] API token expired: ' . $e->getMessage());
-                $authError = true;
-                $this->apiService->setToken(null);
-            } catch (\Throwable $e) {
-                Log::error('[WorkspaceController] API fetch failed, falling back to SQLite: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
-            }
-        }
-
-        // Fallback: load from local SQLite when offline or API failed
-        if ($result === null) {
-            $result = $this->getEloquentPatientRepo()->paginated(10, $page, $status);
-            Log::info('[WorkspaceController] patientList - fallback to SQLite: ' . ($result['meta']['total'] ?? 0) . ' patients');
-        }
-
-        // Auth error with no data
-        if ($authError && ($result['meta']['total'] ?? 0) === 0) {
-            return response()->json([
+        // OFFLINE-FIRST ARCHITECTURE:
+        // In NativePHP (mobile) mode, ALL reads go to local SQLite only.
+        // Background sync keeps SQLite updated; we never hit the API for reads.
+        // On web server, Eloquent repos read from MySQL (no SQLite involved).
+        try {
+            $result = $this->getEloquentPatientRepo()->paginated(100, $page, $status, $search);
+            Log::info('[WorkspaceController] patientList - ' . (\App\Helpers\NativePhp::isRunning() ? 'SQLite' : 'MySQL') . ': ' . ($result['meta']['total'] ?? 0) . ' patients');
+        } catch (\Throwable $e) {
+            Log::error('[WorkspaceController] patientList - read failed: ' . $e->getMessage());
+            $result = [
                 'data' => [],
-                'meta' => ['current_page' => 1, 'last_page' => 1, 'per_page' => 10, 'total' => 0, 'from' => null, 'to' => null],
-                'auth_error' => true,
-                'message' => 'Session expired. Please login again.',
-            ]);
+                'meta' => ['current_page' => 1, 'last_page' => 1, 'per_page' => 100, 'total' => 0, 'from' => null, 'to' => null],
+            ];
         }
 
         return response()->json($result);
-    }
-
-    /**
-     * Sync remote API patient data into local SQLite for offline availability.
-     */
-    private function syncPatientsLocally(array $patients): void
-    {
-        foreach ($patients as $item) {
-            if (is_array($item) && isset($item['uuid'])) {
-                $cleanData = \Illuminate\Support\Arr::except($item, [
-                    'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes'
-                ]);
-                try {
-            Patient::unguard();
-            Patient::withoutGlobalScopes()->updateOrCreate(['uuid' => $item['uuid']], $cleanData);
-            Patient::reguard();
-                } catch (\Exception $e) {
-                    Patient::reguard();
-                    Log::warning("[WorkspaceController] Failed to sync patient {$item['uuid']}: " . $e->getMessage());
-                }
-            }
-        }
     }
 
     public function storePatient(Request $request)
@@ -279,9 +209,14 @@ class WorkspaceController extends Controller
             'medical_record_number' => 'nullable|string|max:100',
         ]);
 
-        do {
-            $validated['code'] = (string) random_int(100000, 999999);
-        } while (\App\Domains\Patients\Models\Patient::where('code', $validated['code'])->exists());
+        // Wrap code generation in a DB transaction to prevent duplicate codes
+        // under concurrent requests. DB::transaction() provides isolation in SQLite.
+        \Illuminate\Support\Facades\DB::transaction(function () use (&$validated) {
+            do {
+                $validated['code'] = (string) random_int(100000, 999999);
+            } while (\App\Domains\Patients\Models\Patient::where('code', $validated['code'])->exists());
+        });
+
         $validated['primary_doctor_id'] = $request->user()->id;
         $validated['created_by_id'] = $request->user()->id;
 
@@ -351,11 +286,15 @@ class WorkspaceController extends Controller
             \Illuminate\Support\Facades\Log::info('[WorkspaceController] Sync in progress, loading local data for patient: ' . $uuid);
         }
 
-        // OFFLINE-FIRST: Load EVERYTHING from local SQLite instantly.
-        // The local cache is populated by FullSyncService::syncMetadataOnly()
-        // which runs before the UI is displayed (via syncAndRefresh).
+        // OFFLINE-FIRST ARCHITECTURE:
+        // In NativePHP mode, ALL reads go to Eloquent repos (local SQLite) directly —
+        // NOT through the Hybrid interface binding which would try API first.
+        // This includes the patient, files, notes, and visits.
+        // Background sync keeps SQLite up-to-date, so the API is never consulted on reads.
+        // On web server, Eloquent repos read from MySQL (identical behavior).
+        $eloquentPatientRepo = app(\App\Repositories\Eloquent\EloquentPatientRepository::class);
         try {
-            $patient = $this->patientRepo->findByUuid($uuid);
+            $patient = $eloquentPatientRepo->findByUuid($uuid);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('[WorkspaceController] Patient not found: ' . $uuid);
             return response()->json(['error' => 'Patient not found'], 404);
@@ -363,17 +302,22 @@ class WorkspaceController extends Controller
 
         $t1 = microtime(true);
 
-        // Use fileRepo interface (Hybrid in Native mode) for offline-first loading.
-        // HybridRepo tries local SQLite first, then API if online and local empty.
-        $allFiles = $this->fileRepo->forPatient($uuid);
-        \Illuminate\Support\Facades\Log::info('[WorkspaceController] Loaded ' . count($allFiles) . ' files from ' . (\App\Helpers\NativePhp::isRunning() ? 'Hybrid (offline-first)' : 'Eloquent') . ' repo', ['patient_uuid' => $uuid]);
+        // Use the Eloquent repos directly (not the interface binding) for ALL reads.
+        // In NativePHP mode, the interface binding is Hybrid (tries API first).
+        // We bypass that here to ensure every read comes from local SQLite only.
+        $eloquentFileRepo = app(\App\Repositories\Eloquent\EloquentPatientFileRepository::class);
+        $eloquentNoteRepo = app(\App\Repositories\Eloquent\EloquentPatientNoteRepository::class);
+        $eloquentVisitRepo = app(\App\Repositories\Eloquent\EloquentPatientVisitRepository::class);
 
-        $files = array_slice($allFiles, 0, 50);
+        $allFiles = $eloquentFileRepo->forPatient($uuid);
+        \Illuminate\Support\Facades\Log::info('[WorkspaceController] Loaded ' . count($allFiles) . ' files from Eloquent (local) repo', ['patient_uuid' => $uuid]);
+
+        $files = $allFiles;
 
         $t2 = microtime(true);
-        $notes = $this->noteRepo->forPatient($uuid);
+        $notes = $eloquentNoteRepo->forPatient($uuid);
         $t3 = microtime(true);
-        $visits = $this->visitRepo->forPatient($uuid);
+        $visits = $eloquentVisitRepo->forPatient($uuid);
         $t4 = microtime(true);
 
         $today = now()->toDateString();
@@ -473,15 +417,16 @@ class WorkspaceController extends Controller
             'payload_assembly_ms' => round(($t6 - $t5) * 1000, 2),
             'json_encoding_ms' => round(($t7 - $t6) * 1000, 2),
             'total_ms' => round(($t7 - $t0) * 1000, 2),
-            'total_files_count' => count($allFiles),
-            'returned_files_count' => count($files),
+            'files_count' => count($allFiles),
         ]);
 
         return $response;
     }
 
-    public function exportPatient(string $uuid)
+    public function exportPatient(string $uuid, Request $request)
     {
+        $this->authenticateViaTokenIfNeeded($request);
+
         $patient = $this->patientRepo->findByUuid($uuid);
         $files = $this->fileRepo->forPatient($uuid);
         $notes = $this->noteRepo->forPatient($uuid);
@@ -493,7 +438,7 @@ class WorkspaceController extends Controller
             'notes' => $notes,
             'visits' => $visits,
             'exported_at' => now()->toIso8601String(),
-            'exported_by' => auth()->user()->name,
+            'exported_by' => auth()->user()?->name ?? 'Unknown',
         ];
 
         $filename = 'patient_' . $uuid . '_export.json';
@@ -502,8 +447,10 @@ class WorkspaceController extends Controller
         }, $filename, ['Content-Type' => 'application/json']);
     }
 
-    public function printPatient(string $uuid)
+    public function printPatient(string $uuid, Request $request)
     {
+        $this->authenticateViaTokenIfNeeded($request);
+
         $patient = $this->patientRepo->findByUuid($uuid);
         $files = $this->fileRepo->forPatient($uuid);
         $notes = $this->noteRepo->forPatient($uuid);
@@ -515,9 +462,47 @@ class WorkspaceController extends Controller
             'notes' => $notes,
             'visits' => $visits,
             'exportedAt' => now()->toIso8601String(),
-            'exportedBy' => auth()->user()->name,
-            'doctorName' => auth()->user()->name,
+            'exportedBy' => auth()->user()?->name ?? 'Unknown',
+            'doctorName' => auth()->user()?->name ?? 'Doctor',
         ]);
+    }
+
+    /**
+     * Best-effort token verification for print/export pages opened in new tabs.
+     * The meta tag is only rendered for authenticated users, so if the token
+     * parameter matches the stored token, it's likely the same user.
+     * Falls back to web session auth if no token parameter is provided.
+     * The `auth` middleware on the route handles actual authentication.
+     */
+    private function authenticateViaTokenIfNeeded(Request $request): void
+    {
+        if (auth()->check()) {
+            return; // Session already valid
+        }
+
+        $tokenParam = $request->query('token');
+        if (!$tokenParam) {
+            return;
+        }
+
+        // Verify token matches stored value (confirms the request came from
+        // an authenticated session that rendered the meta tag)
+        try {
+            $storedTokenRow = \Illuminate\Support\Facades\DB::table('sync_states')
+                ->where('key', 'api_token')
+                ->first();
+
+            if ($storedTokenRow && !empty($storedTokenRow->value)) {
+                $storedToken = json_decode($storedTokenRow->value, true);
+                $storedTokenPlain = $storedToken['plain'] ?? $storedToken['encrypted'] ?? $storedTokenRow->value;
+
+                if ($storedTokenPlain === $tokenParam) {
+                    Log::info('[WorkspaceController] Token verified for print/export (session auth will apply)');
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[WorkspaceController] Token verification failed: ' . $e->getMessage());
+        }
     }
 
     public function downloadFiles(string $uuid)

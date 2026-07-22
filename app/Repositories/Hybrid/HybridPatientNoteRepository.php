@@ -6,7 +6,6 @@ use App\Contracts\Repositories\PatientNoteRepositoryInterface;
 use App\Repositories\Api\ApiPatientNoteRepository;
 use App\Repositories\Eloquent\EloquentPatientNoteRepository;
 use App\Services\NetworkStatusService;
-use App\Services\SyncQueueService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Log;
 
@@ -15,7 +14,6 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
     public function __construct(
         private ApiPatientNoteRepository $apiRepo,
         private EloquentPatientNoteRepository $localRepo,
-        private SyncQueueService $syncQueue,
     ) {}
 
     private function syncLocalCache(array $data): void
@@ -88,13 +86,10 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
             }
         }
 
-        // OFFLINE FALLBACK: Save to local SQLite and queue for background sync
+        // OFFLINE FALLBACK: Save to local SQLite.
+        // SYNC NOTE: PatientNoteObserver::created() handles enqueuing the sync operation.
+        // We DO NOT enqueue here to avoid duplicate sync queue items.
         $localData = $this->localRepo->create($patientUuid, $data);
-        $this->syncQueue->enqueueOperation(
-            'PatientNote', 'create',
-            $localData['uuid'] ?? \Illuminate\Support\Str::uuid()->toString(),
-            array_merge($data, ['patient_uuid' => $patientUuid])
-        );
 
         return $localData;
     }
@@ -117,10 +112,8 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
             }
         }
 
-        $this->syncQueue->enqueueOperation(
-            'PatientNote', 'update', $noteUuid,
-            array_merge($data, ['patient_uuid' => $patientUuid])
-        );
+        // SYNC NOTE: PatientNoteObserver::updated() handles enqueuing the sync operation.
+        // No need to enqueue here.
 
         return $localData;
     }
@@ -142,9 +135,7 @@ class HybridPatientNoteRepository implements PatientNoteRepositoryInterface
             }
         }
 
-        $this->syncQueue->enqueueOperation(
-            'PatientNote', 'delete', $noteUuid,
-            ['patient_uuid' => $patientUuid]
-        );
+        // SYNC NOTE: PatientNoteObserver::deleted() handles enqueuing the sync operation.
+        // No need to enqueue here.
     }
 }

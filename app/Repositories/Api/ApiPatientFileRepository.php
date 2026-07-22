@@ -9,9 +9,13 @@ class ApiPatientFileRepository implements PatientFileRepositoryInterface
 {
     use MakesApiRequests;
 
-    public function forPatient(string $patientUuid): array
+    public function forPatient(string $patientUuid, ?string $updatedSince = null): array
     {
-        $body = $this->apiCall('GET', '/patients/' . $patientUuid . '/files')->json() ?? [];
+        $params = [];
+        if ($updatedSince) {
+            $params['updated_since'] = $updatedSince;
+        }
+        $body = $this->apiCall('GET', '/patients/' . $patientUuid . '/files', $params)->json() ?? [];
         return $body['data'] ?? $body;
     }
 
@@ -27,6 +31,12 @@ class ApiPatientFileRepository implements PatientFileRepositoryInterface
         return $this->apiCall('POST', '/patients/' . $patientUuid . '/files', array_merge($data, [
             'file' => $file,
         ]))->json() ?? [];
+    }
+
+    public function update(string $uuid, array $data): array
+    {
+        $body = $this->apiCall('PUT', '/files/' . $uuid, $data)->json() ?? [];
+        return $body['data'] ?? $body;
     }
 
     public function delete(string $uuid): void

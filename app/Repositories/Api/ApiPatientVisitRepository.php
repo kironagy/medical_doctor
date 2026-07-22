@@ -9,9 +9,13 @@ class ApiPatientVisitRepository implements PatientVisitRepositoryInterface
 {
     use MakesApiRequests;
 
-    public function forPatient(string $patientUuid): array
+    public function forPatient(string $patientUuid, ?string $updatedSince = null): array
     {
-        $body = $this->apiCall('GET', '/patients/' . $patientUuid . '/visits')->json() ?? [];
+        $params = [];
+        if ($updatedSince) {
+            $params['updated_since'] = $updatedSince;
+        }
+        $body = $this->apiCall('GET', '/patients/' . $patientUuid . '/visits', $params)->json() ?? [];
         return $body['data'] ?? $body;
     }
 
@@ -20,13 +24,13 @@ class ApiPatientVisitRepository implements PatientVisitRepositoryInterface
         return $this->apiCall('POST', '/patients/' . $patientUuid . '/visits', $data)->json() ?? [];
     }
 
-    public function update(int $visitId, array $data): array
+    public function update(string $visitUuid, array $data): array
     {
-        return $this->apiCall('PUT', '/visits/' . $visitId, $data)->json() ?? [];
+        return $this->apiCall('PUT', '/visits/' . $visitUuid, $data)->json() ?? [];
     }
 
-    public function delete(int $visitId): void
+    public function delete(string $visitUuid): void
     {
-        $this->apiCall('DELETE', '/visits/' . $visitId);
+        $this->apiCall('DELETE', '/visits/' . $visitUuid);
     }
 }

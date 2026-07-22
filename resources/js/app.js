@@ -109,7 +109,7 @@ function startPeriodicSync() {
         console.warn('[app.js] Periodic sync failed:', e);
       }
     }
-  }, 120000) // Every 2 minutes
+  }, 300000) // Every 5 minutes (reduced from 2 min to reduce battery/data usage)
 }
 
 function stopPeriodicSync() {

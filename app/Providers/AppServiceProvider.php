@@ -7,9 +7,11 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Throwable;
 use App\Domains\Media\Models\PatientFile;
+use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Observers\PatientFileObserver;
 use App\Observers\PatientNoteObserver;
+use App\Observers\PatientObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -30,6 +32,7 @@ class AppServiceProvider extends ServiceProvider
         // Register model observers for sync queue enqueueing
         PatientFile::observe(PatientFileObserver::class);
         PatientNote::observe(PatientNoteObserver::class);
+        Patient::observe(PatientObserver::class);
 
         // Only run on NativePHP (mobile) environment
         if (env('NATIVEPHP_RUNNING')) {

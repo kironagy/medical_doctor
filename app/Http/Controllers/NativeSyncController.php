@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\FullSyncService;
 use App\Services\SyncQueueService;
-use App\Services\Sync\SyncManager;
+
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;

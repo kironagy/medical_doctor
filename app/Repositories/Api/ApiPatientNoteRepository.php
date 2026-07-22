@@ -9,9 +9,13 @@ class ApiPatientNoteRepository implements PatientNoteRepositoryInterface
 {
     use MakesApiRequests;
 
-    public function forPatient(string $patientUuid): array
+    public function forPatient(string $patientUuid, ?string $updatedSince = null): array
     {
-        $body = $this->apiCall('GET', '/patients/' . $patientUuid . '/notes')->json() ?? [];
+        $params = [];
+        if ($updatedSince) {
+            $params['updated_since'] = $updatedSince;
+        }
+        $body = $this->apiCall('GET', '/patients/' . $patientUuid . '/notes', $params)->json() ?? [];
         return $body['data'] ?? $body;
     }
 

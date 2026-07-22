@@ -272,18 +272,14 @@ onMounted(() => {
   window.addEventListener('online', checkOnlineStatus);
   window.addEventListener('offline', checkOnlineStatus);
 
-  // Initial Pull Sync when online on startup
-  if (navigator.onLine) {
-      triggerSync();
-  }
-
-  // Periodic background sync every 3 minutes when online
-  // Keeps the patient list up-to-date without requiring manual refresh
-  periodicSyncTimer.value = setInterval(() => {
-    if (navigator.onLine && !isSyncing.value) {
-      triggerSync();
-    }
-  }, 3 * 60 * 1000);
+  // NOTE: Initial sync+refresh is NOT triggered here because:
+  // 1) DoctorWorkspace.vue onMounted handles it with proper sequencing
+  //    (Inertia props first, then background sync after 100ms delay)
+  // 2) Running triggerSync() here AND in DoctorWorkspace causes duplicate
+  //    syncAndRefresh calls that compete for state writes (race condition)
+  // 3) syncAndRefresh has a dedup guard, but the Inertia props write
+  //    and the API refresh still race on patients.value
+  // See useWorkspace.js for dedup guards on refreshPatientList/refreshWorkspaceData
 });
 
 onUnmounted(() => {

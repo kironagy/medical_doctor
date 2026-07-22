@@ -6,6 +6,6 @@ interface PatientVisitRepositoryInterface
 {
     public function forPatient(string $patientUuid): array;
     public function create(string $patientUuid, array $data): array;
-    public function update(int $visitId, array $data): array;
-    public function delete(int $visitId): void;
+    public function update(string $visitUuid, array $data): array;
+    public function delete(string $visitUuid): void;
 }

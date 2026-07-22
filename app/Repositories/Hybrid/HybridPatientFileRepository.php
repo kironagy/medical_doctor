@@ -6,7 +6,6 @@ use App\Contracts\Repositories\PatientFileRepositoryInterface;
 use App\Repositories\Api\ApiPatientFileRepository;
 use App\Repositories\Eloquent\EloquentPatientFileRepository;
 use App\Services\NetworkStatusService;
-use App\Services\SyncQueueService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -16,7 +15,6 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
     public function __construct(
         private ApiPatientFileRepository $apiRepo,
         private EloquentPatientFileRepository $localRepo,
-        private SyncQueueService $syncQueue,
     ) {}
 
     private function syncLocalCache(array $data, ?string $patientUuid = null): void
@@ -161,26 +159,33 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
             }
         }
 
-        // Queue for offline sync — note: binary file cannot be re-uploaded from queue easily;
-        // the file is already stored locally, so we mark it for upload when online
-        // DEDUP CHECK: Only enqueue if no pending operation already exists for this file UUID
-        $fileUuid = $localData['uuid'] ?? null;
-        $existingPending = $fileUuid ? \App\Models\SyncQueueItem::where('record_uuid', $fileUuid)
-            ->where('operation', 'create')
-            ->whereIn('status', ['pending', 'failed'])
-            ->exists() : false;
+        // SYNC NOTE: The PatientFileObserver::created() event handler automatically
+        // enqueues a sync operation when the file is saved locally by localRepo->upload().
+        // We DO NOT enqueue here to avoid duplicate sync queue items.
+        // -- Option A: Observers handle all sync enqueuing. --
 
-        if (!$existingPending) {
-            $this->syncQueue->enqueueOperation(
-                'PatientFile', 'create',
-                $fileUuid ?? \Illuminate\Support\Str::uuid()->toString(),
-                array_merge($data, ['patient_uuid' => $patientUuid, 'local_path' => $localData['file_path'] ?? null]),
-                3 // higher priority so files upload before other operations
-            );
-        } else {
-            \Illuminate\Support\Facades\Log::info('[HybridPatientFileRepo] Skipping duplicate enqueue for file: ' . $fileUuid);
+        return $localData;
+    }
+
+    public function update(string $uuid, array $data): array
+    {
+        $localData = $this->localRepo->update($uuid, $data);
+
+        if (NetworkStatusService::isOnline()) {
+            try {
+                $apiData = $this->apiRepo->update($uuid, $data);
+                $this->syncLocalCache([$apiData]);
+                return $this->rewriteUrls($apiData);
+            } catch (ConnectionException $e) {
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientFileRepo] update() - API unavailable: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                Log::warning('[HybridPatientFileRepo] update() - API error: ' . $e->getMessage());
+                NetworkStatusService::handleThrowable($e);
+            }
         }
 
+        // SYNC NOTE: PatientFileObserver::updated() handles enqueuing update sync.
         return $localData;
     }
 
@@ -201,7 +206,8 @@ class HybridPatientFileRepository implements PatientFileRepositoryInterface
             }
         }
 
-        $this->syncQueue->enqueueOperation('PatientFile', 'delete', $uuid, null);
+        // SYNC NOTE: PatientFileObserver::deleted() handles enqueuing delete sync.
+        // No need to enqueue here.
     }
 
     public function byCategory(string $patientUuid, string $categorySlug): array

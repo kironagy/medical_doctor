@@ -18,7 +18,8 @@ use App\Repositories\Api\ApiPatientRepository;
 use App\Repositories\Api\ApiPatientVisitRepository;
 use App\Repositories\Api\ApiUserRepository;
 use App\Services\Sync\ConflictResolver;
-use App\Services\Sync\SyncManager;
+use App\Services\Sync\IncrementalSyncService;
+
 use App\Services\SyncQueueService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -47,7 +48,31 @@ class FullSyncService
      */
     public static function isSyncInProgress(): bool
     {
-        return SyncManager::isSyncInProgress();
+        $inProgress = DB::table('sync_states')->where('key', 'sync_in_progress')->first();
+        if (!$inProgress) {
+            return false;
+        }
+
+        $value = json_decode($inProgress->value);
+        if ($value !== true) {
+            return false;
+        }
+
+        $lockTime = DB::table('sync_states')->where('key', 'sync_lock_acquired_at')->first();
+        if (!$lockTime) {
+            return false;
+        }
+
+        $acquiredAt = json_decode($lockTime->value);
+        if (!$acquiredAt) {
+            return false;
+        }
+
+        if (now()->diffInSeconds(new \Carbon\Carbon($acquiredAt)) > SyncQueueService::LOCK_TTL) {
+            return false;
+        }
+
+        return true;
     }
 
     public function syncPendingOperations(): void
@@ -57,11 +82,52 @@ class FullSyncService
         $items = $this->syncQueue->processPendingOperations();
 
         foreach ($items as $item) {
+            // Reset failed items to pending right before processing (not in batch).
+            // This prevents retry_count from being lost if the process crashes mid-batch.
+            // If crash happens after processing item N but before item N+1, only the N+1th
+            // item loses its 'failed' status — the rest remain 'failed' and are safely
+            // retried on the next cycle.
+            if ($item->status === 'failed') {
+                $item->update(['status' => 'pending']);
+            }
+
             try {
                 $this->pushQueueItem($item);
                 $this->syncQueue->markItemResult($item, true);
             } catch (\Exception $e) {
                 $this->syncQueue->markItemResult($item, false, $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Push all pending items respecting dependency order.
+     * Processes in batches: first all patients, then child records.
+     */
+    public function syncPendingOperationsWithDependencyOrder(): void
+    {
+        Log::info('[FullSyncService] Pushing pending operations with dependency ordering.');
+
+        $grouped = $this->syncQueue->getItemsGroupedByDependency();
+
+        foreach ($grouped as $level => $items) {
+            Log::info("[FullSyncService] Processing dependency level {$level}: {$items->count()} items");
+
+            foreach ($items as $item) {
+                if (!in_array($item->status, ['pending', 'failed'])) {
+                    continue;
+                }
+                if ($item->retry_count >= 5) {
+                    continue;
+                }
+
+                try {
+                    $item->update(['status' => 'pending']);
+                    $this->pushQueueItem($item);
+                    $this->syncQueue->markItemResult($item, true);
+                } catch (\Exception $e) {
+                    $this->syncQueue->markItemResult($item, false, $e->getMessage());
+                }
             }
         }
     }
@@ -125,6 +191,9 @@ class FullSyncService
 
             $this->syncPendingOperations();
 
+            // Heartbeat: extend lock TTL after push phase
+            $this->syncQueue->touchLock();
+
             Log::info('[FullSyncService] Syncing users...');
             try {
                 $remoteDoctors = $this->apiUserRepo->doctors();
@@ -134,10 +203,12 @@ class FullSyncService
                 Log::warning('[FullSyncService] Users sync failed: ' . $e->getMessage());
             }
 
-            Log::info('[FullSyncService] Syncing patients...');
-            $patients = $this->apiPatientRepo->all();
-            $this->syncLocalCache($patients, Patient::class);
-            Log::info('[FullSyncService] Synchronized ' . count($patients) . ' patients.');
+            // Heartbeat: extend lock TTL after users sync
+            $this->syncQueue->touchLock();
+
+            Log::info('[FullSyncService] Syncing patients (paginated)...');
+            $patients = $this->pullPaginatedPatients();
+            Log::info('[FullSyncService] Synchronized ' . count($patients) . ' patients (across all pages).');
 
             $syncedFilesCount = 0;
             $syncedNotesCount = 0;
@@ -148,29 +219,164 @@ class FullSyncService
 
             $patientUuids = array_filter(array_map(fn($p) => $p['uuid'] ?? null, $patients));
 
+            // Track which patients had successful child resource API fetches.
+            // Only run orphan detection for these patients to avoid data loss
+            // when the API fails for a specific patient.
+            $patientsWithFilesFetched = [];
+            $patientsWithNotesFetched = [];
+            $patientsWithVisitsFetched = [];
+            $allFiles = [];
+            $allNotes = [];
+            $allVisits = [];
+
             if (!empty($patientUuids)) {
                 [$allFiles, $allNotes, $allVisits] = $this->fetchChildResourcesBatched($patientUuids);
 
+                // Heartbeat: extend lock TTL after fetching all child resources
+                $this->syncQueue->touchLock();
+
+                $processedCount = 0;
                 foreach ($patientUuids as $patientUuid) {
-                    $patientFiles = $allFiles[$patientUuid] ?? [];
-                    if (!empty($patientFiles)) {
-                        $patientsWithFiles++;
-                        $syncedFilesCount += count($patientFiles);
-                        self::syncFilesWithLocalPatientId($patientUuid, $patientFiles, $this->conflictResolver);
+                    if (array_key_exists($patientUuid, $allFiles)) {
+                        $patientFiles = $allFiles[$patientUuid];
+                        $patientsWithFilesFetched[] = $patientUuid;
+                        if (!empty($patientFiles)) {
+                            $patientsWithFiles++;
+                            $syncedFilesCount += count($patientFiles);
+                            self::syncFilesWithLocalPatientId($patientUuid, $patientFiles, $this->conflictResolver);
+                        }
                     }
 
-                    $patientNotes = $allNotes[$patientUuid] ?? [];
-                    if (!empty($patientNotes)) {
-                        $patientsWithNotes++;
-                        $syncedNotesCount += count($patientNotes);
-                        self::syncChildRecordsWithLocalPatientId($patientUuid, $patientNotes, PatientNote::class, $this->conflictResolver);
+                    if (array_key_exists($patientUuid, $allNotes)) {
+                        $patientNotes = $allNotes[$patientUuid];
+                        $patientsWithNotesFetched[] = $patientUuid;
+                        if (!empty($patientNotes)) {
+                            $patientsWithNotes++;
+                            $syncedNotesCount += count($patientNotes);
+                            self::syncChildRecordsWithLocalPatientId($patientUuid, $patientNotes, PatientNote::class, $this->conflictResolver);
+                        }
                     }
 
-                    $patientVisits = $allVisits[$patientUuid] ?? [];
-                    if (!empty($patientVisits)) {
-                        $patientsWithVisits++;
-                        $syncedVisitsCount += count($patientVisits);
-                        self::syncChildRecordsWithLocalPatientId($patientUuid, $patientVisits, PatientVisit::class, $this->conflictResolver);
+                    if (array_key_exists($patientUuid, $allVisits)) {
+                        $patientVisits = $allVisits[$patientUuid];
+                        $patientsWithVisitsFetched[] = $patientUuid;
+                        if (!empty($patientVisits)) {
+                            $patientsWithVisits++;
+                            $syncedVisitsCount += count($patientVisits);
+                            self::syncChildRecordsWithLocalPatientId($patientUuid, $patientVisits, PatientVisit::class, $this->conflictResolver);
+                        }
+                    }
+
+                    // Heartbeat: extend lock TTL every 10 patients to prevent lock expiry
+                    // during long sync operations with many child records
+                    $processedCount++;
+                    if ($processedCount % 10 === 0) {
+                        $this->syncQueue->touchLock();
+                    }
+                }
+            }
+
+            // SOFT-DELETE AWARENESS: Soft-delete local records whose UUIDs are not in the
+            // API response. This ensures records deleted on the server are also removed locally.
+            // SAFETY: Only run for patients whose API fetch succeeded (tracked above).
+            $syncedPatientUuids = array_filter(array_map(fn($p) => $p['uuid'] ?? null, $patients));
+            if (!empty($syncedPatientUuids)) {
+                $localPatientsToSoftDelete = Patient::withoutGlobalScopes()
+                    ->withTrashed()
+                    ->whereNotIn('uuid', $syncedPatientUuids)
+                    ->whereNull('deleted_at')
+                    ->pluck('uuid');
+                $softDeletedCount = 0;
+                foreach ($localPatientsToSoftDelete as $uuid) {
+                    $patient = Patient::withoutGlobalScopes()->where('uuid', $uuid)->first();
+                    if ($patient) {
+                        $patient->delete();
+                        $softDeletedCount++;
+                    }
+                }
+                if ($softDeletedCount > 0) {
+                    Log::info("[FullSyncService] Soft-deleted {$softDeletedCount} patients not in API response (removed on server).");
+                }
+            }
+
+            // Soft-delete child records only for patients whose fetch succeeded.
+            // SAFETY: Exclude records with pending/failed create sync operations
+            // to prevent deleting locally-created records not yet pushed to server.
+            $pendingCreateFileUuids = \App\Models\SyncQueueItem::where('entity', 'PatientFile')
+                ->where('operation', 'create')
+                ->whereIn('status', ['pending', 'failed'])
+                ->pluck('record_uuid')->toArray();
+            $pendingCreateNoteUuids = \App\Models\SyncQueueItem::where('entity', 'PatientNote')
+                ->where('operation', 'create')
+                ->whereIn('status', ['pending', 'failed'])
+                ->pluck('record_uuid')->toArray();
+            $pendingCreateVisitUuids = \App\Models\SyncQueueItem::where('entity', 'PatientVisit')
+                ->where('operation', 'create')
+                ->whereIn('status', ['pending', 'failed'])
+                ->pluck('record_uuid')->toArray();
+
+            if (!empty($patientsWithFilesFetched)) {
+                $syncedFileUuids = [];
+                foreach ($patientsWithFilesFetched as $puuid) {
+                    foreach (($allFiles[$puuid] ?? []) as $f) {
+                        if (!empty($f['uuid'])) $syncedFileUuids[] = $f['uuid'];
+                    }
+                }
+                if (!empty($syncedFileUuids)) {
+                    $orphanedFiles = PatientFile::withoutGlobalScopes()
+                        ->whereNull('deleted_at')
+                        ->whereNotIn('uuid', $syncedFileUuids)
+                        ->whereNotIn('uuid', $pendingCreateFileUuids)
+                        ->get();
+                    foreach ($orphanedFiles as $f) {
+                        $f->delete();
+                    }
+                    if ($orphanedFiles->count() > 0) {
+                        Log::info('[FullSyncService] Soft-deleted ' . $orphanedFiles->count() . ' files not in API response.');
+                    }
+                }
+            }
+
+            if (!empty($patientsWithNotesFetched)) {
+                $syncedNoteUuids = [];
+                foreach ($patientsWithNotesFetched as $puuid) {
+                    foreach (($allNotes[$puuid] ?? []) as $n) {
+                        if (!empty($n['uuid'])) $syncedNoteUuids[] = $n['uuid'];
+                    }
+                }
+                if (!empty($syncedNoteUuids)) {
+                    $orphanedNotes = PatientNote::withoutGlobalScopes()
+                        ->whereNull('deleted_at')
+                        ->whereNotIn('uuid', $syncedNoteUuids)
+                        ->whereNotIn('uuid', $pendingCreateNoteUuids)
+                        ->get();
+                    foreach ($orphanedNotes as $n) {
+                        $n->delete();
+                    }
+                    if ($orphanedNotes->count() > 0) {
+                        Log::info('[FullSyncService] Soft-deleted ' . $orphanedNotes->count() . ' notes not in API response.');
+                    }
+                }
+            }
+
+            if (!empty($patientsWithVisitsFetched)) {
+                $syncedVisitUuids = [];
+                foreach ($patientsWithVisitsFetched as $puuid) {
+                    foreach (($allVisits[$puuid] ?? []) as $v) {
+                        if (!empty($v['uuid'])) $syncedVisitUuids[] = $v['uuid'];
+                    }
+                }
+                if (!empty($syncedVisitUuids)) {
+                    $orphanedVisits = PatientVisit::withoutGlobalScopes()
+                        ->whereNull('deleted_at')
+                        ->whereNotIn('uuid', $syncedVisitUuids)
+                        ->whereNotIn('uuid', $pendingCreateVisitUuids)
+                        ->get();
+                    foreach ($orphanedVisits as $v) {
+                        $v->delete();
+                    }
+                    if ($orphanedVisits->count() > 0) {
+                        Log::info('[FullSyncService] Soft-deleted ' . $orphanedVisits->count() . ' visits not in API response.');
                     }
                 }
             }
@@ -262,7 +468,48 @@ class FullSyncService
 
     public function syncAll(): void
     {
-        $this->syncMetadataOnly();
+        // Use incremental sync when available (reduces bandwidth/speed),
+        // fall back to full sync on first run or after long offline period.
+        try {
+            $lastIncrementalRow = \Illuminate\Support\Facades\DB::table('sync_states')
+                ->where('key', 'last_incremental_sync_at')
+                ->first();
+
+            $shouldFullSync = true;
+
+            if ($lastIncrementalRow && !empty($lastIncrementalRow->value)) {
+                $lastValue = json_decode($lastIncrementalRow->value, true);
+                $lastTimestamp = is_array($lastValue) ? ($lastValue['timestamp'] ?? null) : null;
+
+                if ($lastTimestamp) {
+                    try {
+                        $lastSyncTime = new \Carbon\Carbon($lastTimestamp);
+                        // If last incremental sync was within 24 hours, do incremental
+                        if ($lastSyncTime->gt(now()->subHours(24))) {
+                            $shouldFullSync = false;
+                        } else {
+                            Log::info('[FullSyncService] Last incremental sync > 24h ago, falling back to full sync.');
+                        }
+                    } catch (\Throwable $e) {
+                        // Timestamp parse failed — do full sync
+                    }
+                }
+            } else {
+                Log::info('[FullSyncService] No previous incremental sync found, doing full sync.');
+            }
+
+            if ($shouldFullSync) {
+                $this->syncMetadataOnly();
+                // Seed timestamp without re-fetching (the full sync already fetched everything)
+                app(IncrementalSyncService::class)->seedTimestamp();
+            } else {
+                Log::info('[FullSyncService] Using incremental sync (last sync < 24h ago).');
+                app(IncrementalSyncService::class)->incrementalPull();
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[FullSyncService] Incremental sync failed, falling back to full sync: ' . $e->getMessage());
+            $this->syncMetadataOnly();
+        }
     }
 
     private function pushQueueItem(SyncQueueItem $item): void
@@ -365,9 +612,9 @@ class FullSyncService
         if ($item->operation === 'create') {
             $this->apiVisitRepo->create($patientUuid, $item->payload);
         } elseif ($item->operation === 'update' && $item->record_uuid) {
-            $this->apiVisitRepo->update((int) $item->record_uuid, $item->payload);
+            $this->apiVisitRepo->update($item->record_uuid, $item->payload);
         } elseif ($item->operation === 'delete' && $item->record_uuid) {
-            $this->apiVisitRepo->delete((int) $item->record_uuid);
+            $this->apiVisitRepo->delete($item->record_uuid);
         }
     }
 
@@ -425,7 +672,10 @@ class FullSyncService
                     $resolution = $resolver->resolve(
                         $existing->client_updated_at?->toIso8601String(),
                         $record['client_updated_at'] ?? $record['updated_at'] ?? null,
-                        $resolver->hasPendingChanges($record['uuid'])
+                        $resolver->hasPendingChanges(
+                            $record['uuid'],
+                            $existing->client_updated_at?->toIso8601String()
+                        )
                     );
 
                     if ($resolution === 'local') {
@@ -515,7 +765,10 @@ class FullSyncService
                     $resolution = $resolver->resolve(
                         $existing->client_updated_at?->toIso8601String(),
                         $record['client_updated_at'] ?? $record['updated_at'] ?? null,
-                        $resolver->hasPendingChanges($record['uuid'])
+                        $resolver->hasPendingChanges(
+                            $record['uuid'],
+                            $existing->client_updated_at?->toIso8601String()
+                        )
                     );
 
                     if ($resolution === 'local') {
@@ -604,7 +857,7 @@ class FullSyncService
 
     /**
      * Fetch child resources (files, notes, visits) for all patients in batches.
-     * Uses concurrent HTTP requests to reduce N+1 API call overhead.
+     * Uses paginated fetching to ensure ALL child records are retrieved.
      */
     private function fetchChildResourcesBatched(array $patientUuids): array
     {
@@ -614,33 +867,31 @@ class FullSyncService
 
         $batches = array_chunk($patientUuids, 10);
 
-        foreach ($batches as $batch) {
-            $promises = [];
+        foreach ($batches as $batchIndex => $batch) {
+            // Heartbeat: extend lock TTL after each batch of 10 patients
+            // Prevents lock expiry during long child resource fetch cycles
+            $this->syncQueue->touchLock();
 
             foreach ($batch as $patientUuid) {
                 try {
-                    $files = $this->apiFileRepo->forPatient($patientUuid);
-                    if (!empty($files)) {
-                        $allFiles[$patientUuid] = $files;
-                    }
+                    $files = $this->pullPaginatedPatientFiles($patientUuid);
+                    // Always set the key so array_key_exists works (even for empty results)
+                    $allFiles[$patientUuid] = $files ?? [];
                 } catch (\Throwable $e) {
                     Log::warning("[FullSyncService] Failed to fetch files for patient {$patientUuid}: " . $e->getMessage());
+                    // Do NOT set the key — array_key_exists returns false for failed fetches
                 }
 
                 try {
-                    $notes = $this->apiNoteRepo->forPatient($patientUuid);
-                    if (!empty($notes)) {
-                        $allNotes[$patientUuid] = $notes;
-                    }
+                    $notes = $this->pullPaginatedPatientNotes($patientUuid);
+                    $allNotes[$patientUuid] = $notes ?? [];
                 } catch (\Throwable $e) {
                     Log::warning("[FullSyncService] Failed to fetch notes for patient {$patientUuid}: " . $e->getMessage());
                 }
 
                 try {
-                    $visits = $this->apiVisitRepo->forPatient($patientUuid);
-                    if (!empty($visits)) {
-                        $allVisits[$patientUuid] = $visits;
-                    }
+                    $visits = $this->pullPaginatedPatientVisits($patientUuid);
+                    $allVisits[$patientUuid] = $visits ?? [];
                 } catch (\Throwable $e) {
                     Log::warning("[FullSyncService] Failed to fetch visits for patient {$patientUuid}: " . $e->getMessage());
                 }
@@ -648,6 +899,195 @@ class FullSyncService
         }
 
         return [$allFiles, $allNotes, $allVisits];
+    }
+
+    /**
+     * Pull patients with pagination support.
+     * Ensures ALL patients are fetched across all pages.
+     */
+    private function pullPaginatedPatients(): array
+    {
+        $allPatients = [];
+        $page = 1;
+        $perPage = 100;
+        $hasMore = true;
+
+        while ($hasMore) {
+            try {
+                $body = $this->apiPatientRepo->paginated($perPage, $page);
+                $patients = $body['data'] ?? $body['patients'] ?? [];
+
+                if (empty($patients)) {
+                    $hasMore = false;
+                    break;
+                }
+
+                foreach ($patients as $item) {
+                    if (!is_array($item) || !isset($item['uuid'])) continue;
+                    $cleanData = \Illuminate\Support\Arr::except($item, [
+                        'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes'
+                    ]);
+                    try {
+                        Patient::unguard();
+                        Patient::withoutGlobalScopes()->updateOrCreate(['uuid' => $item['uuid']], $cleanData);
+                        Patient::reguard();
+                    } catch (\Exception $e) {
+                        Patient::reguard();
+                    }
+                }
+
+                $allPatients = array_merge($allPatients, $patients);
+
+                // Heartbeat: extend lock TTL after each page fetch to prevent
+                // lock expiry during multi-page patient pulls
+                $this->syncQueue->touchLock();
+
+                $meta = $body['meta'] ?? [];
+                $currentPage = $meta['current_page'] ?? $page;
+                $lastPage = $meta['last_page'] ?? $page;
+
+                if ($currentPage >= $lastPage) {
+                    $hasMore = false;
+                } else {
+                    $page++;
+                }
+            } catch (\Throwable $e) {
+                Log::warning("[FullSyncService] Failed to fetch patients page {$page}: " . $e->getMessage());
+                $hasMore = false;
+            }
+        }
+
+        Log::info('[FullSyncService] Synced ' . count($allPatients) . ' patients across all pages.');
+        return $allPatients;
+    }
+
+    /**
+     * Pull patient files with pagination.
+     */
+    private function pullPaginatedPatientFiles(string $patientUuid): array
+    {
+        $allFiles = [];
+        $page = 1;
+        $perPage = 100;
+        $hasMore = true;
+
+        while ($hasMore) {
+            try {
+                $response = app(\App\Services\Mobile\ApiService::class)->get(
+                    '/patients/' . $patientUuid . '/files',
+                    ['per_page' => $perPage, 'page' => $page]
+                );
+                $files = $response['data'] ?? $response ?? [];
+
+                if (empty($files)) {
+                    $hasMore = false;
+                    break;
+                }
+
+                $allFiles = array_merge($allFiles, $files);
+
+                $meta = $response['meta'] ?? [];
+                $currentPage = $meta['current_page'] ?? $page;
+                $lastPage = $meta['last_page'] ?? $page;
+
+                if ($currentPage >= $lastPage) {
+                    $hasMore = false;
+                } else {
+                    $page++;
+                }
+            } catch (\Throwable $e) {
+                Log::warning("[FullSyncService] Failed to fetch files for patient {$patientUuid} page {$page}: " . $e->getMessage());
+                $hasMore = false;
+            }
+        }
+
+        return $allFiles;
+    }
+
+    /**
+     * Pull patient notes with pagination.
+     */
+    private function pullPaginatedPatientNotes(string $patientUuid): array
+    {
+        $allNotes = [];
+        $page = 1;
+        $perPage = 100;
+        $hasMore = true;
+
+        while ($hasMore) {
+            try {
+                $response = app(\App\Services\Mobile\ApiService::class)->get(
+                    '/patients/' . $patientUuid . '/notes',
+                    ['per_page' => $perPage, 'page' => $page]
+                );
+                $notes = $response['data'] ?? $response ?? [];
+
+                if (empty($notes)) {
+                    $hasMore = false;
+                    break;
+                }
+
+                $allNotes = array_merge($allNotes, $notes);
+
+                $meta = $response['meta'] ?? [];
+                $currentPage = $meta['current_page'] ?? $page;
+                $lastPage = $meta['last_page'] ?? $page;
+
+                if ($currentPage >= $lastPage) {
+                    $hasMore = false;
+                } else {
+                    $page++;
+                }
+            } catch (\Throwable $e) {
+                Log::warning("[FullSyncService] Failed to fetch notes for patient {$patientUuid} page {$page}: " . $e->getMessage());
+                $hasMore = false;
+            }
+        }
+
+        return $allNotes;
+    }
+
+    /**
+     * Pull patient visits with pagination.
+     */
+    private function pullPaginatedPatientVisits(string $patientUuid): array
+    {
+        $allVisits = [];
+        $page = 1;
+        $perPage = 100;
+        $hasMore = true;
+
+        while ($hasMore) {
+            try {
+                $response = app(\App\Services\Mobile\ApiService::class)->get(
+                    '/patients/' . $patientUuid . '/visits',
+                    ['per_page' => $perPage, 'page' => $page]
+                );
+                $visits = $response['data'] ?? $response ?? [];
+
+                if (empty($visits)) {
+                    $hasMore = false;
+                    break;
+                }
+
+                $allVisits = array_merge($allVisits, $visits);
+
+                $meta = $response['meta'] ?? [];
+                $currentPage = $meta['current_page'] ?? $page;
+                $lastPage = $meta['last_page'] ?? $page;
+
+                if ($currentPage >= $lastPage) {
+                    $hasMore = false;
+                } else {
+                    $page++;
+                }
+            } catch (\Throwable $e) {
+                Log::warning("[FullSyncService] Failed to fetch visits for patient {$patientUuid} page {$page}: " . $e->getMessage());
+                $hasMore = false;
+            }
+        }
+
+        return $allVisits;
     }
 
     public function syncUsersLocally(array $remoteDoctors): void

@@ -558,16 +558,28 @@ function openEditPatient() {
   showEditPatient.value = true
 }
 
+function getApiToken() {
+  // Read API token from meta tag (rendered server-side in app.blade.php)
+  const meta = document.querySelector('meta[name="api-token"]')
+  return meta?.getAttribute('content') || ''
+}
+
 function handlePrint() {
   showActionMenu.value = false
   if (!selectedPatient.value?.uuid) return
-  window.open(`/api/v1/workspace/${selectedPatient.value.uuid}/print`, '_blank')
+  const token = getApiToken()
+  const url = `/api/v1/workspace/${selectedPatient.value.uuid}/print` +
+    (token ? `?token=${encodeURIComponent(token)}` : '')
+  window.open(url, '_blank')
 }
 
 function handleExport() {
   if (selectedPatient.value) {
     showActionMenu.value = false
-    window.open(`/workspace/${selectedPatient.value.uuid}/export`, '_blank')
+    const token = getApiToken()
+    const url = `/api/v1/workspace/${selectedPatient.value.uuid}/export` +
+      (token ? `?token=${encodeURIComponent(token)}` : '')
+    window.open(url, '_blank')
   }
 }
 
@@ -831,6 +843,25 @@ async function deleteNote(note) {
 
 async function submitNoteForm() {
   if (!noteFormContent.value || !selectedPatient.value?.uuid) return
+
+  // OFFLINE CHECK: Add to local reactive state immediately so it appears in the UI.
+  // The SyncMiddleware (T008) handles saving to local SQLite when offline on NativePHP.
+  // On web browser offline, the background sync will push when connectivity returns.
+  if (!navigator.onLine) {
+    const noteUuid = crypto.randomUUID ? crypto.randomUUID() : 'note-' + Date.now()
+    addNoteLocally({
+      uuid: noteUuid,
+      content: noteFormContent.value,
+      created_at: new Date().toISOString(),
+      category: 'general',
+    })
+    toast.success(t('workspace.note_added') + ' (offline)')
+    showNoteModal.value = false
+    editingNote.value = null
+    noteFormContent.value = ''
+    return
+  }
+
   try {
     if (editingNote.value) {
       await axios.put(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${editingNote.value.uuid}`, {
@@ -848,21 +879,19 @@ async function submitNoteForm() {
     noteFormContent.value = ''
     refreshWorkspaceData()
   } catch (e) {
-    // Offline fallback: if network error, save locally
+    // Network error after online call — fall back to local reactive state
     if (!navigator.onLine || e?.code === 'ERR_NETWORK' || e?.message?.includes('Network Error')) {
-      try {
-        await axios.post('/api/v1/patients/' + selectedPatient.value.uuid + '/notes', {
-          content: noteFormContent.value,
-        })
-        toast.success(t('workspace.note_added') + ' (offline)')
-        showNoteModal.value = false
-        editingNote.value = null
-        noteFormContent.value = ''
-        refreshWorkspaceData()
-      } catch (localErr) {
-        console.error('Note save failed locally', localErr)
-        toast.error(t('common.error'))
-      }
+      const noteUuid = crypto.randomUUID ? crypto.randomUUID() : 'note-' + Date.now()
+      addNoteLocally({
+        uuid: noteUuid,
+        content: noteFormContent.value,
+        created_at: new Date().toISOString(),
+        category: 'general',
+      })
+      toast.warning(t('workspace.note_added') + ' (offline)')
+      showNoteModal.value = false
+      editingNote.value = null
+      noteFormContent.value = ''
     } else {
       console.error('Note save failed', e)
       toast.error(t('common.error'))
@@ -896,13 +925,38 @@ function closeVisitModal() {
 async function submitVisitForm() {
   if (!visitForm.value.visit_date || !selectedPatient.value?.uuid) return
   savingVisit.value = true
-  try {
-    const payload = {
-      visit_type: visitForm.value.visit_type || t('workspace.visit'),
-      visit_date: visitForm.value.visit_date,
-      next_visit_date: visitForm.value.next_visit_date || null,
-      reason: visitForm.value.reason || '',
+
+  const payload = {
+    visit_type: visitForm.value.visit_type || t('workspace.visit'),
+    visit_date: visitForm.value.visit_date,
+    next_visit_date: visitForm.value.next_visit_date || null,
+    reason: visitForm.value.reason || '',
+  }
+
+  // OFFLINE CHECK: Add visit to local reactive state immediately.
+  // The SyncMiddleware handles saving to SQLite on NativePHP.
+  if (!navigator.onLine && !editingVisit.value) {
+    const visitUuid = crypto.randomUUID ? crypto.randomUUID() : 'visit-' + Date.now()
+    if (workspaceData.value) {
+      workspaceData.value = {
+        ...workspaceData.value,
+        visits: [
+          {
+            uuid: visitUuid,
+            ...payload,
+            created_at: new Date().toISOString(),
+          },
+          ...(workspaceData.value.visits || []),
+        ],
+      }
     }
+    toast.success(t('workspace.visit_added') + ' (offline)')
+    closeVisitModal()
+    savingVisit.value = false
+    return
+  }
+
+  try {
     if (editingVisit.value) {
       await axios.put(`/api/v1/patients/${selectedPatient.value.uuid}/visits/${editingVisit.value.uuid}`, payload)
       toast.success(t('workspace.visit_added'))
@@ -913,11 +967,24 @@ async function submitVisitForm() {
     closeVisitModal()
     await refreshWorkspaceData()
   } catch (e) {
-    // Offline fallback — the local server handles SQLite writes even offline
+    // Network error after online call — add to local reactive state
     if (!navigator.onLine || e?.code === 'ERR_NETWORK' || e?.message?.includes('Network Error')) {
-      toast.warning(t('workspace.visit_added') + ' (offline — will sync later)')
+      if (!editingVisit.value && workspaceData.value) {
+        const visitUuid = crypto.randomUUID ? crypto.randomUUID() : 'visit-' + Date.now()
+        workspaceData.value = {
+          ...workspaceData.value,
+          visits: [
+            {
+              uuid: visitUuid,
+              ...payload,
+              created_at: new Date().toISOString(),
+            },
+            ...(workspaceData.value.visits || []),
+          ],
+        }
+      }
+      toast.warning(t('workspace.visit_added') + ' (offline)')
       closeVisitModal()
-      await refreshWorkspaceData()
     } else {
       console.error('Visit save failed', e)
       toast.error(t('common.error'))

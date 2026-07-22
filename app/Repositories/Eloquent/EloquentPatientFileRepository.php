@@ -40,6 +40,13 @@ class EloquentPatientFileRepository implements PatientFileRepositoryInterface
         return $file->toArray();
     }
 
+    public function update(string $uuid, array $data): array
+    {
+        $file = PatientFile::where('uuid', $uuid)->firstOrFail();
+        $file->update($data);
+        return $file->fresh()->toArray();
+    }
+
     public function delete(string $uuid): void
     {
         $file = PatientFile::where('uuid', $uuid)->first();

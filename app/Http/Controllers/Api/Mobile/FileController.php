@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\Mobile;
 
 use App\Http\Controllers\Controller;
+use App\Contracts\Repositories\PatientFileRepositoryInterface;
+use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Models\PatientFile;
 use App\Domains\Mobile\Resources\MobilePatientFileResource;
@@ -20,7 +22,9 @@ class FileController extends Controller
 {
     public function __construct(
         private readonly ActivityLogger $logger,
-        private readonly ApiService $api
+        private readonly ApiService $api,
+        private readonly PatientFileRepositoryInterface $fileRepo,
+        private readonly PatientRepositoryInterface $patientRepo
     ) {}
 
     public function index(Request $request, string $uuid)
@@ -45,17 +49,16 @@ class FileController extends Controller
         Gate::authorize('view', $patient);
 
         $query = $patient->files()->latest();
-
         if ($category = $request->get('category')) {
             $query->where('category', $category);
         }
-
         if ($type = $request->get('type')) {
             $query->where('type', $type);
         }
-
-        $files = $query->paginate(min($request->integer('per_page', 50), 100));
-        return MobilePatientFileResource::collection($files);
+        $files = $query->get();
+        return response()->json([
+            'data' => $files->map(fn($f) => new MobilePatientFileResource($f))->values(),
+        ]);
     }
 
     public function show(string $fileUuid)
@@ -112,7 +115,8 @@ class FileController extends Controller
             'local'
         );
 
-        $file = PatientFile::create([
+        // Use repository for DB creation (handles API-first + local fallback)
+        $fileData = $this->fileRepo->upload($uuid, [], [
             'uuid' => $fileUuid,
             'patient_id' => $patient->id,
             'uploaded_by_id' => $request->user()->id,
@@ -128,10 +132,14 @@ class FileController extends Controller
             'upload_status' => 'ready',
         ]);
 
-        $this->logger->log('file_uploaded', 'PatientFile', $file->uuid, [
+        $this->logger->log('file_uploaded', 'PatientFile', $fileData['uuid'] ?? '', [
             'patient_uuid' => $uuid,
-            'file_name' => $file->file_name,
+            'file_name' => $fileData['file_name'] ?? $originalName,
         ]);
+
+        $file = new PatientFile();
+        $file->forceFill(\Illuminate\Support\Arr::except($fileData, ['id']));
+        $file->exists = true;
 
         return response()->json(new MobilePatientFileResource($file), 201);
     }
@@ -200,13 +208,20 @@ class FileController extends Controller
             }
         }
 
-        $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
+        // Get file data for authorization before deletion
+        $fileData = $this->fileRepo->find($fileUuid);
+        if (!$fileData) abort(404);
+
+        $file = new PatientFile();
+        $file->forceFill(\Illuminate\Support\Arr::except($fileData, ['id']));
+        $file->exists = true;
         Gate::authorize('update', $file->patient);
 
+        // Disk cleanup (business logic stays in controller)
         $pathsToDelete = array_filter([
-            $file->file_path,
-            $file->thumbnail_path,
-            $file->hls_path,
+            $fileData['file_path'] ?? null,
+            $fileData['thumbnail_path'] ?? null,
+            $fileData['hls_path'] ?? null,
         ]);
 
         $disk = Storage::disk('local');
@@ -216,9 +231,7 @@ class FileController extends Controller
             if (empty($path)) continue;
             try {
                 $deleted = $disk->delete($path);
-                if ($deleted) {
-                    continue;
-                }
+                if ($deleted) continue;
                 try {
                     if ($disk->isDirectory($path)) {
                         $disk->deleteDirectory($path);
@@ -231,37 +244,26 @@ class FileController extends Controller
                 }
             } catch (\Throwable $e) {
                 $msg = strtolower($e->getMessage());
-                if (str_contains($msg, 'file not found') || str_contains($msg, 'no such file') || str_contains($msg, 'does not exist')) {
-                    continue;
-                }
+                if (str_contains($msg, 'file not found') || str_contains($msg, 'no such file') || str_contains($msg, 'does not exist')) continue;
                 $errors[] = "Failed to delete '{$path}': " . $e->getMessage();
-                Log::error('File deletion error', [
-                    'uuid' => $fileUuid,
-                    'path' => $path,
-                    'exception' => $e,
-                ]);
+                Log::error('File deletion error', ['uuid' => $fileUuid, 'path' => $path, 'exception' => $e]);
             }
         }
 
         if (!empty($errors)) {
-            return response()->json([
-                'message' => 'Failed to delete some files',
-                'errors' => $errors,
-            ], 500);
+            return response()->json(['message' => 'Failed to delete some files', 'errors' => $errors], 500);
         }
 
+        // Database delete via repository
         try {
-            $file->delete();
+            $this->fileRepo->delete($fileUuid);
         } catch (\Throwable $e) {
             Log::error('Failed to soft delete PatientFile', ['uuid' => $fileUuid, 'exception' => $e]);
-            return response()->json([
-                'message' => 'Failed to delete file record',
-                'errors' => [(string) $e->getMessage()],
-            ], 500);
+            return response()->json(['message' => 'Failed to delete file record', 'errors' => [(string) $e->getMessage()]], 500);
         }
 
-        $this->logger->log('file_deleted', 'PatientFile', $file->uuid, [
-            'file_name' => $file->file_name,
+        $this->logger->log('file_deleted', 'PatientFile', $fileUuid, [
+            'file_name' => $fileData['file_name'] ?? 'Unknown',
         ]);
 
         return response()->json(['message' => 'File deleted successfully']);
@@ -284,9 +286,6 @@ class FileController extends Controller
             }
         }
 
-        $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
-        Gate::authorize('update', $file->patient);
-
         $validated = $request->validate([
             'title' => 'sometimes|required|string|max:255',
             'desc' => 'sometimes|string|nullable',
@@ -297,9 +296,14 @@ class FileController extends Controller
             return response()->json(['message' => 'At least one field must be provided.'], 422);
         }
 
-        $file->update($validated);
+        // Use repo which handles API-first + local fallback
+        $fileData = $this->fileRepo->update($fileUuid, $validated);
 
-        return response()->json(new MobilePatientFileResource($file->fresh()));
+        $file = new PatientFile();
+        $file->forceFill(\Illuminate\Support\Arr::except($fileData, ['id']));
+        $file->exists = true;
+
+        return response()->json(new MobilePatientFileResource($file));
     }
 
     private function cacheFilesLocally(string $patientUuid, array $files): void

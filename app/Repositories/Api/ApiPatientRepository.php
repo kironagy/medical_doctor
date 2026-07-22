@@ -84,11 +84,18 @@ class ApiPatientRepository implements PatientRepositoryInterface
         return $body['data'] ?? $body['patients'] ?? [];
     }
 
-    public function paginated(int $perPage = 10, int $page = 1, ?string $status = null): array
+    public function paginated(int $perPage = 10, int $page = 1, ?string $status = null, ?string $search = null, ?string $updatedSince = null): array
     {
         $params = ['per_page' => $perPage, 'page' => $page];
         if ($status) {
             $params['status'] = $status;
+        }
+        if ($search && strlen($search) >= 2) {
+            $params['search'] = $search;
+        }
+        // Incremental sync: only fetch records updated since the given timestamp
+        if ($updatedSince) {
+            $params['updated_since'] = $updatedSince;
         }
         $body = $this->apiCall('GET', '/patients', $params)->json() ?? [];
         $dataItems = $body['data'] ?? [];

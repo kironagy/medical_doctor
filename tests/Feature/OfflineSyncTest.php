@@ -95,12 +95,12 @@ class OfflineSyncTest extends TestCase
         $source = file_get_contents((new \ReflectionClass(\App\Services\FullSyncService::class))->getFileName());
 
         $userSyncLine = strpos($source, '$this->apiUserRepo->doctors()');
-        $patientSyncLine = strpos($source, '$this->apiPatientRepo->all()');
+        $patientSyncLine = strpos($source, '$this->pullPaginatedPatients()');
 
         $this->assertNotFalse($userSyncLine, 'apiUserRepo->doctors() call must exist');
-        $this->assertNotFalse($patientSyncLine, 'apiPatientRepo->all() call must exist');
+        $this->assertNotFalse($patientSyncLine, 'pullPaginatedPatients() call must exist');
         $this->assertLessThan($patientSyncLine, $userSyncLine,
-            'FullSyncService must call apiUserRepo->doctors() BEFORE apiPatientRepo::all()');
+            'FullSyncService must call apiUserRepo->doctors() BEFORE pullPaginatedPatients()');
     }
 
     // ---------------------------------------------------------------

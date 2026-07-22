@@ -93,13 +93,13 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
         return $localData;
     }
 
-    public function update(int $visitId, array $data): array
+    public function update(string $visitUuid, array $data): array
     {
-        $localData = $this->localRepo->update($visitId, $data);
+        $localData = $this->localRepo->update($visitUuid, $data);
 
         if (NetworkStatusService::isOnline()) {
             try {
-                return $this->apiRepo->update($visitId, $data);
+                return $this->apiRepo->update($visitUuid, $data);
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientVisitRepo] update() - API unavailable: ' . $e->getMessage());
@@ -111,20 +111,20 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
 
         $this->syncQueue->enqueueOperation(
             'PatientVisit', 'update',
-            (string) $visitId,
+            $visitUuid,
             $data
         );
 
         return $localData;
     }
 
-    public function delete(int $visitId): void
+    public function delete(string $visitUuid): void
     {
-        $this->localRepo->delete($visitId);
+        $this->localRepo->delete($visitUuid);
 
         if (NetworkStatusService::isOnline()) {
             try {
-                $this->apiRepo->delete($visitId);
+                $this->apiRepo->delete($visitUuid);
                 return;
             } catch (ConnectionException $e) {
                 NetworkStatusService::setOnline(false);
@@ -137,7 +137,7 @@ class HybridPatientVisitRepository implements PatientVisitRepositoryInterface
 
         $this->syncQueue->enqueueOperation(
             'PatientVisit', 'delete',
-            (string) $visitId,
+            $visitUuid,
             null
         );
     }
