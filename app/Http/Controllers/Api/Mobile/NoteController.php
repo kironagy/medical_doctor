@@ -3,8 +3,6 @@
 namespace App\Http\Controllers\Api\Mobile;
 
 use App\Http\Controllers\Controller;
-use App\Contracts\Repositories\PatientNoteRepositoryInterface;
-use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Domains\Mobile\Resources\MobilePatientNoteResource;
@@ -13,11 +11,6 @@ use Illuminate\Support\Facades\Gate;
 
 class NoteController extends Controller
 {
-    public function __construct(
-        private readonly PatientNoteRepositoryInterface $noteRepo,
-        private readonly PatientRepositoryInterface $patientRepo
-    ) {}
-
     public function index(string $uuid)
     {
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
@@ -39,16 +32,13 @@ class NoteController extends Controller
             'category' => 'nullable|string|max:100',
         ]);
 
-        $validated['patient_id'] = $patient->id;
-        $validated['author_id'] = $request->user()->id;
-        $result = $this->noteRepo->create($uuid, $validated);
+        $note = $patient->notes()->create([
+            'content' => $validated['content'],
+            'category' => $validated['category'] ?? 'general',
+            'author_id' => $request->user()->id,
+        ]);
 
-        $note = new PatientNote();
-        $note->forceFill(\Illuminate\Support\Arr::except($result, ['author']));
-        $note->exists = true;
-        if (isset($result['author']) && is_array($result['author'])) {
-            $note->setRelation('author', (new \App\Domains\Users\Models\User())->forceFill($result['author']));
-        }
+        $note->load('author:id,name,email');
 
         return response()->json(new MobilePatientNoteResource($note), 201);
     }
@@ -58,11 +48,9 @@ class NoteController extends Controller
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('view', $patient);
 
-        $noteData = $this->noteRepo->forPatient($uuid);
-        $noteData = collect($noteData)->firstWhere('uuid', $noteUuid);
-        if (!$noteData) abort(404);
+        $note = PatientNote::where('uuid', $noteUuid)->where('patient_id', $patient->id)->firstOrFail();
 
-        if (($noteData['author_id'] ?? null) !== $request->user()->id) {
+        if ($note->author_id !== $request->user()->id) {
             abort(403, 'You can only edit your own notes.');
         }
 
@@ -70,14 +58,8 @@ class NoteController extends Controller
             'content' => 'required|string|max:65535',
         ]);
 
-        $result = $this->noteRepo->update($uuid, $noteUuid, $validated);
-
-        $note = new PatientNote();
-        $note->forceFill(\Illuminate\Support\Arr::except($result, ['author']));
-        $note->exists = true;
-        if (isset($result['author']) && is_array($result['author'])) {
-            $note->setRelation('author', (new \App\Domains\Users\Models\User())->forceFill($result['author']));
-        }
+        $note->update($validated);
+        $note->load('author:id,name,email');
 
         return response()->json(new MobilePatientNoteResource($note));
     }
@@ -85,15 +67,14 @@ class NoteController extends Controller
     public function destroy(Request $request, string $uuid, string $noteUuid)
     {
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
-        $noteData = $this->noteRepo->forPatient($uuid);
-        $noteData = collect($noteData)->firstWhere('uuid', $noteUuid);
-        if (!$noteData) abort(404);
 
-        if (($noteData['author_id'] ?? null) !== $request->user()->id) {
+        $note = PatientNote::where('uuid', $noteUuid)->where('patient_id', $patient->id)->firstOrFail();
+
+        if ($note->author_id !== $request->user()->id) {
             abort(403, 'You can only delete your own notes.');
         }
 
-        $this->noteRepo->delete($uuid, $noteUuid);
+        $note->delete();
         return response()->json(['message' => 'Note deleted successfully']);
     }
 }

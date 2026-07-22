@@ -3,8 +3,6 @@
 namespace App\Http\Controllers\Api\Mobile;
 
 use App\Http\Controllers\Controller;
-use App\Contracts\Repositories\PatientVisitRepositoryInterface;
-use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientVisit;
 use App\Domains\Mobile\Resources\MobilePatientVisitResource;
@@ -16,8 +14,6 @@ class VisitController extends Controller
 {
     public function __construct(
         private readonly ActivityLogger $logger,
-        private readonly PatientVisitRepositoryInterface $visitRepo,
-        private readonly PatientRepositoryInterface $patientRepo
     ) {}
 
     public function index(string $uuid)
@@ -50,16 +46,13 @@ class VisitController extends Controller
             'cost' => 'nullable|numeric|min:0',
         ]);
 
-        $validated['patient_id'] = $patient->id;
-        $result = $this->visitRepo->create($uuid, $validated);
+        $visit = $patient->visits()->create(array_merge($validated, [
+            'patient_id' => $patient->id,
+        ]));
 
-        $this->logger->log('visit_created', 'PatientVisit', $result['uuid'] ?? '', [
+        $this->logger->log('visit_created', 'PatientVisit', $visit->uuid, [
             'patient_uuid' => $uuid,
         ]);
-
-        $visit = new PatientVisit();
-        $visit->forceFill(\Illuminate\Support\Arr::except($result, ['id']));
-        $visit->exists = true;
 
         return response()->json(new MobilePatientVisitResource($visit), 201);
     }
@@ -83,13 +76,10 @@ class VisitController extends Controller
             'cost' => 'nullable|numeric|min:0',
         ]);
 
-        $result = $this->visitRepo->update($visitId, $validated);
+        $visit = PatientVisit::where('uuid', $visitId)->where('patient_id', $patient->id)->firstOrFail();
+        $visit->update($validated);
 
-        $visit = new PatientVisit();
-        $visit->forceFill(\Illuminate\Support\Arr::except($result, ['id']));
-        $visit->exists = true;
-
-        return response()->json(new MobilePatientVisitResource($visit));
+        return response()->json(new MobilePatientVisitResource($visit->fresh()));
     }
 
     public function destroy(string $uuid, string $visitId)
@@ -97,7 +87,9 @@ class VisitController extends Controller
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('update', $patient);
 
-        $this->visitRepo->delete($visitId);
+        $visit = PatientVisit::where('uuid', $visitId)->where('patient_id', $patient->id)->firstOrFail();
+        $visit->delete();
+
         return response()->json(['message' => 'Visit deleted successfully']);
     }
 }

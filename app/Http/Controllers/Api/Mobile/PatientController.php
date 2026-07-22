@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\Mobile;
 
 use App\Http\Controllers\Controller;
-use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Mobile\Resources\MobilePatientResource;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
@@ -15,7 +14,6 @@ class PatientController extends Controller
 {
     public function __construct(
         private readonly ActivityLogger $logger,
-        private readonly PatientRepositoryInterface $patientRepo
     ) {}
 
     public function index(Request $request)
@@ -82,15 +80,11 @@ class PatientController extends Controller
         $validated['primary_doctor_id'] = $request->user()->id;
         $validated['created_by_id'] = $request->user()->id;
 
-        $result = $this->patientRepo->create($validated);
+        $patient = Patient::create($validated);
 
-        $this->logger->log('patient_created', 'Patient', $result['uuid'] ?? '', [
-            'patient_name' => $result['name'] ?? 'Unknown',
+        $this->logger->log('patient_created', 'Patient', $patient->uuid, [
+            'patient_name' => $patient->name,
         ]);
-
-        $patient = new Patient();
-        $patient->forceFill($result);
-        $patient->exists = true;
 
         return response()->json(new MobilePatientResource($patient), 201);
     }
@@ -115,31 +109,25 @@ class PatientController extends Controller
             'code' => 'nullable|string|max:255',
         ]);
 
-        $updated = $this->patientRepo->update($uuid, $validated);
+        $patient = Patient::where('uuid', $uuid)->firstOrFail();
+        $patient->update($validated);
 
         $this->logger->log('patient_updated', 'Patient', $uuid, [
-            'patient_name' => $validated['name'] ?? 'Unknown',
+            'patient_name' => $patient->name,
         ]);
 
-        $patient = new Patient();
-        $patient->forceFill($updated);
-        $patient->exists = true;
-
-        return response()->json(new MobilePatientResource($patient));
+        return response()->json(new MobilePatientResource($patient->fresh()));
     }
 
     public function destroy(string $uuid)
     {
-        $patientData = $this->patientRepo->findByUuid($uuid);
-        $patient = new Patient();
-        $patient->forceFill($patientData);
-        $patient->exists = true;
+        $patient = Patient::where('uuid', $uuid)->firstOrFail();
 
         Gate::authorize('delete', $patient);
-        $this->patientRepo->delete($uuid);
+        $patient->delete();
 
         $this->logger->log('patient_deleted', 'Patient', $uuid, [
-            'patient_name' => $patientData['name'] ?? 'Unknown',
+            'patient_name' => $patient->name,
         ]);
 
         return response()->json(['message' => 'Patient deleted successfully']);
