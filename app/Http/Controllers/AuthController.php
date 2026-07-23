@@ -66,11 +66,8 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        Auth::logout();
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
-
-        // Clean up the remember token
+        // Clean up the remember token BEFORE invalidating the session,
+        // otherwise session() will return null and the token is never deleted.
         try {
             $encrypted = session('session_remember_token');
             if ($encrypted) {
@@ -81,6 +78,10 @@ class AuthController extends Controller
             // Silently clean up
         }
         session()->forget('session_remember_token');
+
+        Auth::logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
 
         return redirect('/login');
     }
