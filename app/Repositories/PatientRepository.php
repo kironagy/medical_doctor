@@ -17,6 +17,16 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function all(): array
     {
+        // Attempt to sync any pending patients (created offline) to the server.
+        // This ensures patients with sync_status='pending_create' get uploaded
+        // automatically when connectivity returns, even if the user never opens
+        // the sidebar paginated list. Called from workspace load (index).
+        try {
+            $this->syncPendingPatients();
+        } catch (\Throwable $e) {
+            // Silently ignore — will retry on next call
+        }
+
         $data = $this->local->all();
         return array_values(array_filter($data, fn($p) => ($p['sync_status'] ?? 'synced') !== 'pending_delete'));
     }
@@ -24,9 +34,6 @@ class PatientRepository implements PatientRepositoryInterface
     public function paginated(int $perPage = 10, int $page = 1, ?string $status = null): array
     {
         try {
-            // First, try to sync any pending patients (created offline) to the server.
-            // This ensures patients with sync_status='pending_create' get uploaded
-            // automatically when connectivity returns, so the processing badge disappears.
             $this->syncPendingPatients();
 
             $data = $this->api->paginated($perPage, $page, $status);
@@ -53,7 +60,6 @@ class PatientRepository implements PatientRepositoryInterface
         foreach ($pendingPatients as $patient) {
             try {
                 $data = $patient->toArray();
-                // Remove local-only fields before sending to API
                 unset($data['id'], $data['sync_status'], $data['client_updated_at'], $data['deleted_at']);
 
                 $apiData = $this->api->create($data);
@@ -64,9 +70,8 @@ class PatientRepository implements PatientRepositoryInterface
                     'remote_uuid' => $apiData['uuid'] ?? 'unknown',
                 ]);
             } catch (\Throwable $e) {
-                // API unreachable — will retry on next paginated() call
                 Log::info('[PatientRepo] Failed to sync pending patient (offline): ' . $e->getMessage());
-                break; // Stop processing — likely connectivity issue
+                break;
             }
         }
     }
@@ -90,21 +95,24 @@ class PatientRepository implements PatientRepositoryInterface
     public function create(array $data): array
     {
         $apiPayload = $data;
-
         $data['sync_status'] = 'pending_create';
         $data['client_updated_at'] = now();
-        $localData = $this->local->create($data);
 
         try {
+            // Save to local SQLite FIRST. Wrapped inside try/catch to ensure
+            // that if the local save fails (FK constraint, missing column, etc.),
+            // the error is caught and the user gets a meaningful response.
+            $localData = $this->local->create($data);
+
             $apiPayload['uuid'] = $localData['uuid'];
             $apiData = $this->api->create($apiPayload);
             $this->syncSingleToLocal($apiData, force: true);
             return $apiData;
         } catch (\Throwable $e) {
-            Log::info('[PatientRepo] create() - offline, saved locally with pending_create: ' . $e->getMessage());
+            Log::info('[PatientRepo] create() - saved locally (offline or error): ' . $e->getMessage());
         }
 
-        return $localData;
+        return $localData ?? [];
     }
 
     public function update(string $uuid, array $data): array

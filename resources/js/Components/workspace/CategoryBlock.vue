@@ -429,7 +429,7 @@ import { useNativeBridge } from '@/Composables/useNativeBridge'
 import { useOfflineUploads } from '@/Composables/useOfflineUploads'
 
 const { isCameraAvailable, isFilePickerAvailable, takePhoto, pickFiles } = useNativeBridge()
-const { statusIcon: offlineStatusIcon, statusLabel: offlineStatusLabel } = useOfflineUploads()
+const { statusIcon: offlineStatusIcon, statusLabel: offlineStatusLabel, uploadFile: offlineUploadFile } = useOfflineUploads()
 
 const props = defineProps({
   slug: String,
@@ -440,7 +440,22 @@ const props = defineProps({
 })
 
 const { toggleCategory, isCategoryExpanded, canEdit, canDelete, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile, allFiles, allNotes, updateFileLocally, removeFileLocally } = useWorkspace()
-const { uploadFile, cancelUpload, pauseUpload, resumeUpload, retryUpload, uploads } = useUploads()
+const { uploadFile: onlineUploadFile, cancelUpload, pauseUpload, resumeUpload, retryUpload, uploads } = useUploads()
+
+// ── Phase 7: Route file uploads to offline composable when device is offline ──
+// When navigator.onLine is false, upload the file locally via useOfflineUploads
+// (saves to storage/app/uploads/pending/ and records in offline_files table).
+// When online, use the existing chunked upload composable (useUploads).
+const uploadFile = (file, patientId, options) => {
+  const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+  if (!isOnline && typeof offlineUploadFile === 'function') {
+    return offlineUploadFile(file, patientId, options);
+  }
+  if (typeof onlineUploadFile === 'function') {
+    return onlineUploadFile(file, patientId, options);
+  }
+  return null;
+}
 const dialog = useDialog()
 const toast = useToast()
 

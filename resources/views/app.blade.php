@@ -59,14 +59,12 @@
                     localStorage.removeItem('np_persist_login');
                     localStorage.removeItem('np_auth_user');
                   }
-                  // Other errors (e.g. 419 CSRF, 500) — stay on login page
+                  // Other errors — stay on login page
                 })
                 .catch(function() {
                   // Server unreachable — stay on login page.
                   // Don't remove the token; it may be valid for the next
                   // attempt when the server comes back or the app restarts.
-                  // The absence of redirect here prevents the redirect loop
-                  // that existed when the original code redirected to /dashboard.
                 });
               }
 
