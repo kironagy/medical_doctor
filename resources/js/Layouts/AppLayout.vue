@@ -170,7 +170,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { Link, usePage, router } from '@inertiajs/vue3';
 import GlobalSearch from '@/Components/GlobalSearch.vue';
 import PullToRefresh from '@/Components/PullToRefresh.vue';
@@ -178,6 +178,7 @@ import { useTheme } from '@/Composables/useTheme';
 import { useLocale } from '@/Composables/useLocale';
 import { useToast } from '@/Composables/useToast';
 import { useWorkspace } from '@/Composables/useWorkspace';
+import { useSyncEngine } from '@/Composables/useSyncEngine';
 import SettingsModal from '@/Components/workspace/SettingsModal.vue';
 
 const page = usePage();
@@ -196,23 +197,37 @@ watch(mobileMenuOpen, (isOpen) => {
   }
 });
 
-// Offline Mode & Sync State
-const isOffline = ref(!navigator.onLine);
-const isSyncing = ref(false);
+// ── Sync Engine: Robust connectivity detection + ordered sync ─────────
+const syncEngine = useSyncEngine();
+const { isOnline, isSyncing, lastSyncResult, pendingSummary, hasPendingOperations, pendingSummaryText } = syncEngine;
+
+// Derived state for UI indicators (invert isOnline for the isOffline template ref)
+const isOffline = computed(() => !isOnline.value);
 const syncCompleted = ref(false);
 const syncError = ref(false);
+let syncFeedbackTimeout = null;
 
-const checkOnlineStatus = async () => {
-    const wasOffline = isOffline.value;
-    isOffline.value = !navigator.onLine;
+// Watch sync results for UI feedback
+watch(lastSyncResult, (result) => {
+  if (!result) return;
+  if (result.success) {
+    syncCompleted.value = true;
+    syncError.value = false;
+  } else {
+    syncCompleted.value = false;
+    syncError.value = true;
+  }
+  // Auto-hide feedback after 5 seconds
+  if (syncFeedbackTimeout) clearTimeout(syncFeedbackTimeout);
+  syncFeedbackTimeout = setTimeout(() => {
+    syncCompleted.value = false;
+    syncError.value = false;
+  }, 5000);
+});
 
-    if (wasOffline && !isOffline.value) {
-        toast.success('Back online');
-        const ws = useWorkspace();
-        ws.refreshPatientList();
-        ws.refreshWorkspaceData();
-    }
-};
+// Watch sync results for UI feedback (auto-sync is handled by useSyncEngine heartbeat)
+// The heartbeat's handleOnlineEvent already calls triggerSync() when connection
+// is restored, so we don't duplicate that here.
 
 let refreshPromise = null
 
@@ -256,9 +271,6 @@ function syncStatusBar(t) {
 onMounted(() => {
   syncStatusBar(theme.value);
   watch(theme, (val) => syncStatusBar(val), { immediate: false });
-  
-  window.addEventListener('online', checkOnlineStatus);
-  window.addEventListener('offline', checkOnlineStatus);
 
   // Initial data refresh when online on startup
   if (navigator.onLine) {
@@ -268,8 +280,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  window.removeEventListener('online', checkOnlineStatus);
-  window.removeEventListener('offline', checkOnlineStatus);
   document.body.style.overflow = '';
 });
 

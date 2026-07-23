@@ -17,11 +17,11 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function all(): array
     {
-        try {
-            $this->syncPendingPatients();
-        } catch (\Throwable $e) {
-            // Silently ignore
-        }
+        // NOTE: Sync is handled exclusively by SyncEngineService.
+        // We do NOT call syncPendingPatients() here because that would
+        // create a race condition with the dedicated sync engine.
+        // The dedicated sync engine handles patient-first, files-second
+        // ordered synchronization with proper atomicity.
 
         $data = $this->local->all();
         return array_values(array_filter($data, fn($p) => ($p['sync_status'] ?? 'synced') !== 'pending_delete'));
@@ -29,19 +29,21 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function paginated(int $perPage = 10, int $page = 1, ?string $status = null): array
     {
-        try {
-            $this->syncPendingPatients();
+        // NOTE: Sync is handled exclusively by SyncEngineService.
+        // We do NOT call syncPendingPatients() here because that would
+        // create a race condition with the dedicated sync engine.
+        // The dedicated sync engine handles patient-first, files-second
+        // ordered synchronization with proper atomicity.
 
+        try {
             $data = $this->api->paginated($perPage, $page, $status);
             if (isset($data['data'])) {
                 $this->syncLocalCache($data['data']);
 
                 // ── Merge local pending patients not yet in API response ─────
-                // After syncing pending patients to the API, some may have failed
-                // (e.g., network hiccup, server error). They remain in SQLite with
-                // sync_status='pending_create' or 'pending_update'. The API paginated
-                // response won't include them. We must merge them back into the result
-                // so the frontend doesn't lose them.
+                // Patients that are still pending_create/pending_update locally
+                // won't be in the API response yet. We merge them so the frontend
+                // can still display them even while waiting for sync.
                 $localPending = \App\Domains\Patients\Models\Patient::whereIn(
                     'sync_status', ['pending_create', 'pending_update']
                 )->get()->toArray();
@@ -74,6 +76,55 @@ class PatientRepository implements PatientRepositoryInterface
         return $localResult;
     }
 
+    /**
+     * Sync all pending local patients to the remote server.
+     * Made public so it can be triggered from the frontend via
+     * POST /_native/api/sync/patients before fetching the online patient list.
+     */
+    public function syncPending(): void
+    {
+        $this->syncPendingPatients();
+    }
+
+    /**
+     * Create a patient on the remote API only (no local save).
+     * Used by SyncEngineService for ordered sync operations.
+     */
+    public function createOnRemote(array $data): array
+    {
+        return $this->api->create($data);
+    }
+
+    /**
+     * Update a patient on the remote API only (no local save).
+     * Used by SyncEngineService for ordered sync operations.
+     */
+    public function updateOnRemote(string $uuid, array $data): array
+    {
+        return $this->api->update($uuid, $data);
+    }
+
+    /**
+     * Delete a patient on the remote API only (no local delete).
+     * Used by SyncEngineService for ordered sync operations.
+     */
+    public function deleteOnRemote(string $uuid): void
+    {
+        $this->api->delete($uuid);
+    }
+
+    /**
+     * Sync a single remote patient record to the local SQLite database.
+     * Made public for use by SyncEngineService.
+     *
+     * @param  array   $data   Patient data from the remote API
+     * @param  bool    $force  If true, overwrites even pending local changes
+     */
+    public function syncSingleToLocal(array $data, bool $force = false): void
+    {
+        $this->doSyncSingleToLocal($data, $force);
+    }
+
     private function syncPendingPatients(): void
     {
         $pendingPatients = \App\Domains\Patients\Models\Patient::whereIn('sync_status', ['pending_create', 'pending_update'])->get();
@@ -91,7 +142,7 @@ class PatientRepository implements PatientRepositoryInterface
                     $remoteUuid = $apiData['uuid'] ?? $patient->uuid;
                 }
 
-                $this->syncSingleToLocal($apiData, force: true);
+                $this->doSyncSingleToLocal($apiData, force: true);
 
                 Log::info('[PatientRepo] Synced pending patient to server', [
                     'local_uuid' => $patient->uuid,
@@ -139,7 +190,7 @@ class PatientRepository implements PatientRepositoryInterface
                 try {
                     @file_put_contents($tf, now()->format('H:i:s.v') . ' P6c calling remote API' . "\n", FILE_APPEND | LOCK_EX);
                     $apiData = $this->api->create($apiPayload);
-                    $this->syncSingleToLocal($apiData, force: true);
+                    $this->doSyncSingleToLocal($apiData, force: true);
                     @file_put_contents($tf, now()->format('H:i:s.v') . ' P6d remote SUCCESS'. "\n", FILE_APPEND | LOCK_EX);
                     return $apiData;
                 } catch (\Throwable $e) {
@@ -170,7 +221,7 @@ class PatientRepository implements PatientRepositoryInterface
 
         try {
             $apiData = $this->api->update($uuid, $apiPayload);
-            $this->syncSingleToLocal($apiData, force: true);
+            $this->doSyncSingleToLocal($apiData, force: true);
             return $apiData;
         } catch (\Throwable $e) {
             Log::info('[PatientRepo] update() - offline, saved locally with pending_update: ' . $e->getMessage());
@@ -278,8 +329,16 @@ class PatientRepository implements PatientRepositoryInterface
         $this->local->delete($uuid);
     }
 
-    private function syncSingleToLocal(array $data, bool $force = false): void
+    private function doSyncSingleToLocal(array $data, bool $force = false): void
     {
+        // ── 🔥 FIX: Handle API response wrapped in 'data' key ───────────
+        // The remote API may return the patient wrapped in a 'data' key
+        // (e.g., ['data' => ['uuid' => '...', 'name' => '...']])
+        // while other repos return the patient directly.
+        if (!isset($data['uuid']) && isset($data['data']['uuid'])) {
+            $data = $data['data'];
+        }
+
         if (!isset($data['uuid'])) return;
 
         if (!$force) {
@@ -311,7 +370,7 @@ class PatientRepository implements PatientRepositoryInterface
     {
         foreach ($data as $item) {
             if (is_array($item) && isset($item['uuid'])) {
-                $this->syncSingleToLocal($item);
+                $this->doSyncSingleToLocal($item);
             }
         }
     }

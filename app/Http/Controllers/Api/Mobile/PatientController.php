@@ -51,6 +51,41 @@ class PatientController extends Controller
         return response()->json(new PatientResource($patient));
     }
 
+    /**
+     * Store a newly created patient in storage (IDEMPOTENT).
+     *
+     * ───────────────────────────────────────────────────────────────────────
+     *  IDEMPOTENCY GUARANTEE
+     * ───────────────────────────────────────────────────────────────────────
+     *
+     * This endpoint guarantees that multiple identical POST requests produce
+     * exactly one patient. The idempotency key is the client-generated UUID.
+     *
+     * How it works:
+     *   1. If the request includes a 'uuid' field AND a patient with that UUID
+     *      already exists, we return the existing patient (HTTP 200) instead
+     *      of creating a duplicate.
+     *   2. If no patient with that UUID exists, we create one (HTTP 201).
+     *   3. If no 'uuid' is provided, the model generates one automatically.
+     *
+     * This pattern is safe under retries:
+     *   - Lost request: client retries → server finds existing patient → returns it
+     *   - Lost response: client retries → server finds existing patient → returns it
+     *   - Duplicate network transmission: server handles idempotent
+     *   - Concurrent duplicate requests: both succeed but only one patient created
+     *     (race condition is prevented by the UNIQUE constraint on uuid column)
+     *
+     * Effects on other operations:
+     *   - Updates: Use PUT /patients/{uuid}, which requires existing patient.
+     *     Idempotent by nature (PUT replaces the resource).
+     *   - Deletes: Use DELETE /patients/{uuid}. Idempotent by nature
+     *     (deleting an already-deleted patient returns success).
+     *   - File uploads: POST /patients/{uuid}/files depends on the patient
+     *     existing. With idempotent patient creation, the patient always
+     *     exists after the first POST, so file uploads never fail with 404.
+     *
+     * ───────────────────────────────────────────────────────────────────────
+     */
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -72,20 +107,67 @@ class PatientController extends Controller
             'uuid' => 'nullable|uuid',
         ]);
 
+        // ── IDEMPOTENCY CHECK: Look up existing patient by UUID ─────────
+        // If the client provides a UUID and a patient with that UUID already
+        // exists, return the existing patient rather than creating a duplicate.
+        // This handles the critical "lost response" scenario where the client
+        // retries a successful creation because it never received the response.
+        if (!empty($validated['uuid'])) {
+            $existing = Patient::where('uuid', $validated['uuid'])->first();
+            if ($existing) {
+                // Update fields if the client sent newer data
+                // (handles the case where the first request succeeded but
+                //  the response was lost, and the client retries with the
+                //  same data, or slightly different data from a new attempt)
+                $updateData = \Illuminate\Support\Arr::except($validated, ['uuid']);
+                if (!empty($updateData)) {
+                    $existing->update($updateData);
+                }
+
+                \Illuminate\Support\Facades\Log::info('[Idempotent] Returning existing patient for UUID: ' . $validated['uuid']);
+
+                return response()->json(new PatientResource($existing->fresh()), 200);
+            }
+        }
+
         if (empty($validated['code'])) {
             $validated['code'] = (string) random_int(100000, 999999);
         }
 
-        $validated['primary_doctor_id'] = $request->user()->id;
-        $validated['created_by_id'] = $request->user()->id;
+        // If the user is authenticated, use their ID. If not (sync context),
+        // the primary_doctor_id may be set by the syncing client or may be null.
+        // The database constraint allows null for created_by_id.
+        if ($request->user()) {
+            $validated['primary_doctor_id'] = $request->user()->id;
+            $validated['created_by_id'] = $request->user()->id;
+        }
 
-        $patient = Patient::create($validated);
+        try {
+            $patient = Patient::create($validated);
 
-        $this->logger->log('patient_created', 'Patient', $patient->uuid, [
-            'patient_name' => $patient->name,
-        ]);
+            $this->logger->log('patient_created', 'Patient', $patient->uuid, [
+                'patient_name' => $patient->name,
+            ]);
 
-        return response()->json(new PatientResource($patient), 201);
+            return response()->json(new PatientResource($patient), 201);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // ── UNIQUE CONSTRAINT VIOLATION SAFETY NET ───────────────────
+            // If a race condition caused two concurrent requests to both pass
+            // the idempotency check, the UNIQUE constraint on the uuid column
+            // will catch the second one. We handle it gracefully by fetching
+            // the existing patient and returning it.
+            $errorMessage = $e->getMessage();
+            if (\Illuminate\Support\Str::contains($errorMessage, 'UNIQUE constraint failed')
+                || \Illuminate\Support\Str::contains($errorMessage, 'Duplicate entry')
+                || \Illuminate\Support\Str::contains($errorMessage, 'Integrity constraint violation')) {
+                $existing = Patient::where('uuid', $validated['uuid'])->first();
+                if ($existing) {
+                    \Illuminate\Support\Facades\Log::info('[Idempotent] Race condition resolved via UNIQUE constraint for UUID: ' . $validated['uuid']);
+                    return response()->json(new PatientResource($existing), 200);
+                }
+            }
+            throw $e;
+        }
     }
 
     public function update(Request $request, string $uuid)

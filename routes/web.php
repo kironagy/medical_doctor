@@ -207,6 +207,174 @@ Route::prefix('_native/api/offline')->name('offline.')->withoutMiddleware([
     Route::delete('/uploads/{uuid}', [\App\Http\Controllers\Api\OfflineUploadController::class, 'destroy'])->name('uploads.destroy');
 });
 
+// ── Phase 7 — Sync Pending Operations (OUTSIDE auth middleware) ──────
+// These endpoints let the frontend trigger sync from the phone's local
+// SQLite BEFORE making online API calls. Without this, syncPendingPatients()
+// would only run on the production server (which can't see phone's SQLite).
+// 🚫 CSRF excluded — same reasoning as other _native routes.
+Route::prefix('_native/api/sync')->name('sync.')->withoutMiddleware([
+    \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+])->group(function () {
+    // Upload pending patients to remote server
+    Route::post('/patients', function (\Illuminate\Http\Request $request) {
+        try {
+            app(\App\Repositories\PatientRepository::class)->syncPending();
+            return response()->json(['success' => true, 'message' => 'Pending patients synced']);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::info('[Sync] sync/patients failed: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    });
+
+    // Upload pending local files to remote server
+    Route::post('/files', function (\Illuminate\Http\Request $request) {
+        try {
+            $offlineRepo = app(\App\Contracts\Repositories\OfflineFileRepositoryInterface::class);
+            $uploadService = app(\App\Services\OfflineUploadService::class);
+            $api = app(\App\Services\Mobile\ApiService::class);
+            $pendingFiles = $offlineRepo->findPending();
+            $results = ['uploaded' => 0, 'failed' => 0];
+
+            foreach ($pendingFiles as $file) {
+                try {
+                    $absolutePath = $uploadService->absolutePath($file['local_path']);
+                    if (!file_exists($absolutePath)) {
+                        $offlineRepo->markFailed($file['uuid'], 'Local file not found on disk');
+                        $results['failed']++;
+                        continue;
+                    }
+
+                    $offlineRepo->markUploading($file['uuid']);
+                    $response = $api->upload(
+                        "/patients/{$file['patient_uuid']}/files",
+                        ['file' => $absolutePath],
+                        ['title' => $file['original_name']]
+                    );
+
+                    $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
+                    if (!$remoteUuid) {
+                        throw new \RuntimeException('No UUID in server response');
+                    }
+
+                    $offlineRepo->markSynced($file['uuid'], $remoteUuid);
+                    $uploadService->deleteLocal($file['local_path']);
+                    $results['uploaded']++;
+                } catch (\Throwable $fe) {
+                    \Illuminate\Support\Facades\Log::warning('[Sync] File sync failed: ' . $fe->getMessage());
+                    $offlineRepo->incrementRetry($file['uuid']);
+                    $results['failed']++;
+                }
+            }
+
+            return response()->json(['success' => true, 'results' => $results]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    });
+});
+
+// ── Local Pending Patients Query (OUTSIDE auth middleware) ──────────
+// Returns all local patients with sync_status pending (NOT synced).
+// The frontend uses this to rehydrate pending patients after app restart
+// so they don't disappear when refreshPatientList() runs.
+Route::get('/_native/api/patients/pending', function () {
+    try {
+        $pending = \App\Domains\Patients\Models\Patient::whereIn(
+            'sync_status', ['pending_create', 'pending_update']
+        )->get()->toArray();
+        return response()->json(['data' => $pending, 'count' => count($pending)]);
+    } catch (\Throwable $e) {
+        return response()->json(['data' => [], 'count' => 0]);
+    }
+})->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
+
+// ── Sync Pending Operations from frontend (when online) ─────────────
+// The AppLayout calls this when it detects the connection came back,
+// BEFORE refreshing the patient list from the server.
+Route::post('/_native/api/sync/all', function () {
+    try {
+        // 1. Sync pending patients
+        app(\App\Repositories\PatientRepository::class)->syncPending();
+
+        // 2. Sync pending files (uses existing SyncPendingUploads logic)
+        $offlineRepo = app(\App\Contracts\Repositories\OfflineFileRepositoryInterface::class);
+        $uploadService = app(\App\Services\OfflineUploadService::class);
+        $api = app(\App\Services\Mobile\ApiService::class);
+
+        $pendingFiles = $offlineRepo->findPending();
+        $fileResults = ['uploaded' => 0, 'failed' => 0];
+
+        foreach ($pendingFiles as $file) {
+            try {
+                $absolutePath = $uploadService->absolutePath($file['local_path']);
+                if (!file_exists($absolutePath)) {
+                    $offlineRepo->markFailed($file['uuid'], 'Local file not found on disk');
+                    $fileResults['failed']++;
+                    continue;
+                }
+                $offlineRepo->markUploading($file['uuid']);
+                $response = $api->upload(
+                    "/patients/{$file['patient_uuid']}/files",
+                    ['file' => $absolutePath],
+                    ['title' => $file['original_name']]
+                );
+                $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
+                if ($remoteUuid) {
+                    $offlineRepo->markSynced($file['uuid'], $remoteUuid);
+                    $uploadService->deleteLocal($file['local_path']);
+                    $fileResults['uploaded']++;
+                }
+            } catch (\Throwable $fe) {
+                $offlineRepo->incrementRetry($file['uuid']);
+                $fileResults['failed']++;
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'All pending operations synced',
+            'files' => $fileResults,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+    }
+})->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
+
+// ── Phase 7 — Sync Engine (OUTSIDE auth middleware) ─────────────────
+// Robust ordered synchronization: patients → files → deletes.
+// Used by useSyncEngine composable for connectivity-based auto-sync.
+// 🚫 CSRF excluded — same reasoning as other _native routes.
+Route::prefix('_native/api/sync')->withoutMiddleware([
+    \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+])->group(function () {
+    // Full sync: patients first, then files (only after patient is synced), then deletes
+    Route::post('/engine', function () {
+        try {
+            $engine = app(\App\Services\SyncEngineService::class);
+            $results = $engine->syncAll();
+            return response()->json([
+                'success' => true,
+                'message' => 'Sync cycle completed',
+                'results' => $results,
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('[Sync] engine failed: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
+    });
+
+    // Get pending operations summary (patients + files waiting to sync)
+    Route::get('/pending-summary', function () {
+        try {
+            $engine = app(\App\Services\SyncEngineService::class);
+            return response()->json($engine->getPendingSummary());
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[Sync] pending-summary query failed: ' . $e->getMessage());
+            return response()->json(['patients' => 0, 'files' => 0, 'deletes' => 0, 'total' => 0]);
+        }
+    });
+});
+
 // ── Phase 6 — Local File Cache (OUTSIDE auth middleware) ────────────
 // Same rationale — controller-level auth, offline-friendly.
 // 🚫 CSRF excluded — same reasoning.

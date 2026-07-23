@@ -432,6 +432,45 @@ const showArchived = ref(false);
 async function refreshPatientList(page = 1) {
     loadingPatients.value = true;
     try {
+        // ═══════════════════════════════════════════════════════════════
+        //  STEP 1: Upload pending local patients to server
+        // ═══════════════════════════════════════════════════════════════
+        // The phone's embedded Laravel has pending patients in local SQLite
+        // (sync_status = pending_create / pending_update). They must be
+        // uploaded to the production server BEFORE we fetch the patient list.
+        // Without this step, the server doesn't know about them and returns
+        // an incomplete list, causing pending patients to disappear.
+        try {
+            const syncRes = await axios.post('/_native/api/sync/patients', {}, { timeout: 60000 });
+            console.log('[Sync] Pending patients synced:', syncRes.data?.message);
+        } catch (syncErr) {
+            // Expected when online — request goes EXTERNAL, not LOCAL.
+            // The _native/* routes go LOCAL even when online, so this
+            // should work. Log but don't block the refresh.
+            console.log('[Sync] Sync endpoint note:', syncErr.message);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  STEP 2: Load pending patients from local SQLite
+        // ═══════════════════════════════════════════════════════════════
+        // After app restart, patients.value is empty. The merge logic below
+        // checks patients.value for pending patients — but they're empty on
+        // restart. We need to query the local SQLite to find them.
+        let sqlitePending = [];
+        try {
+            const pendingRes = await axios.get('/_native/api/patients/pending');
+            sqlitePending = pendingRes.data?.data || [];
+            if (sqlitePending.length > 0) {
+                console.log('[Sync] Loaded', sqlitePending.length, 'pending patients from local SQLite:', sqlitePending.map(p => p.name + '(' + (p.sync_status || '?') + ')').join(', '));
+            }
+        } catch (e) {
+            // Local endpoint may be unavailable — fall through gracefully
+            console.log('[Sync] Could not load pending from SQLite:', e.message);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  STEP 3: Fetch patient list from API
+        // ═══════════════════════════════════════════════════════════════
         const url = "/api/v1/workspace/patients-list";
         const res = await axios.get(url, {
             params: { page },
@@ -440,18 +479,46 @@ async function refreshPatientList(page = 1) {
         const total = res.data?.meta?.total || 0;
         const firstUuid = res.data?.data?.[0]?.uuid || 'none';
         console.log('[DIAG] refreshPatientList - count:', count, 'total:', total, 'first uuid:', firstUuid, 'has pending_create:', res.data?.data?.some(p => p.sync_status === 'pending_create'))
+
         if (res.data?.data) {
-            // ── Merge: preserve local pending patients not in API response ────
-            // When going from offline to online, the API response may not include
-            // patients that were created locally while offline (sync_status != 'synced').
-            // Without this merge, those patients would disappear from the UI.
+            // ═══════════════════════════════════════════════════════════
+            //  STEP 4: Merge — preserve pending local patients
+            // ═══════════════════════════════════════════════════════════
+            // Three sources of pending patients:
+            //   1. patients.value — may have pending from current session
+            //   2. sqlitePending — from local SQLite (survives app restart)
+            //   3. API data — from the server
+            //
+            // After sync, some pending patients may have been uploaded and
+            // are now included in the API response. They'll have sync_status
+            // 'synced' from the server. Those that failed sync remain pending
+            // locally and must be preserved.
             const apiUuids = new Set(res.data.data.map(p => p.uuid));
-            const localPending = patients.value.filter(
-                p => p.sync_status && p.sync_status !== 'synced' && !apiUuids.has(p.uuid)
-            );
-            if (localPending.length > 0) {
-                console.log('[DIAG] refreshPatientList - preserving', localPending.length, 'local pending patients not in API response:', localPending.map(p => p.name + '(' + p.sync_status + ')').join(', '))
+
+            // Collect all local pending patients from both sources
+            const localPendingMap = new Map();
+
+            // Source 1: Current session's patients.value
+            for (const p of patients.value) {
+                if (p.sync_status && p.sync_status !== 'synced' && !apiUuids.has(p.uuid)) {
+                    localPendingMap.set(p.uuid, p);
+                }
             }
+
+            // Source 2: Local SQLite (survives restart)
+            for (const p of sqlitePending) {
+                if (p.sync_status !== 'synced' && !apiUuids.has(p.uuid)) {
+                    if (!localPendingMap.has(p.uuid)) {
+                        localPendingMap.set(p.uuid, p);
+                    }
+                }
+            }
+
+            const localPending = Array.from(localPendingMap.values());
+            if (localPending.length > 0) {
+                console.log('[DIAG] refreshPatientList - preserving', localPending.length, 'local pending patients not in API response:', localPending.map(p => p.name + '(' + p.sync_status + ')').join(', '));
+            }
+
             patients.value = [...localPending, ...res.data.data];
             patientsMeta.value = res.data.meta;
         }

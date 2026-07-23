@@ -269,6 +269,7 @@ const props = defineProps({
 
 const {
   selectedPatient,
+  setPatients,
   selectedPatientId,
   closePatient,
   workspaceData,
@@ -346,6 +347,17 @@ const ptrContentStyle = computed(() => ({
 let refreshPromise = null
 
 onMounted(() => {
+  // ── 🔥 FIX: Hydrate patients.value from Inertia props IMMEDIATELY ──
+  // This MUST run BEFORE refreshPatientList() so offline-created patients
+  // are visible on the FIRST render cycle. Without this, patients.value is
+  // [] on mount and stays empty until the async API call completes.
+  if (props.patients && props.patients.length > 0) {
+    setPatients(props.patients);
+    console.log('[Hydrate] Seeded', props.patients.length, 'patients from Inertia props (includes pending):',
+      props.patients.filter(p => p.sync_status && p.sync_status !== 'synced').length, 'pending');
+  }
+
+  // Now refresh asynchronously — will merge with already-seeded data
   refreshPatientList()
   if (isMobile.value && !selectedPatientId.value) {
     mobilePatientListOpen.value = true
