@@ -29,6 +29,11 @@ return Application::configure(basePath: dirname(__DIR__))
             $middleware->append(\App\Http\Middleware\NativePHPProfilerMiddleware::class);
         }
         $middleware->trustProxies(at: '*');
+        // Exclude session restore from CSRF — it's authenticated via Bearer token,
+        // not session cookie, so CSRF doesn't apply.
+        $middleware->validateCsrfTokens(except: [
+            '/api/session/restore',
+        ]);
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,
             \App\Http\Middleware\PreventBackHistory::class,

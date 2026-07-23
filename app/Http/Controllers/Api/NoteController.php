@@ -22,6 +22,14 @@ class NoteController extends Controller
 
     public function store(Request $request, string $patientUuid)
     {
+        // ── Guard: user must be authenticated ──────────────────────────────
+        // When offline and session is lost, $request->user() is null and
+        // accessing ->id would throw a 500 error ("حدث خطأ في الإدارة").
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
 
         $validated = $request->validate([
@@ -29,22 +37,32 @@ class NoteController extends Controller
             'category' => 'nullable|string|max:100',
         ]);
 
-        $note = $patient->notes()->create([
-            'author_id' => $request->user()->id,
-            'content' => $validated['content'],
-            'category' => $validated['category'] ?? null,
-        ]);
+        try {
+            $note = $patient->notes()->create([
+                'author_id' => $user->id,
+                'content' => $validated['content'],
+                'category' => $validated['category'] ?? null,
+            ]);
 
-        $note->load('author:id,name,email');
+            $note->load('author:id,name,email');
 
-        return response()->json($note);
+            return response()->json($note);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('[NoteController] store failed: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to create note'], 500);
+        }
     }
 
     public function update(Request $request, string $patientUuid, string $uuid)
     {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
         $note = PatientNote::with('patient')->where('uuid', $uuid)->firstOrFail();
 
-        if ($note->author_id !== $request->user()->id) {
+        if ($note->author_id !== $user->id) {
             Gate::authorize('update', $note->patient);
         }
 
@@ -60,9 +78,14 @@ class NoteController extends Controller
 
     public function destroy(Request $request, string $patientUuid, string $uuid)
     {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
+
         $note = PatientNote::with('patient')->where('uuid', $uuid)->firstOrFail();
 
-        if ($note->author_id !== $request->user()->id) {
+        if ($note->author_id !== $user->id) {
             Gate::authorize('update', $note->patient);
         }
 

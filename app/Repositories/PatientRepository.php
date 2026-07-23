@@ -24,6 +24,11 @@ class PatientRepository implements PatientRepositoryInterface
     public function paginated(int $perPage = 10, int $page = 1, ?string $status = null): array
     {
         try {
+            // First, try to sync any pending patients (created offline) to the server.
+            // This ensures patients with sync_status='pending_create' get uploaded
+            // automatically when connectivity returns, so the processing badge disappears.
+            $this->syncPendingPatients();
+
             $data = $this->api->paginated($perPage, $page, $status);
             if (isset($data['data'])) {
                 $this->syncLocalCache($data['data']);
@@ -34,6 +39,36 @@ class PatientRepository implements PatientRepositoryInterface
         }
 
         return $this->local->paginated($perPage, $page, $status);
+    }
+
+    /**
+     * Sync pending patients (sync_status = pending_create) to the remote server.
+     * Called automatically by paginated() when the API is reachable.
+     * This fixes Bug 5 — the processing icon never disappears.
+     */
+    private function syncPendingPatients(): void
+    {
+        $pendingPatients = \App\Domains\Patients\Models\Patient::where('sync_status', 'pending_create')->get();
+
+        foreach ($pendingPatients as $patient) {
+            try {
+                $data = $patient->toArray();
+                // Remove local-only fields before sending to API
+                unset($data['id'], $data['sync_status'], $data['client_updated_at'], $data['deleted_at']);
+
+                $apiData = $this->api->create($data);
+                $this->syncSingleToLocal($apiData, force: true);
+
+                Log::info('[PatientRepo] Synced pending patient to server', [
+                    'local_uuid' => $patient->uuid,
+                    'remote_uuid' => $apiData['uuid'] ?? 'unknown',
+                ]);
+            } catch (\Throwable $e) {
+                // API unreachable — will retry on next paginated() call
+                Log::info('[PatientRepo] Failed to sync pending patient (offline): ' . $e->getMessage());
+                break; // Stop processing — likely connectivity issue
+            }
+        }
     }
 
     public function find(string $uuid): ?array
