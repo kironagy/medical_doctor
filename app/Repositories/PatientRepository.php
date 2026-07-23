@@ -85,28 +85,35 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function create(array $data): array
     {
+        $tf = '/data/local/tmp/np_traces.txt';
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' P6 ENTERED name=' . ($data['name'] ?? 'none') . "\n", FILE_APPEND | LOCK_EX);
         try {
             $apiPayload = $data;
             $data['sync_status'] = 'pending_create';
             $data['client_updated_at'] = now();
 
-            // Save to local SQLite first
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6a calling Eloquent::create()' . "\n", FILE_APPEND | LOCK_EX);
             $localData = $this->local->create($data);
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6b local create uuid=' . (isset($localData['uuid']) ? $localData['uuid'] : 'NONE') . "\n", FILE_APPEND | LOCK_EX);
 
-            // Try to sync to remote API (may fail when offline)
             if (isset($localData['uuid'])) {
                 $apiPayload['uuid'] = $localData['uuid'];
                 try {
+                    @file_put_contents($tf, now()->format('H:i:s.v') . ' P6c calling remote API' . "\n", FILE_APPEND | LOCK_EX);
                     $apiData = $this->api->create($apiPayload);
                     $this->syncSingleToLocal($apiData, force: true);
+                    @file_put_contents($tf, now()->format('H:i:s.v') . ' P6d remote SUCCESS'. "\n", FILE_APPEND | LOCK_EX);
                     return $apiData;
                 } catch (\Throwable $e) {
+                    @file_put_contents($tf, now()->format('H:i:s.v') . ' P6e remote FAILED: ' . $e->getMessage() . "\n", FILE_APPEND | LOCK_EX);
                     Log::info('[PatientRepo] create() - remote API unavailable: ' . $e->getMessage());
                 }
             }
 
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6f returning localData'. "\n", FILE_APPEND | LOCK_EX);
             return $localData;
         } catch (\Throwable $e) {
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6g OUTER CATCH: ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine() . "\n", FILE_APPEND | LOCK_EX);
             Log::error('[PatientRepo] create() - failed to save locally: ' . $e->getMessage(), [
                 'trace' => substr($e->getTraceAsString(), 0, 500),
             ]);

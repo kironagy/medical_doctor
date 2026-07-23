@@ -2,6 +2,7 @@ import { router } from "@inertiajs/vue3";
 import axios from "axios";
 import { computed, ref, shallowRef } from "vue";
 
+const trace = (msg) => { try { fetch('/_native/api/debug/trace', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})}).catch(()=>{}); } catch(e) {} };
 const patients = ref([]);
 const patientsMeta = ref(null);
 const archivedPatients = ref([]);
@@ -380,9 +381,12 @@ function navigateTo(path) {
 }
 
 async function addPatient(formData) {
+    trace('[TRACE_P3] useWorkspace.addPatient() ENTERED')
     loading.value = true;
     try {
+        trace('[TRACE_P4] axios.post to /api/v1/workspace/patients with: ' + JSON.stringify(formData))
         const res = await axios.post("/api/v1/workspace/patients", formData);
+        trace('[TRACE_P8] axios.post response status: ' + res.status + ' data: ' + JSON.stringify(res.data).substring(0, 500))
         const patient = res.data?.patient || res.data;
         if (patient?.uuid) {
             upsertPatient(patient);
@@ -400,6 +404,7 @@ async function addPatient(formData) {
         }
         return { success: true, patient };
     } catch (e) {
+        trace('[TRACE_P9] addPatient() CATCH - status: ' + e.response?.status + ' data: ' + JSON.stringify(e.response?.data).substring(0,500) + ' message: ' + e.message)
         return { success: false, errors: e.response?.data?.errors || {} };
     } finally {
         loading.value = false;

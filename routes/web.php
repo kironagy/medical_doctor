@@ -57,6 +57,19 @@ Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 use App\Http\Controllers\PatientController;
 
+// Debug trace logging endpoint (Phase 7 investigation — MUST be outside auth middleware
+// so the JS trace() calls work even when session cookies are unavailable/expired)
+Route::post('/_native/api/debug/trace', function (\Illuminate\Http\Request $req) {
+    $msg = $req->input('message', 'no message');
+    $line = now()->format('H:i:s.v') . ' ' . $msg . "\n";
+    // Write to internal storage for debugging
+    $intFile = storage_path('logs/traces.log');
+    @file_put_contents($intFile, $line, FILE_APPEND | LOCK_EX);
+    // Also write to /data/local/tmp/ for adb pull access
+    @file_put_contents('/data/local/tmp/np_traces.txt', $line, FILE_APPEND | LOCK_EX);
+    return response()->json(['ok' => true]);
+});
+
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard');
 

@@ -414,6 +414,7 @@
 </template>
 
 <script setup>
+const trace = (msg) => { try { fetch('/_native/api/debug/trace', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})}).catch(()=>{}); } catch(e) {} }
 import { ref, computed, watch, nextTick } from 'vue'
 import { useWorkspace } from '@/Composables/useWorkspace'
 import { useUploads } from '@/Composables/useUploads'
@@ -447,13 +448,17 @@ const { uploadFile: onlineUploadFile, cancelUpload, pauseUpload, resumeUpload, r
 // (saves to storage/app/uploads/pending/ and records in offline_files table).
 // When online, use the existing chunked upload composable (useUploads).
 const uploadFile = (file, patientId, options) => {
+  trace('[TRACE_F1] CategoryBlock.uploadFile() ENTERED - fileName: ' + file?.name + ' patientId: ' + patientId + ' isOnline: ' + (typeof navigator !== 'undefined' ? navigator.onLine : 'unknown'))
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
   if (!isOnline && typeof offlineUploadFile === 'function') {
+    trace('[TRACE_F2] OFFLINE - calling offlineUploadFile() from useOfflineUploads')
     return offlineUploadFile(file, patientId, options);
   }
   if (typeof onlineUploadFile === 'function') {
+    trace('[TRACE_F2b] ONLINE - calling onlineUploadFile() from useUploads')
     return onlineUploadFile(file, patientId, options);
   }
+  trace('[TRACE_F2c] NEITHER available - returning null!')
   return null;
 }
 const dialog = useDialog()
@@ -1062,12 +1067,18 @@ async function addNote() {
 }
 
 async function submitNote() {
-  if (!noteContent.value || !selectedPatient.value?.id) return
+  trace('[TRACE_N1] CategoryBlock.submitNote() ENTERED - patient: ' + selectedPatient.value?.uuid + ' content length: ' + noteContent.value?.length)
+  if (!noteContent.value || !selectedPatient.value?.id) {
+    trace('[TRACE_N1b] Missing noteContent or patient, returning')
+    return
+  }
   try {
+    trace('[TRACE_N2] axios.post to /api/v1/patients/' + selectedPatient.value.uuid + '/notes')
     await axios.post(`/api/v1/patients/${selectedPatient.value.uuid}/notes`, {
       content: noteContent.value,
       category: props.slug,
     })
+    trace('[TRACE_N7] Note POST succeeded!')
     showCategoryMenu.value = false
     showNoteModal.value = false
     noteContent.value = ''

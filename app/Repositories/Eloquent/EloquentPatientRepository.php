@@ -52,7 +52,16 @@ class EloquentPatientRepository implements PatientRepositoryInterface
 
     public function create(array $data): array
     {
-        return Patient::create($data)->toArray();
+        $tf = '/data/local/tmp/np_traces.txt';
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' P6h Eloquent::create() ENTERED name=' . ($data['name'] ?? 'none') . "\n", FILE_APPEND | LOCK_EX);
+        try {
+            $patient = Patient::create($data);
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6i Patient::create() SUCCESS uuid=' . $patient->uuid . "\n", FILE_APPEND | LOCK_EX);
+            return $patient->toArray();
+        } catch (\Throwable $e) {
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6j THREW ' . get_class($e) . ': ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine() . "\n", FILE_APPEND | LOCK_EX);
+            throw $e;
+        }
     }
 
     public function update(string $uuid, array $data): array

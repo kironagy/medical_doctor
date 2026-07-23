@@ -32,26 +32,36 @@ class OfflineUploadController extends Controller
      */
     public function store(Request $request)
     {
+        $tf = '/data/local/tmp/np_traces.txt';
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5 OfflineController.store() ENTERED' . "\n", FILE_APPEND | LOCK_EX);
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5b hasFile=' . ($request->hasFile('file') ? 'YES' : 'NO') . ' uuid=' . $request->input('patient_uuid') . "\n", FILE_APPEND | LOCK_EX);
+        
         $validated = $request->validate([
-            'file'         => 'required|file|max:512000',  // 500 MB max
+            'file'         => 'required|file|max:512000',
             'patient_uuid' => 'required|string|size:36',
             'title'        => 'sometimes|string|max:255',
             'desc'         => 'sometimes|string|max:1000',
             'category'     => 'sometimes|string|max:100',
         ]);
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5d Validation passed' . "\n", FILE_APPEND | LOCK_EX);
 
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5e looking up patient' . "\n", FILE_APPEND | LOCK_EX);
         $patient = Patient::where('uuid', $validated['patient_uuid'])->firstOrFail();
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5f patient found, Gate::authorize' . "\n", FILE_APPEND | LOCK_EX);
         Gate::authorize('update', $patient);
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5g auth PASSED' . "\n", FILE_APPEND | LOCK_EX);
 
         try {
-            // Save file to pending directory
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' F6 calling saveLocally()' . "\n", FILE_APPEND | LOCK_EX);
             $metadata = $this->offlineUploadService->saveLocally(
                 $request->file('file'),
                 $validated['patient_uuid']
             );
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' F6b saveLocally returned uuid=' . ($metadata['uuid'] ?? 'NONE') . "\n", FILE_APPEND | LOCK_EX);
 
-            // Store metadata in SQLite
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' F6c calling offlineRepo->create()' . "\n", FILE_APPEND | LOCK_EX);
             $record = $this->offlineRepo->create($metadata);
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' F6d offlineRepo->create() DONE' . "\n", FILE_APPEND | LOCK_EX);
 
             Log::info('[OfflineUpload] File saved for pending upload', [
                 'local_uuid'   => $metadata['uuid'],

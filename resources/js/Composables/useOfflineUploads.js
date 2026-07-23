@@ -126,7 +126,9 @@ export function useOfflineUploads() {
    * The file appears immediately in the UI via addFileLocally().
    */
   async function uploadFile(file, patientUuid, metadata = {}) {
+    const _trace_off = (m) => { try { fetch('/_native/api/debug/trace', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:m})}).catch(()=>{}); } catch(e) {} };_trace_off('[TRACE_F3] useOfflineUploads.uploadFile() ENTERED - patientUuid: ' + patientUuid + ' fileName: ' + file?.name + ' isOnline: ' + isOnline())
     if (isOnline()) {
+      const _t2 = (m) => { try { fetch('/_native/api/debug/trace', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:m})}).catch(()=>{}); } catch(e) {} };_t2('[TRACE_F3b] ONLINE - throwing error, should use useUploads instead')
       throw new Error(
         '[OfflineUpload] Cannot use offline upload while online. ' +
         'Use useUploads().uploadFile() for online uploads.'
@@ -141,6 +143,7 @@ export function useOfflineUploads() {
     if (metadata.category) fd.append('category', metadata.category)
 
     try {
+      const _t3 = (m) => { try { fetch('/_native/api/debug/trace', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:m})}).catch(()=>{}); } catch(e) {} };_t3('[TRACE_F4] axios.post to /_native/api/offline/uploads')
       const res = await axios.post('/_native/api/offline/uploads', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 120000,

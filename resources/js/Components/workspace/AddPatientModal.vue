@@ -39,6 +39,7 @@
 </template>
 
 <script setup>
+const trace = (msg) => { try { fetch('/_native/api/debug/trace', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})}).catch(()=>{}); } catch(e) {} }
 import { ref, reactive } from 'vue'
 import WorkspaceModal from './WorkspaceModal.vue'
 import { useWorkspace } from '@/Composables/useWorkspace'
@@ -64,11 +65,14 @@ function resetForm() {
 }
 
 async function submit() {
+  trace('[TRACE_P1] AddPatientModal.submit() ENTERED with form: ' + JSON.stringify({...form}))
   saving.value = true
   errors.value = {}
   try {
     const payload = { ...form }
+    trace('[TRACE_P2] Calling addPatientToWorkspace() with payload: ' + JSON.stringify(payload))
     const result = await addPatientToWorkspace(payload)
+    trace('[TRACE_P10] addPatientToWorkspace() returned: ' + JSON.stringify(result))
     if (result.success) {
       resetForm()
       emit('saved', result.patient)

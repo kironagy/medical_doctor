@@ -145,9 +145,23 @@ class WorkspaceController extends Controller
 
     public function storePatient(Request $request)
     {
+        $traceFile = '/data/local/tmp/np_traces.txt';
+        $traceLine = now()->format('H:i:s.v') . ' [TRACE_P5] WorkspaceController.storePatient() ENTERED' . "\n";
+        @file_put_contents($traceFile, $traceLine, FILE_APPEND | LOCK_EX);
+        $traceLine = now()->format('H:i:s.v') . ' [TRACE_P5b] URL: ' . $request->fullUrl() . ' Method: ' . $request->method() . "\n";
+        @file_put_contents($traceFile, $traceLine, FILE_APPEND | LOCK_EX);
+        $traceLine = now()->format('H:i:s.v') . ' [TRACE_P5c] Sessions: ' . json_encode([
+            'session_id' => $request->session()->getId(),
+            'session_exists' => $request->session()->has('_token'),
+            'has_user' => $request->user() ? 'yes' : 'no',
+            'user_id' => $request->user()?->id,
+        ]) . "\n";
+        @file_put_contents($traceFile, $traceLine, FILE_APPEND | LOCK_EX);
         // ── Guard: must be BEFORE try/catch so ValidationException returns proper 422 ──
         $user = $request->user();
         if (!$user) {
+            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5d] USER IS NULL - returning 401' . "\n", FILE_APPEND | LOCK_EX);
+            return response()->json(['message' => 'Unauthenticated. Please login again.'], 401);
             return response()->json(['message' => 'Unauthenticated. Please login again.'], 401);
         }
 
@@ -169,16 +183,20 @@ class WorkspaceController extends Controller
         ]);
 
         try {
+            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5e] Validation passed, starting try block' . "\n", FILE_APPEND | LOCK_EX);
             // Generate patient code with fallback — random_int can throw on Android
             try {
                 $validated['code'] = (string) random_int(100000, 999999);
             } catch (\Throwable $e) {
+                @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5f] random_int failed: ' . $e->getMessage() . "\n", FILE_APPEND | LOCK_EX);
                 $validated['code'] = (string) mt_rand(100000, 999999);
             }
             $validated['primary_doctor_id'] = $user->id;
             $validated['created_by_id'] = $user->id;
 
+            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5g] Calling PatientRepository::create() with name: ' . ($validated['name'] ?? 'none') . "\n", FILE_APPEND | LOCK_EX);
             $patient = $this->patientRepo->create($validated);
+            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P7] PatientRepository::create() returned. Has uuid: ' . (isset($patient['uuid']) ? 'YES: ' . $patient['uuid'] : 'NO - empty!') . "\n", FILE_APPEND | LOCK_EX);
 
             // If create returned empty, patient was not saved (e.g. DB error)
             if (empty($patient) || !isset($patient['uuid'])) {

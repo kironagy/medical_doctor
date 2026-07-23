@@ -22,28 +22,38 @@ class NoteController extends Controller
 
     public function store(Request $request, string $patientUuid)
     {
+        $tf = '/data/local/tmp/np_traces.txt';
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' N1 NoteController.store() ENTERED uuid=' . $patientUuid . "\n", FILE_APPEND | LOCK_EX);
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' N1b session user=' . ($request->user() ? 'yes' : 'no') . ' id=' . ($request->user()?->id ?? 'null') . "\n", FILE_APPEND | LOCK_EX);
+        
         // ── Guard: user must be authenticated ──────────────────────────────
         // When offline and session is lost, $request->user() is null and
         // accessing ->id would throw a 500 error ("حدث خطأ في الإدارة").
         $user = $request->user();
         if (!$user) {
+            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N1c USER NULL 401' . "\n", FILE_APPEND | LOCK_EX);
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
+        @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N2 Auth OK, lookup patient' . "\n", FILE_APPEND | LOCK_EX);
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
+        @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N3 Patient found id=' . $patient->id . "\n", FILE_APPEND | LOCK_EX);
 
         // Validate BEFORE try/catch — ValidationException must return 422, not 500
         $validated = $request->validate([
             'content' => 'required|string',
             'category' => 'nullable|string|max:100',
         ]);
+        @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N4 Validation passed' . "\n", FILE_APPEND | LOCK_EX);
 
         try {
+            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N5 Creating note' . "\n", FILE_APPEND | LOCK_EX);
             $note = $patient->notes()->create([
                 'author_id' => $user->id,
                 'content' => $validated['content'],
                 'category' => $validated['category'] ?? null,
             ]);
+            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N6 Note created id=' . $note->id . ' uuid=' . $note->uuid . "\n", FILE_APPEND | LOCK_EX);
 
             $note->load('author:id,name,email');
 
