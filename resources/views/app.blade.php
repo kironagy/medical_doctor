@@ -38,6 +38,9 @@
               // If we're on the login page but the user was previously logged in,
               // the session was lost. Try to restore it using the stored token.
               if ((currentPath === '/login' || currentPath === '/') && authToken) {
+                // Read the persisted production API token (may be null on first login)
+                var apiToken = localStorage.getItem('np_api_token');
+
                 // Make a synchronous-style restore attempt via fetch
                 fetch('/api/session/restore', {
                   method: 'POST',
@@ -47,7 +50,7 @@
                     'X-Requested-With': 'XMLHttpRequest',
                   },
                   credentials: 'include',
-                  body: JSON.stringify({}),
+                  body: JSON.stringify({ api_token: apiToken || '' }),
                 })
                 .then(function(res) {
                   if (res.ok) {

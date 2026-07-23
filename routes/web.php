@@ -31,6 +31,20 @@ Route::post('/api/session/restore', function (\Illuminate\Http\Request $request)
         \Illuminate\Support\Facades\Auth::login($user);
         $request->session()->regenerate();
 
+        // ── Restore the production API token if provided ─────────────────
+        // On app restart, the frontend sends the persisted api_token from
+        // localStorage. Without this, the sync engine would send requests
+        // to the production server without authentication (401).
+        $apiToken = $request->input('api_token');
+        if ($apiToken) {
+            try {
+                app(\App\Services\Mobile\ApiService::class)->setToken($apiToken);
+                \Illuminate\Support\Facades\Log::info('Remote API token restored from localStorage');
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Failed to restore API token: ' . $e->getMessage());
+            }
+        }
+
         return response()->json([
             'success' => true,
             'user' => array_merge($user->toArray(), [

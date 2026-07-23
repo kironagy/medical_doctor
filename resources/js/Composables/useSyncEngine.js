@@ -44,6 +44,14 @@ const pendingSummary = ref({ patients: 0, files: 0, deletes: 0, total: 0 })
 /** Track previous online state so the heartbeat can detect transitions. */
 let previousOnlineState = typeof navigator !== 'undefined' ? navigator.onLine : true
 
+/**
+ * Deduplication guard: prevents concurrent sync triggers from multiple sources.
+ * All network detection paths (native bridge, browser events, connection API,
+ * visibility change, heartbeat) call this function. Only one sync runs at a
+ * time. The flag is cleared when sync completes (success or failure).
+ */
+let onlineSyncGuard = false
+
 const SYNC_ENDPOINT = '/_native/api/sync/engine'
 const PENDING_ENDPOINT = '/_native/api/sync/pending-summary'
 
@@ -59,11 +67,50 @@ function initialise() {
     // Sync previousOnlineState with the current nav state
     previousOnlineState = navigator.onLine
 
-    // Register browser connectivity events (once!)
+    // ═════════════════════════════════════════════════════════════════════
+    //  NETWORK DETECTION PATH 1: Browser connectivity events
+    // ═════════════════════════════════════════════════════════════════════
+    // Standard browser API. Fires when the browser detects connectivity
+    // changes. May not fire reliably in Android WebViews.
     window.addEventListener('online', handleOnlineEvent)
     window.addEventListener('offline', handleOfflineEvent)
 
-    // Start periodic heartbeat (15s interval)
+    // ═════════════════════════════════════════════════════════════════════
+    //  NETWORK DETECTION PATH 2: Network Information API
+    // ═════════════════════════════════════════════════════════════════════
+    // Provides real-time network type/quality changes. Used as a fallback
+    // when browser 'online' event doesn't fire in WebViews.
+    if (navigator.connection && typeof navigator.connection.addEventListener === 'function') {
+        navigator.connection.addEventListener('change', handleConnectionChange)
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    //  NETWORK DETECTION PATH 3: Visibility / focus changes
+    // ═════════════════════════════════════════════════════════════════════
+    // When the user switches back to the app (e.g. after turning on WiFi
+    // in Settings), these events fire. We re-check connectivity and sync.
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleWindowFocus)
+
+    // ═════════════════════════════════════════════════════════════════════
+    //  NETWORK DETECTION PATH 4: Native bridge callback
+    // ═════════════════════════════════════════════════════════════════════
+    // The native Android NetworkStateManager can call these functions
+    // directly via webView.evaluateJavascript("window.__onNetworkAvailable()").
+    // They route through attemptSync() so the onlineSyncGuard prevents
+    // duplicates with other detection paths.
+    window.__triggerSync = () => attemptSync('native:bridge')
+    window.__onNetworkAvailable = () => attemptSync('native:bridge') // alias for native use
+
+    // Also check if the native bridge exposes a network state property
+    checkNativeNetworkState()
+
+    // ═════════════════════════════════════════════════════════════════════
+    //  NETWORK DETECTION PATH 5: Periodic heartbeat (fallback)
+    // ═════════════════════════════════════════════════════════════════════
+    // Runs every 15 seconds. Detects offline→online transitions by
+    // tracking previousOnlineState. Also refreshes the pending summary.
+    // This is a last-resort fallback when all event-based paths fail.
     setInterval(runHeartbeat, 15000)
 
     // Initial heartbeat + summary fetch
@@ -71,29 +118,84 @@ function initialise() {
         runHeartbeat()
         refreshPendingSummary()
     }, 500)
+
+    console.log('[SyncEngine] Initialized with 5 network detection paths')
+}
+
+/**
+ * Safely attempt a sync. Used by all network detection paths.
+ * Prevents duplicate syncs via the onlineSyncGuard flag.
+ */
+async function attemptSync(source) {
+    if (onlineSyncGuard) {
+        console.log('[SyncEngine] ⏭ Sync already triggered by another path (' + source + ' skipped, guard active)')
+        return
+    }
+    onlineSyncGuard = true
+    console.log('[SyncEngine] 🌐 Network restored via ' + source + ' — starting sync')
+
+    isOnline.value = true
+    previousOnlineState = true
+
+    // Small delay to ensure the embedded server and network are stable
+    await new Promise(r => setTimeout(r, 500))
+    try {
+        await triggerSync()
+    } finally {
+        // CRITICAL: Always clear guard — even if triggerSync() throws.
+        // Without this finally, onlineSyncGuard would leak to 'true' forever
+        // and ALL future sync attempts would be silently blocked.
+        onlineSyncGuard = false
+    }
 }
 
 async function handleOnlineEvent() {
-    console.log('[SyncEngine] Browser online event fired (navigator.onLine=' + navigator.onLine + ')')
-    isOnline.value = true
-    previousOnlineState = true
-    // Small delay to ensure network is truly available
-    await new Promise(r => setTimeout(r, 1000))
-    await runHeartbeat()
-
-    // ── Auto-sync when connection is restored ──────────────────────────
-    // ALWAYS call triggerSync() when going online, regardless of the
-    // pending summary count. The server endpoint is cheap and returns
-    // quickly if there's nothing to sync. This removes the fragility
-    // of relying on refreshPendingSummary() being accurate (it can fail
-    // silently due to timing, container resolution, etc.)
-    console.log('[SyncEngine] Connection restored — triggerSync immediately')
-    await triggerSync()
+    console.log('[SyncEngine] 🔵 PATH 1: Browser online event (navigator.onLine=' + navigator.onLine + ')')
+    await attemptSync('browser:online')
 }
 
 function handleOfflineEvent() {
-    console.log('[SyncEngine] Browser offline event')
+    console.log('[SyncEngine] 🔴 Browser offline event')
     isOnline.value = false
+    previousOnlineState = false
+}
+
+function handleConnectionChange() {
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+    console.log('[SyncEngine] 🟡 PATH 2: Connection API change (navigator.onLine=' + online + ')')
+    if (online) {
+        attemptSync('connection:api')
+    } else {
+        isOnline.value = false
+        previousOnlineState = false
+    }
+}
+
+function handleVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+        const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+        console.log('[SyncEngine] 🟢 PATH 3: App became visible (navigator.onLine=' + online + ')')
+        if (online) {
+            attemptSync('visibility:change')
+        }
+    }
+}
+
+function handleWindowFocus() {
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+    console.log('[SyncEngine] 🟢 PATH 3: Window focused (navigator.onLine=' + online + ')')
+    if (online) {
+        attemptSync('window:focus')
+    }
+}
+
+function checkNativeNetworkState() {
+    // Check if the native bridge exposes a network state
+    const nativeOnline = window.NativePHP?.networkState ?? window.NativePHP?.isOnline ?? null
+    if (nativeOnline === true) {
+        console.log('[SyncEngine] 🟣 PATH 4: Native bridge reports ONLINE')
+        attemptSync('native:bridge')
+    }
 }
 
 async function runHeartbeat() {
@@ -105,14 +207,10 @@ async function runHeartbeat() {
     // (known issue with Android WebViews). The heartbeat detects the
     // state change and triggers the sync engine as a fallback.
     if (currentState && !previousOnlineState) {
-        console.log('[SyncEngine] Heartbeat detected offline→online transition (prev=' + previousOnlineState + ' → cur=' + currentState + ')')
-        isOnline.value = true
-        previousOnlineState = true
-
-        // Give the embedded server a moment to stabilize, then sync
-        await refreshPendingSummary()
-        console.log('[SyncEngine] Heartbeat auto-syncing after offline→online transition')
-        await triggerSync()
+        console.log('[SyncEngine] 💓 PATH 5: Heartbeat detected offline→online transition (prev=' + previousOnlineState + ' → cur=' + currentState + ')')
+        // Use attemptSync() so the onlineSyncGuard prevents duplicate syncs
+        // when multiple detection paths fire simultaneously.
+        await attemptSync('heartbeat:transition')
         return
     }
 

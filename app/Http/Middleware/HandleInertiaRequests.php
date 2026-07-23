@@ -46,6 +46,20 @@ class HandleInertiaRequests extends Middleware
             // Token corrupted or missing — ignore
         }
 
+        // Decrypt the remote API token if present
+        // This token authenticates against the PRODUCTION server (prof-hosam-fekry.online).
+        // It is shared with the frontend so it can be stored in localStorage and restored
+        // after app restart when the session is regenerated.
+        $apiToken = null;
+        try {
+            $encrypted = session('api_token');
+            if ($encrypted) {
+                $apiToken = decrypt($encrypted);
+            }
+        } catch (\Exception $e) {
+            // Token corrupted or missing — ignore
+        }
+
         return [
             ...parent::share($request),
             'auth' => [
@@ -55,6 +69,7 @@ class HandleInertiaRequests extends Middleware
                 ]) : null,
             ],
             'session_remember_token' => $rememberToken,
+            'api_token' => $apiToken,
         ];
     }
 }

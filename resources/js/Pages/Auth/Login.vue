@@ -102,6 +102,15 @@ const submit = () => {
           localStorage.setItem('np_auth_token', token);
           localStorage.setItem('np_persist_login', '1');
         }
+
+        // ── Persist production API token for session restore survival ──
+        // The api_token authenticates with the production server for sync.
+        // It is lost on app restart because the embedded Laravel session is
+        // regenerated. Persisting it here lets us restore it later.
+        const apiToken = page.props.api_token;
+        if (apiToken) {
+          localStorage.setItem('np_api_token', apiToken);
+        }
       } catch(e) {}
     },
     onFinish: () => form.reset('password'),
