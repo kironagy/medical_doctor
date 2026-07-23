@@ -145,10 +145,7 @@ class WorkspaceController extends Controller
 
     public function storePatient(Request $request)
     {
-        // ── Guard: user must be authenticated ──────────────────────────────
-        // If the session was lost (e.g. after offline app restart), the user
-        // will be null and any attempt to access $request->user()->id would
-        // throw a 500 error. Return 401 so the frontend can redirect to login.
+        // ── Guard: must be BEFORE try/catch so ValidationException returns proper 422 ──
         $user = $request->user();
         if (!$user) {
             return response()->json(['message' => 'Unauthenticated. Please login again.'], 401);
@@ -171,19 +168,33 @@ class WorkspaceController extends Controller
             'medical_record_number' => 'nullable|string|max:100',
         ]);
 
-        $validated['code'] = (string) random_int(100000, 999999);
-        $validated['primary_doctor_id'] = $user->id;
-        $validated['created_by_id'] = $user->id;
-
         try {
+            // Generate patient code with fallback — random_int can throw on Android
+            try {
+                $validated['code'] = (string) random_int(100000, 999999);
+            } catch (\Throwable $e) {
+                $validated['code'] = (string) mt_rand(100000, 999999);
+            }
+            $validated['primary_doctor_id'] = $user->id;
+            $validated['created_by_id'] = $user->id;
+
             $patient = $this->patientRepo->create($validated);
+
+            // If create returned empty, patient was not saved (e.g. DB error)
+            if (empty($patient) || !isset($patient['uuid'])) {
+                Log::error('[WorkspaceController] storePatient - repo returned empty patient', [
+                    'validated' => $validated,
+                ]);
+                return response()->json(['message' => 'Failed to save patient locally'], 500);
+            }
+
             return response()->json([
                 'patient' => $patient,
                 'message' => 'Patient created successfully',
             ]);
         } catch (\Throwable $e) {
             Log::error('[WorkspaceController] storePatient failed: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
+                'trace' => substr($e->getTraceAsString(), 0, 500),
                 'validated' => $validated,
             ]);
             return response()->json(['message' => 'Failed to create patient'], 500);

@@ -17,14 +17,10 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function all(): array
     {
-        // Attempt to sync any pending patients (created offline) to the server.
-        // This ensures patients with sync_status='pending_create' get uploaded
-        // automatically when connectivity returns, even if the user never opens
-        // the sidebar paginated list. Called from workspace load (index).
         try {
             $this->syncPendingPatients();
         } catch (\Throwable $e) {
-            // Silently ignore — will retry on next call
+            // Silently ignore
         }
 
         $data = $this->local->all();
@@ -48,11 +44,6 @@ class PatientRepository implements PatientRepositoryInterface
         return $this->local->paginated($perPage, $page, $status);
     }
 
-    /**
-     * Sync pending patients (sync_status = pending_create) to the remote server.
-     * Called automatically by paginated() when the API is reachable.
-     * This fixes Bug 5 — the processing icon never disappears.
-     */
     private function syncPendingPatients(): void
     {
         $pendingPatients = \App\Domains\Patients\Models\Patient::where('sync_status', 'pending_create')->get();
@@ -94,25 +85,33 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function create(array $data): array
     {
-        $apiPayload = $data;
-        $data['sync_status'] = 'pending_create';
-        $data['client_updated_at'] = now();
-
         try {
-            // Save to local SQLite FIRST. Wrapped inside try/catch to ensure
-            // that if the local save fails (FK constraint, missing column, etc.),
-            // the error is caught and the user gets a meaningful response.
+            $apiPayload = $data;
+            $data['sync_status'] = 'pending_create';
+            $data['client_updated_at'] = now();
+
+            // Save to local SQLite first
             $localData = $this->local->create($data);
 
-            $apiPayload['uuid'] = $localData['uuid'];
-            $apiData = $this->api->create($apiPayload);
-            $this->syncSingleToLocal($apiData, force: true);
-            return $apiData;
-        } catch (\Throwable $e) {
-            Log::info('[PatientRepo] create() - saved locally (offline or error): ' . $e->getMessage());
-        }
+            // Try to sync to remote API (may fail when offline)
+            if (isset($localData['uuid'])) {
+                $apiPayload['uuid'] = $localData['uuid'];
+                try {
+                    $apiData = $this->api->create($apiPayload);
+                    $this->syncSingleToLocal($apiData, force: true);
+                    return $apiData;
+                } catch (\Throwable $e) {
+                    Log::info('[PatientRepo] create() - remote API unavailable: ' . $e->getMessage());
+                }
+            }
 
-        return $localData ?? [];
+            return $localData;
+        } catch (\Throwable $e) {
+            Log::error('[PatientRepo] create() - failed to save locally: ' . $e->getMessage(), [
+                'trace' => substr($e->getTraceAsString(), 0, 500),
+            ]);
+            return [];
+        }
     }
 
     public function update(string $uuid, array $data): array
