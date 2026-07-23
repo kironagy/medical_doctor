@@ -46,7 +46,8 @@ class WorkspaceController extends Controller
         }
 
         // Ensure preferences is an array
-        $preferences = $user->preferences ?? [];
+        // When offline, $user may be null — use null-safe operator
+        $preferences = $user?->preferences ?? [];
         if (!is_array($preferences)) {
             $preferences = [];
         }
@@ -157,12 +158,35 @@ class WorkspaceController extends Controller
             'user_id' => $request->user()?->id,
         ]) . "\n";
         @file_put_contents($traceFile, $traceLine, FILE_APPEND | LOCK_EX);
-        // ── Guard: must be BEFORE try/catch so ValidationException returns proper 422 ──
+        // ── Auth guard: try session first, then Bearer token ────────────────
+        // When running offline, the embedded Laravel has no session from the
+        // production server. The Sanctum token from localStorage may not be
+        // in the local SQLite yet. In these cases, we allow offline creation
+        // without a user — the PatientRepository saves with sync_status='pending_create'
+        // and assigns doctor IDs when syncing to the production server later.
         $user = $request->user();
         if (!$user) {
-            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5d] USER IS NULL - returning 401' . "\n", FILE_APPEND | LOCK_EX);
-            return response()->json(['message' => 'Unauthenticated. Please login again.'], 401);
-            return response()->json(['message' => 'Unauthenticated. Please login again.'], 401);
+            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5d] USER IS NULL - checking Bearer token' . "\n", FILE_APPEND | LOCK_EX);
+
+            // Try to authenticate via Sanctum Bearer token (stored in localStorage)
+            $bearerToken = $request->bearerToken();
+            if ($bearerToken) {
+                try {
+                    $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearerToken);
+                    if ($accessToken && $accessToken->tokenable) {
+                        \Illuminate\Support\Facades\Auth::login($accessToken->tokenable);
+                        $user = $accessToken->tokenable;
+                        @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5d2] Authenticated via Bearer token: user_id=' . $user->id . "\n", FILE_APPEND | LOCK_EX);
+                    }
+                } catch (\Throwable $e) {
+                    @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5d3] Bearer auth failed: ' . $e->getMessage() . "\n", FILE_APPEND | LOCK_EX);
+                }
+            }
+
+            if (!$user) {
+                @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5d4] No auth - saving offline without doctor IDs' . "\n", FILE_APPEND | LOCK_EX);
+                // Allow offline creation — doctor IDs will be set during sync
+            }
         }
 
         $validated = $request->validate([
@@ -191,8 +215,14 @@ class WorkspaceController extends Controller
                 @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5f] random_int failed: ' . $e->getMessage() . "\n", FILE_APPEND | LOCK_EX);
                 $validated['code'] = (string) mt_rand(100000, 999999);
             }
-            $validated['primary_doctor_id'] = $user->id;
-            $validated['created_by_id'] = $user->id;
+            if ($user) {
+                $validated['primary_doctor_id'] = $user->id;
+                $validated['created_by_id'] = $user->id;
+            } else {
+                // Offline: will be assigned when synced to production server
+                $validated['primary_doctor_id'] = null;
+                $validated['created_by_id'] = null;
+            }
 
             @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5g] Calling PatientRepository::create() with name: ' . ($validated['name'] ?? 'none') . "\n", FILE_APPEND | LOCK_EX);
             $patient = $this->patientRepo->create($validated);
@@ -434,7 +464,7 @@ class WorkspaceController extends Controller
             'notes' => $notes,
             'visits' => $visits,
             'exported_at' => now()->toIso8601String(),
-            'exported_by' => auth()->user()->name,
+            'exported_by' => auth()->user()?->name ?? 'Unknown',
         ];
 
         $filename = 'patient_' . $uuid . '_export.json';
@@ -456,8 +486,8 @@ class WorkspaceController extends Controller
             'notes' => $notes,
             'visits' => $visits,
             'exportedAt' => now()->toIso8601String(),
-            'exportedBy' => auth()->user()->name,
-            'doctorName' => auth()->user()->name,
+            'exportedBy' => auth()->user()?->name ?? 'Unknown',
+            'doctorName' => auth()->user()?->name ?? 'Unknown',
         ]);
     }
 

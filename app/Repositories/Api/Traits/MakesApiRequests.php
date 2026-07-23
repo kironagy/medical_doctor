@@ -11,7 +11,7 @@ trait MakesApiRequests
 {
     private function baseUrl(): string
     {
-        return config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+        return config('app.mobile_api_url');
     }
 
     private function apiCall(string $method, string $path, array $data = []): Response

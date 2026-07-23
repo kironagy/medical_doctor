@@ -612,9 +612,14 @@ async function handleDelete() {
 }
 
 function onPatientSaved(patient) {
+  console.log('[DIAG] onPatientSaved called, patient.uuid:', patient?.uuid, 'has uuid:', !!patient?.uuid, 'patient keys:', Object.keys(patient || {}).join(','))
   showAddPatient.value = false
   if (patient?.uuid) {
+    console.log('[DIAG] onPatientSaved - calling refreshPatientList + selectPatient for uuid:', patient.uuid)
+    refreshPatientList()
     selectPatient(patient.uuid)
+  } else {
+    console.log('[DIAG] onPatientSaved - NO UUID! Patient keys:', Object.keys(patient || {}).join(','))
   }
 }
 

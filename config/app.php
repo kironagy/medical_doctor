@@ -123,6 +123,6 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
-    'mobile_api_url' => env('MOBILE_API_URL', 'https://prof-hosam-fekry.online/api/v1/mobile'),
+    'mobile_api_url' => env('MOBILE_API_URL', rtrim(env('APP_URL', 'http://localhost'), '/') . '/api/v1/mobile'),
 
 ];

@@ -10,8 +10,6 @@ use RuntimeException;
 
 class ApiService
 {
-    private const BASE_URL = 'https://prof-hosam-fekry.online/api/v1/mobile';
-
     private const MAX_RETRIES = 2;
 
     private const RETRY_DELAY_MS = 500;
@@ -86,7 +84,7 @@ class ApiService
 
     private function baseUrl(): string
     {
-        return config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile');
+        return config('app.mobile_api_url');
     }
 
     public function upload(string $path, array $files, array $data = []): array
@@ -175,7 +173,7 @@ class ApiService
     public static function loginToRemote(string $email, string $password): array
     {
         try {
-            $loginUrl = str_replace('/mobile', '', config('app.mobile_api_url', 'https://prof-hosam-fekry.online/api/v1/mobile')) . '/login';
+            $loginUrl = str_replace('/mobile', '', config('app.mobile_api_url')) . '/login';
             $response = Http::timeout(30)->post(
                 $loginUrl,
                 ['email' => $email, 'password' => $password]

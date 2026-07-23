@@ -388,7 +388,9 @@ async function addPatient(formData) {
         const res = await axios.post("/api/v1/workspace/patients", formData);
         trace('[TRACE_P8] axios.post response status: ' + res.status + ' data: ' + JSON.stringify(res.data).substring(0, 500))
         const patient = res.data?.patient || res.data;
+        console.log('[DIAG] addPatient - patient.uuid:', patient?.uuid, 'has keys:', Object.keys(patient || {}).join(','))
         if (patient?.uuid) {
+            console.log('[DIAG] addPatient - CALLING upsertPatient for uuid:', patient.uuid)
             upsertPatient(patient);
             selectedPatientId.value = patient.uuid;
             workspaceData.value = {
@@ -436,8 +438,21 @@ async function refreshPatientList(page = 1) {
         });
         const count = res.data?.data?.length || 0;
         const total = res.data?.meta?.total || 0;
+        const firstUuid = res.data?.data?.[0]?.uuid || 'none';
+        console.log('[DIAG] refreshPatientList - count:', count, 'total:', total, 'first uuid:', firstUuid, 'has pending_create:', res.data?.data?.some(p => p.sync_status === 'pending_create'))
         if (res.data?.data) {
-            patients.value = res.data.data;
+            // ── Merge: preserve local pending patients not in API response ────
+            // When going from offline to online, the API response may not include
+            // patients that were created locally while offline (sync_status != 'synced').
+            // Without this merge, those patients would disappear from the UI.
+            const apiUuids = new Set(res.data.data.map(p => p.uuid));
+            const localPending = patients.value.filter(
+                p => p.sync_status && p.sync_status !== 'synced' && !apiUuids.has(p.uuid)
+            );
+            if (localPending.length > 0) {
+                console.log('[DIAG] refreshPatientList - preserving', localPending.length, 'local pending patients not in API response:', localPending.map(p => p.name + '(' + p.sync_status + ')').join(', '))
+            }
+            patients.value = [...localPending, ...res.data.data];
             patientsMeta.value = res.data.meta;
         }
     } catch (e) {

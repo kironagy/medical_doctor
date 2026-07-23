@@ -35,34 +35,72 @@ class PatientRepository implements PatientRepositoryInterface
             $data = $this->api->paginated($perPage, $page, $status);
             if (isset($data['data'])) {
                 $this->syncLocalCache($data['data']);
+
+                // ── Merge local pending patients not yet in API response ─────
+                // After syncing pending patients to the API, some may have failed
+                // (e.g., network hiccup, server error). They remain in SQLite with
+                // sync_status='pending_create' or 'pending_update'. The API paginated
+                // response won't include them. We must merge them back into the result
+                // so the frontend doesn't lose them.
+                $localPending = \App\Domains\Patients\Models\Patient::whereIn(
+                    'sync_status', ['pending_create', 'pending_update']
+                )->get()->toArray();
+
+                if (!empty($localPending)) {
+                    $apiUuids = collect($data['data'])->pluck('uuid')->toArray();
+                    foreach ($localPending as $pendingPatient) {
+                        if (!in_array($pendingPatient['uuid'], $apiUuids)) {
+                            $data['data'][] = $pendingPatient;
+                        }
+                    }
+                    // Re-sort by latest to maintain consistent ordering
+                    usort($data['data'], fn($a, $b) => strcmp(
+                        $b['created_at'] ?? $b['client_updated_at'] ?? '',
+                        $a['created_at'] ?? $a['client_updated_at'] ?? ''
+                    ));
+                    Log::info('[PatientRepo] paginated() - merged ' . count($localPending) . ' local pending patients into response');
+                }
             }
             return $data;
         } catch (\Throwable $e) {
             Log::info('[PatientRepo] paginated() - API unavailable, using local: ' . $e->getMessage());
         }
 
-        return $this->local->paginated($perPage, $page, $status);
+        $localResult = $this->local->paginated($perPage, $page, $status);
+        $count = count($localResult['data'] ?? []);
+        $firstUuid = $localResult['data'][0]['uuid'] ?? 'none';
+        $hasPendingCreate = collect($localResult['data'] ?? [])->contains(fn($p) => ($p['sync_status'] ?? '') === 'pending_create');
+        Log::info('[DIAG] PatientRepo::paginated() returning ' . $count . ' patients, first uuid: ' . $firstUuid . ', has_pending_create: ' . ($hasPendingCreate ? 'YES' : 'NO'));
+        return $localResult;
     }
 
     private function syncPendingPatients(): void
     {
-        $pendingPatients = \App\Domains\Patients\Models\Patient::where('sync_status', 'pending_create')->get();
+        $pendingPatients = \App\Domains\Patients\Models\Patient::whereIn('sync_status', ['pending_create', 'pending_update'])->get();
 
         foreach ($pendingPatients as $patient) {
             try {
                 $data = $patient->toArray();
                 unset($data['id'], $data['sync_status'], $data['client_updated_at'], $data['deleted_at']);
 
-                $apiData = $this->api->create($data);
+                if ($patient->sync_status === 'pending_create') {
+                    $apiData = $this->api->create($data);
+                    $remoteUuid = $apiData['uuid'] ?? 'unknown';
+                } else {
+                    $apiData = $this->api->update($patient->uuid, $data);
+                    $remoteUuid = $apiData['uuid'] ?? $patient->uuid;
+                }
+
                 $this->syncSingleToLocal($apiData, force: true);
 
                 Log::info('[PatientRepo] Synced pending patient to server', [
                     'local_uuid' => $patient->uuid,
-                    'remote_uuid' => $apiData['uuid'] ?? 'unknown',
+                    'remote_uuid' => $remoteUuid,
+                    'sync_status' => $patient->sync_status,
                 ]);
             } catch (\Throwable $e) {
-                Log::info('[PatientRepo] Failed to sync pending patient (offline): ' . $e->getMessage());
-                break;
+                Log::info('[PatientRepo] Failed to sync patient (' . $patient->sync_status . '): ' . $e->getMessage());
+                // Continue to next patient — don't break! Remaining patients may still sync.
             }
         }
     }
@@ -111,6 +149,7 @@ class PatientRepository implements PatientRepositoryInterface
             }
 
             @file_put_contents($tf, now()->format('H:i:s.v') . ' P6f returning localData'. "\n", FILE_APPEND | LOCK_EX);
+            Log::info('[DIAG] PatientRepo::create() returning uuid=' . ($localData['uuid'] ?? 'NO UUID IN localData') . ' name=' . ($localData['name'] ?? 'none') . ' sync_status=' . ($localData['sync_status'] ?? 'none'));
             return $localData;
         } catch (\Throwable $e) {
             @file_put_contents($tf, now()->format('H:i:s.v') . ' P6g OUTER CATCH: ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine() . "\n", FILE_APPEND | LOCK_EX);
