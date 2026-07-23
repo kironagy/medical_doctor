@@ -7,6 +7,7 @@ use App\Models\PendingOperation;
 use App\Repositories\Api\ApiPatientRepository;
 use App\Repositories\Eloquent\EloquentPatientRepository;
 use App\Services\NetworkStatusService;
+use App\Services\SyncStatusService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Log;
 
@@ -14,7 +15,8 @@ class HybridPatientRepository implements PatientRepositoryInterface
 {
     public function __construct(
         private ApiPatientRepository $apiRepo,
-        private EloquentPatientRepository $localRepo
+        private EloquentPatientRepository $localRepo,
+        private SyncStatusService $syncStatus
     ) {}
 
     private function syncLocalCache(array $data): void
@@ -57,36 +59,50 @@ class HybridPatientRepository implements PatientRepositoryInterface
     public function all(): array
     {
         $start = microtime(true);
-        $source = 'local';
-        $data = null;
 
-        if (NetworkStatusService::isOnline()) {
-            try {
-                $source = 'api';
-                $data = $this->apiRepo->all();
-                $this->syncLocalCache($data);
-            } catch (ConnectionException $e) {
-                NetworkStatusService::setOnline(false);
-                Log::warning('[HybridPatientRepo] all() - API unavailable, falling back to local: ' . $e->getMessage());
-                $source = 'local_fallback';
-            } catch (\Throwable $e) {
-                Log::warning('[HybridPatientRepo] all() - API error, falling back to local: ' . $e->getMessage());
-                NetworkStatusService::setOnline(false);
-                $source = 'local_fallback';
-            }
+        $localData = $this->localRepo->all();
+
+        if (!empty($localData)) {
+            $elapsed = (microtime(true) - $start) * 1000;
+            Log::channel('single')->info('PROFILER_REPO_ALL', [
+                'source' => 'local',
+                'time_ms' => round($elapsed, 2),
+                'count' => count($localData),
+            ]);
+            return $localData;
         }
 
-        if ($data === null) {
-            $data = $this->localRepo->all();
+        if (NetworkStatusService::isOnline()) {
+            $this->syncStatus->setStatus('syncing');
+            try {
+                $apiData = $this->apiRepo->all();
+                $this->syncLocalCache($apiData);
+                $this->syncStatus->setStatus('success');
+                $elapsed = (microtime(true) - $start) * 1000;
+                Log::channel('single')->info('PROFILER_REPO_ALL', [
+                    'source' => 'api_first_sync',
+                    'time_ms' => round($elapsed, 2),
+                    'count' => count($apiData),
+                ]);
+                return $apiData;
+            } catch (ConnectionException $e) {
+                $this->syncStatus->setStatus('failed');
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientRepo] all() - API unavailable on first sync: ' . $e->getMessage());
+            } catch (\Throwable $e) {
+                $this->syncStatus->setStatus('failed');
+                NetworkStatusService::setOnline(false);
+                Log::warning('[HybridPatientRepo] all() - API error on first sync: ' . $e->getMessage());
+            }
         }
 
         $elapsed = (microtime(true) - $start) * 1000;
         Log::channel('single')->info('PROFILER_REPO_ALL', [
-            'source' => $source,
-            'time_ms' => round($elapsed, 2)
+            'source' => 'empty',
+            'time_ms' => round($elapsed, 2),
         ]);
 
-        return $data;
+        return [];
     }
 
     public function find(string $uuid): ?array
@@ -308,17 +324,21 @@ class HybridPatientRepository implements PatientRepositoryInterface
         $data = null;
 
         if (NetworkStatusService::isOnline()) {
+            $this->syncStatus->setStatus('syncing');
             try {
                 $source = 'api';
                 $data = $this->apiRepo->paginated($perPage, $page, $status);
                 if (isset($data['data'])) {
                     $this->syncLocalCache($data['data']);
                 }
+                $this->syncStatus->setStatus('success');
             } catch (ConnectionException $e) {
+                $this->syncStatus->setStatus('failed');
                 NetworkStatusService::setOnline(false);
                 Log::warning('[HybridPatientRepo] paginated() - API unavailable, falling back to local: ' . $e->getMessage());
                 $source = 'local_fallback';
             } catch (\Throwable $e) {
+                $this->syncStatus->setStatus('failed');
                 Log::warning('[HybridPatientRepo] paginated() - API error, falling back to local: ' . $e->getMessage());
                 NetworkStatusService::setOnline(false);
                 $source = 'local_fallback';
