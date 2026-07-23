@@ -21,4 +21,14 @@ class RepositoryBindingTest extends TestCase
 
         $this->assertInstanceOf(PatientRepository::class, $repository);
     }
+
+    public function test_file_cache_repository_binding(): void
+    {
+        $provider = new RepositoryServiceProvider($this->app);
+        $provider->register();
+
+        $repository = $this->app->make(\App\Contracts\Repositories\FileCacheRepositoryInterface::class);
+
+        $this->assertInstanceOf(\App\Repositories\FileCacheRepository::class, $repository);
+    }
 }

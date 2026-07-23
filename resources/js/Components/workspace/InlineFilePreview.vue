@@ -22,6 +22,25 @@
             <a v-if="file?.url" :href="file.url" target="_blank" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" :title="$t('file_preview.download')">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
             </a>
+            <!-- Cache Offline (Phase 6) -->
+            <button
+              v-if="!isCached"
+              @click="onCacheClick"
+              class="p-2 text-amber-400 hover:text-amber-300 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors"
+              :title="$t('file_preview.cache_for_offline')"
+            >
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            </button>
+            <button
+              v-else
+              :disabled="removingCache"
+              @click="onRemoveCacheClick"
+              class="p-2 text-slate-400 hover:text-rose-400 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-60"
+              title="Remove from cache"
+            >
+              <svg v-if="!removingCache" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+            </button>
             <!-- Delete Button -->
             <button v-if="canDelete" :disabled="deleting" @click="confirmDelete" class="p-2 text-rose-400 hover:text-rose-300 bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed" title="Delete">
               <svg v-if="!deleting" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -62,9 +81,16 @@
               :style="imageStyle"
               @dblclick.stop="toggleZoom()"
               @error="e => {
-                const relativeUrl = '/api/v1/files/' + file.uuid;
-                if (!e.target.src.endsWith(relativeUrl)) {
-                  e.target.src = relativeUrl;
+                const uuid = file?.uuid;
+                if (!uuid) return;
+                const cacheUrl = cachedFileUrl(uuid);
+                if (!e.target.src.endsWith(cacheUrl) && cachedFiles.value[uuid]) {
+                  e.target.src = cacheUrl;
+                } else {
+                  const fallbackUrl = '/api/v1/files/' + uuid;
+                  if (!e.target.src.endsWith(fallbackUrl)) {
+                    e.target.src = fallbackUrl;
+                  }
                 }
               }"
               ref="imageRef"
@@ -128,6 +154,10 @@ const {
   closePreview: close,
   canDelete,
   removeFileLocally,
+  cachedFiles,
+  checkCacheStatus,
+  cacheForOffline,
+  removeFromCache,
 } = useWorkspace()
 
 const siblings = computed(() => {
@@ -189,14 +219,59 @@ const thumbnailPostUrl = computed(() => {
   return signedThumbnailUrl.value || file.value?.thumbnail_url || ''
 })
 
+// ---------------------------------------------------------------
+//  Phase 6 — Offline File Cache
+// ---------------------------------------------------------------
+const isCached = computed(() => !!(file.value?.uuid && cachedFiles.value[file.value.uuid]))
+const caching = ref(false)
+const removingCache = ref(false)
+
+async function onCacheClick() {
+  if (!file.value?.uuid || caching.value) return
+  caching.value = true
+  const result = await cacheForOffline(file.value.uuid)
+  if (!result.success) {
+    toast.error(result.message || 'Failed to cache file')
+  }
+  caching.value = false
+}
+
+async function onRemoveCacheClick() {
+  if (!file.value?.uuid || removingCache.value) return
+  removingCache.value = true
+  await removeFromCache(file.value.uuid)
+  removingCache.value = false
+}
+
+// Detect cache status on mount (if we've seen this file before the cache
+// list might be stale — re-check once when the preview opens).
+watchEffect(() => {
+  if (file.value?.uuid) {
+    checkCacheStatus(file.value.uuid)
+  }
+})
+
+// ---------------------------------------------------------------
+//  Signed URL
+// ---------------------------------------------------------------
 const fetchSignedUrls = async () => {
   if (!file.value?.uuid) return
   try {
     const res = await axios.get(`/api/v1/files/${file.value.uuid}/signed-url`)
     signedUrl.value = res.data.url
   } catch (e) {
-    console.warn('Failed to fetch signed URL, using direct URL', e)
+    // Fall back to local cache URL if the file is cached
+    if (cachedFiles.value[file.value.uuid]) {
+      signedUrl.value = cachedFileUrl(file.value.uuid)
+    } else {
+      console.warn('Failed to fetch signed URL, using direct URL', e)
+    }
   }
+}
+
+function cachedFileUrl(uuid) {
+  // Build the local PHP server URL (same origin).
+  return `/_native/cache/files/${uuid}`
 }
 
 watch(file, async (newFile) => {

@@ -13,6 +13,27 @@
     <a v-if="file.url" :href="file.url" target="_blank" @click.stop class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 shadow-sm transition-colors hover:scale-110 active:scale-95" :title="$t('file_actions.download')">
       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
     </a>
+    <!-- Cache Offline (Phase 6) -->
+    <button
+      v-if="!isCached"
+      @click.stop="onCacheClick"
+      :disabled="caching"
+      class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 shadow-sm transition-colors hover:scale-110 active:scale-95 disabled:opacity-60"
+      title="Save for offline"
+    >
+      <svg v-if="!caching" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+      <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+    </button>
+    <button
+      v-else
+      @click.stop="onRemoveCacheClick"
+      :disabled="removingCache"
+      class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-500 dark:text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 shadow-sm transition-colors hover:scale-110 active:scale-95 disabled:opacity-60"
+      title="Remove from cache"
+    >
+      <svg v-if="!removingCache" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+      <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+    </button>
     <button v-if="canDelete" :disabled="deleting" @click.stop="confirmDelete" class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 dark:text-slate-200 hover:text-rose-600 dark:hover:text-rose-400 shadow-sm transition-colors hover:scale-110 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed" :title="$t('file_actions.delete')">
       <svg v-if="!deleting" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
       <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
@@ -85,6 +106,32 @@
                 </div>
                 <span class="font-medium text-sm">Download</span>
               </a>
+
+              <!-- Cache Offline (Phase 6) -->
+              <button
+                v-if="!isCached"
+                :disabled="caching"
+                @click="onCacheClick"
+                class="w-full flex items-center gap-4 p-3.5 rounded-xl text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 active:bg-amber-100 dark:active:bg-amber-900/40 transition-all text-start active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <div class="w-9 h-9 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                  <svg v-if="!caching" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  <svg v-else class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                </div>
+                <span class="font-medium text-sm">{{ caching ? 'Caching...' : 'Save for Offline' }}</span>
+              </button>
+              <button
+                v-else
+                :disabled="removingCache"
+                @click="onRemoveCacheClick"
+                class="w-full flex items-center gap-4 p-3.5 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 active:bg-rose-100 dark:active:bg-rose-900/40 transition-all text-start active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <div class="w-9 h-9 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-500 dark:text-rose-400 flex items-center justify-center shrink-0">
+                  <svg v-if="!removingCache" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  <svg v-else class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                </div>
+                <span class="font-medium text-sm">{{ removingCache ? 'Removing...' : 'Remove from Cache' }}</span>
+              </button>
 
               <button v-if="canDelete" :disabled="deleting" @click="confirmDelete" class="w-full flex items-center gap-4 p-3.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 active:bg-rose-100 dark:active:bg-rose-900/40 transition-all text-start active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed">
                 <div class="w-9 h-9 rounded-full bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
@@ -179,9 +226,10 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useDialog } from '@/Composables/useDialog'
 import { useToast } from '@/Composables/useToast'
+import { useWorkspace } from '@/Composables/useWorkspace'
 import BaseButton from '@/Components/BaseButton.vue'
 import axios from 'axios'
 
@@ -193,6 +241,41 @@ const props = defineProps({
   categories: { type: Array, default: () => [] },
   patientUuid: { type: String, default: null },
 })
+
+const {
+  cachedFiles,
+  cacheForOffline,
+  removeFromCache,
+  checkCacheStatus,
+} = useWorkspace()
+
+const isCached = computed(() => !!(props.file?.uuid && cachedFiles.value[props.file.uuid]))
+const caching = ref(false)
+const removingCache = ref(false)
+
+async function onCacheClick() {
+  if (!props.file?.uuid || caching.value) return
+  caching.value = true
+  const result = await cacheForOffline(props.file.uuid)
+  if (!result.success) {
+    toast.error(result.message || 'Failed to cache file')
+  }
+  caching.value = false
+}
+
+async function onRemoveCacheClick() {
+  if (!props.file?.uuid || removingCache.value) return
+  removingCache.value = true
+  await removeFromCache(props.file.uuid)
+  removingCache.value = false
+}
+
+// Re-check cache status when the file prop changes
+watch(() => props.file?.uuid, (uuid) => {
+  if (uuid) {
+    checkCacheStatus(uuid)
+  }
+}, { immediate: true })
 
 const emit = defineEmits(['file-updated', 'file-moved', 'file-deleted', 'close'])
 

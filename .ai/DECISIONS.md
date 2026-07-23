@@ -60,3 +60,49 @@ Simplify the offline architecture for Phase 5 by:
 - Created: `app/Repositories/PatientRepository.php`
 - Modified: `WorkspaceController`, related Vue components
 - Added: `2026_07_22_000001_add_sync_status_to_patients_table.php`
+
+---
+
+# AD-002: Phase 6 Read-Only Files Cache Architecture
+
+Date: 2026-07-23
+
+Status: Implemented
+
+## Context
+
+Phase 6 requires allowing doctors to view previously downloaded patient files (images, PDFs, videos) while offline without internet connectivity. High memory usage and lack of Range/seeking support in previous file streaming implementations caused memory spikes and slow seeking on mobile devices.
+
+## Decision
+
+Implement read-only file caching using a 3-tier architecture:
+
+1. **Database Layer (`file_cache` SQLite table)** — Tracks metadata (`file_uuid`, `patient_uuid`, `file_name`, `mime_type`, `size`, `local_path`, `cached_at`, `last_accessed_at`).
+2. **Repository & Service Layer (`FileCacheRepository` + `FileCacheService`)**:
+   - `FileCacheService` streams files using a 1MB chunked `fread()` buffer to prevent memory spikes, and parses HTTP `Range` headers to support 206 Partial Content video seeking.
+   - `FileCacheRepository` manages disk persistence, uses `ApiService::download()` (`Http::sink()`) for zero-memory streaming downloads, and enforces a 500MB LRU cache quota based on `last_accessed_at`.
+3. **Local Route Layer (`_native/cache`)**:
+   - 5 dedicated endpoints on the local web server (`streamCached`, `cacheFile`, `cacheStatus`, `removeCached`, `removePatientCached`).
+   - Every endpoint is protected with `auth` middleware and `Gate::authorize('view', $file->patient)` checks.
+4. **Frontend Reactive Fallback (`useWorkspace.js` + `InlineFilePreview.vue` + `FileActions.vue`)**:
+   - Reactive `cachedFiles` store tracks cache state.
+   - `InlineFilePreview` automatically falls back to `/_native/cache/files/{uuid}` when signed URLs or API requests fail offline.
+
+## Rationale
+
+- Streaming via 1MB buffer ensures large video files stream without memory spikes.
+- HTTP Range header support allows video scrubbers and HTML5 video players to seek smoothly without reading entire files into memory.
+- `Http::sink()` writes incoming stream bytes directly to disk during caching.
+- LRU eviction maintains disk usage strictly under 500MB without manual user maintenance.
+- All endpoints enforce Gate authorization to prevent unauthorized cross-doctor file access.
+
+## Consequences
+
+- Read-only file caching is fully functional offline.
+- File uploads created while offline are not yet supported — deferred to Phase 7.
+
+## Files Affected
+
+- Created: `database/migrations/2026_07_23_000003_create_file_cache_table.php`, `app/Contracts/Repositories/FileCacheRepositoryInterface.php`, `app/Repositories/FileCacheRepository.php`, `app/Services/Mobile/FileCacheService.php`
+- Modified: `app/Http/Controllers/Api/FileAccessController.php`, `routes/web.php`, `app/Providers/RepositoryServiceProvider.php`, `resources/js/Composables/useWorkspace.js`, `resources/js/Components/workspace/InlineFilePreview.vue`, `resources/js/Components/workspace/FileActions.vue`
+- Deleted: `app/Services/Mobile/FileRepository.php` (dead code)

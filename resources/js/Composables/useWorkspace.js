@@ -461,6 +461,82 @@ async function forceDeletePatient(uuid) {
     }
 }
 
+// ---------------------------------------------------------------
+//  Phase 6 — Offline File Cache
+// ---------------------------------------------------------------
+
+/** Reactive set of cached file UUIDs — hydrated on demand. */
+const cachedFiles = ref({}); // { [uuid]: true }
+
+/**
+ * Check whether a file is cached locally.
+ * Falls back gracefully if the local cache server is unreachable.
+ */
+async function checkCacheStatus(fileUuid) {
+    if (!fileUuid) return false;
+    try {
+        const res = await axios.get(`/_native/cache/files/${fileUuid}/status`);
+        const isCached = res.data?.cached === true;
+        cachedFiles.value[fileUuid] = isCached;
+        // trigger reactivity
+        cachedFiles.value = { ...cachedFiles.value };
+        return isCached;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Cache a file locally for offline viewing.
+ * Returns { success, status }.
+ */
+async function cacheForOffline(fileUuid) {
+    if (!fileUuid) return { success: false, message: 'Missing file UUID.' };
+    try {
+        const res = await axios.post(`/_native/cache/files/${fileUuid}/cache`);
+        const success = res.data?.status === 'cached';
+        if (success) {
+            cachedFiles.value[fileUuid] = true;
+            cachedFiles.value = { ...cachedFiles.value };
+        }
+        return { success, ...res.data };
+    } catch (e) {
+        const message = e.response?.data?.message || e.message || 'Cache request failed.';
+        return { success: false, message };
+    }
+}
+
+/**
+ * Remove a single file from the local cache.
+ */
+async function removeFromCache(fileUuid) {
+    if (!fileUuid) return;
+    try {
+        await axios.delete(`/_native/cache/files/${fileUuid}`);
+        delete cachedFiles.value[fileUuid];
+        cachedFiles.value = { ...cachedFiles.value };
+    } catch {
+        // silently ignore — cache miss is not a user-facing error
+    }
+}
+
+/**
+ * Remove all cached files for a patient.
+ */
+async function clearPatientCache(patientUuid) {
+    if (!patientUuid) return;
+    try {
+        await axios.delete(`/_native/cache/patient/${patientUuid}`);
+        // Re-check all currently tracked files
+        for (const uuid of Object.keys(cachedFiles.value)) {
+            cachedFiles.value[uuid] = false;
+        }
+        cachedFiles.value = { ...cachedFiles.value };
+    } catch {
+        // silently ignore
+    }
+}
+
 function openSettings() {
     showSettings.value = true;
 }
@@ -539,5 +615,11 @@ export function useWorkspace() {
         fetchArchivedPatients,
         restorePatient,
         forceDeletePatient,
+        // Phase 6 — Offline File Cache
+        cachedFiles,
+        checkCacheStatus,
+        cacheForOffline,
+        removeFromCache,
+        clearPatientCache,
     };
 }

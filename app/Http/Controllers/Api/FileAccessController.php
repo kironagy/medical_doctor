@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Contracts\Repositories\FileCacheRepositoryInterface;
 use App\Http\Controllers\Controller;
 use App\Domains\Media\Models\PatientFile;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -12,6 +14,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FileAccessController extends Controller
 {
+    public function __construct(
+        private readonly FileCacheRepositoryInterface $cacheRepo
+    ) {}
     private function resolveFile(Request $request, string $uuid): PatientFile
     {
         if ($request->hasValidSignature()) {
@@ -385,5 +390,90 @@ class FileAccessController extends Controller
         }
 
         return response()->json(['message' => 'Deleted']);
+    }
+
+    // ---------------------------------------------------------------
+    //  Phase 6 — Local File Cache
+    // ---------------------------------------------------------------
+
+    /**
+     * Stream a cached file with Range support for video seeking.
+     *
+     * Route: GET /_native/cache/files/{uuid}
+     */
+    public function streamCached(Request $request, string $uuid): StreamedResponse
+    {
+        $file = PatientFile::where('uuid', $uuid)->firstOrFail();
+        Gate::authorize('view', $file->patient);
+
+        return $this->cacheRepo->stream(
+            $uuid,
+            $request->header('Range'),
+            $request->isMethod('HEAD')
+        );
+    }
+
+    /**
+     * Cache a file locally for offline viewing.
+     *
+     * Route: POST /_native/cache/files/{uuid}/cache
+     */
+    public function cacheFile(Request $request, string $uuid)
+    {
+        $file = PatientFile::where('uuid', $uuid)->firstOrFail();
+        Gate::authorize('view', $file->patient);
+
+        $status = $this->cacheRepo->cache($uuid);
+
+        return response()->json($status);
+    }
+
+    /**
+     * Check if a file is cached and return its status.
+     *
+     * Route: GET /_native/cache/files/{uuid}/status
+     */
+    public function cacheStatus(Request $request, string $uuid)
+    {
+        $file = PatientFile::where('uuid', $uuid)->first();
+        if ($file) {
+            Gate::authorize('view', $file->patient);
+        }
+
+        return response()->json($this->cacheRepo->status($uuid));
+    }
+
+    /**
+     * Remove a file from the local cache.
+     *
+     * Route: DELETE /_native/cache/files/{uuid}
+     */
+    public function removeCached(Request $request, string $uuid)
+    {
+        $file = PatientFile::where('uuid', $uuid)->first();
+        if ($file) {
+            Gate::authorize('view', $file->patient);
+        }
+
+        $this->cacheRepo->remove($uuid);
+
+        return response()->json(['message' => 'Removed from cache.']);
+    }
+
+    /**
+     * Remove all cached files for a patient.
+     *
+     * Route: DELETE /_native/cache/patient/{patientUuid}
+     */
+    public function removePatientCached(Request $request, string $patientUuid)
+    {
+        $patient = \App\Domains\Patients\Models\Patient::where('uuid', $patientUuid)->first();
+        if ($patient) {
+            Gate::authorize('view', $patient);
+        }
+
+        $this->cacheRepo->removePatient($patientUuid);
+
+        return response()->json(['message' => 'Patient cache cleared.']);
     }
 }

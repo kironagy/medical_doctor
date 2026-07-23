@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Contracts\Repositories\FileCacheRepositoryInterface;
 use App\Contracts\Repositories\PatientFileRepositoryInterface;
 use App\Contracts\Repositories\PatientNoteRepositoryInterface;
 use App\Contracts\Repositories\PatientRepositoryInterface;
@@ -12,6 +13,7 @@ use App\Repositories\Eloquent\EloquentPatientNoteRepository;
 use App\Repositories\Eloquent\EloquentPatientRepository;
 use App\Repositories\Eloquent\EloquentPatientVisitRepository;
 use App\Repositories\Eloquent\EloquentUserRepository;
+use App\Repositories\FileCacheRepository;
 use App\Repositories\PatientRepository;
 use Illuminate\Support\ServiceProvider;
 
@@ -25,5 +27,8 @@ class RepositoryServiceProvider extends ServiceProvider
         $this->app->bind(PatientFileRepositoryInterface::class, EloquentPatientFileRepository::class);
         $this->app->bind(PatientNoteRepositoryInterface::class, EloquentPatientNoteRepository::class);
         $this->app->bind(PatientVisitRepositoryInterface::class, EloquentPatientVisitRepository::class);
+
+        // Phase 6: offline file cache
+        $this->app->bind(FileCacheRepositoryInterface::class, FileCacheRepository::class);
     }
 }

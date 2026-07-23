@@ -220,7 +220,7 @@ Completed Work:
 
 Status:
 
-Future
+Completed
 
 Objective:
 
@@ -231,6 +231,15 @@ Scope:
 Read-only.
 
 No upload synchronization.
+
+Completed Work:
+
+- SQLite `file_cache` table for metadata (`file_uuid`, `patient_uuid`, `file_name`, `mime_type`, `size`, `local_path`, `cached_at`, `last_accessed_at`).
+- `FileCacheService`: 1MB chunked buffer streaming with HTTP Range (206 Partial Content) video seeking support and safe path resolution.
+- `FileCacheRepository`: SQLite metadata CRUD, ApiService streaming download (`Http::sink()`), LRU eviction (500MB quota).
+- `FileAccessController` & `web.php`: 5 `_native/cache` local routes guarded with `auth` middleware and `Gate::authorize()` checks.
+- `useWorkspace.js`: reactive `cachedFiles` state, `checkCacheStatus`, `cacheForOffline`, `removeFromCache`, `clearPatientCache`.
+- `InlineFilePreview.vue` & `FileActions.vue`: offline preview fallback chain, toolbar & sheet cache/remove controls with loading states.
 
 ---
 

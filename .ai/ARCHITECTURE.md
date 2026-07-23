@@ -146,9 +146,9 @@ Future persistence features will follow the roadmap.
 
 Current Status:
 
-Partial — Phase 5 implemented.
+Partial — Phase 6 implemented.
 
-SQLite is used as a local persistence layer for patients.
+SQLite is used as a local persistence layer for patients and file cache metadata.
 
 Capabilities:
 
@@ -156,10 +156,10 @@ Capabilities:
 - Offline patient create/edit/delete (Phase 5)
 - Sync via `sync_status` column (`synced`, `pending_sync`, `conflict`)
 - PatientRepository pushes local changes to the API inline on next online operation
+- Read-only file cache with Range/streaming support and LRU 500MB quota (Phase 6)
 
 Not yet available:
 
-- File caching (Phase 6)
 - Offline file upload (Phase 7)
 - Offline notes (Phase 8)
 - Pending queue (Phase 9)
