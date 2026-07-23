@@ -78,6 +78,25 @@ class SyncEngineService
             'deletes'  => 0,
         ];
 
+        // ── AUTH GUARD: Check API token availability ───────────────────
+        // The sync engine requires a valid API token (Sanctum Bearer token for
+        // the production server). If the token is missing, it means either:
+        //   a) The user hasn't logged in yet (no session)
+        //   b) The session was restored but the api_token wasn't restored yet
+        //      (race condition — sync fires before session restore completes)
+        //   c) The token was cleared due to a previous 401 response
+        //
+        // In ALL cases, we skip the sync gracefully and retry on the next cycle.
+        // Without this check, ApiService sends requests with no Bearer header,
+        // the production server returns 401, and ApiService clears the token —
+        // creating a catch-22 where every subsequent sync also fails.
+        $apiToken = $this->api->getToken();
+        if (empty($apiToken)) {
+            Log::info('[SyncEngine] ⏭ Skipping sync — API token not available (session restore may still be in progress, or user needs to re-login)');
+            $results['skipped'] = 'auth_pending';
+            return $results;
+        }
+
         // ── STEP 1: Sync pending patients ──────────────────────────────
         // This MUST complete before files because files reference patient UUIDs
         // on the server. Files uploaded for a non-existent patient will fail.

@@ -142,11 +142,25 @@ class ApiService
         $url = $this->baseUrl() . $path;
         $attempts = 0;
 
+        // ── GUARD: No token available — skip immediately ───────────────
+        // Without this check, a request sent without a Bearer token will
+        // receive a 401 from the production server. ApiService then clears
+        // the (already null) token, creating a permanent failure state that
+        // prevents ALL future sync attempts from authenticating.
+        if (empty($this->token)) {
+            Log::warning('[ApiService] No token available — skipping API call to ' . $url);
+            throw new RuntimeException('API token is not available. Please login again.');
+        }
+
         while ($attempts <= self::MAX_RETRIES) {
             try {
                 $response = $this->client()->send($method, $url, $options);
 
                 if ($response->unauthorized()) {
+                    // Only clear the token if we actually sent one.
+                    // If the token was valid but expired, clearing allows
+                    // re-authentication. If the token was already null,
+                    // we wouldn't reach here because the guard above catches it.
                     $this->setToken(null);
                     throw new RuntimeException('Session expired. Please login again.');
                 }

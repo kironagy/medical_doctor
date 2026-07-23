@@ -305,7 +305,12 @@ class WorkspaceController extends Controller
     public function patientData(string $uuid)
     {
         $t0 = microtime(true);
-        $patient = $this->patientRepo->findByUuid($uuid);
+        try {
+            $patient = $this->patientRepo->findByUuid($uuid);
+        } catch (\RuntimeException $e) {
+            Log::warning('[Workspace] patientData - patient not found: ' . $uuid);
+            return response()->json(['message' => 'Patient not found'], 404);
+        }
         $t1 = microtime(true);
 
         // Get all files for stats, but only return first 50 initially to prevent large payload
