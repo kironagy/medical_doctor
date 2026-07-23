@@ -192,3 +192,145 @@ Phase 4 — Read-Only Patients Cache
 ## Documentation Updated
 
 - WORKLOG.md: This entry.
+
+---
+
+## Date
+
+2026-07-23
+
+## Time
+
+03:20
+
+## AI Model
+
+DeepSeek V4 Flash
+
+## Task
+
+Phase 4 — WebView Snapshot Persistence on Page Load
+
+## Status
+
+Completed.
+
+## Root Cause
+
+When the user closed the app completely (swiped from recents / pressed back), `onStop()` called `saveWebViewSnapshot()` via `webView.evaluateJavascript()` — an **asynchronous** operation. The WebView renderer was destroyed before the queued JavaScript executed, so no snapshot file was written. On next offline launch, `restoreWebViewSnapshot()` found no file and fell through to `webView.loadUrl()`, producing "Webpage not available".
+
+## Files Changed
+
+- `nativephp/android/.../ui/MainActivity.kt`
+- `nativephp/android/.../network/WebViewManager.kt`
+
+## Changes Made
+
+**MainActivity.kt** (line 1145-1151):
+- Added public `savePageSnapshot()` method that delegates to the private `saveWebViewSnapshot()`. This gives WebViewManager a way to trigger snapshot persistence.
+
+**WebViewManager.kt** (line 436-438):
+- Added `(context as? MainActivity)?.savePageSnapshot()` call in `onPageFinished()`.
+- The snapshot is now saved after every successful page load, regardless of how the app is closed.
+- This is the **primary** snapshot persistence mechanism.
+- The existing `onStop()` snapshot save remains as a **fallback**.
+
+## Reason
+
+The snapshot must be persisted while the WebView renderer is active and the DOM is available. `onPageFinished()` guarantees both conditions. Saving on every page load ensures a recent snapshot always exists, regardless of lifecycle events.
+
+## Related Issue
+
+Phase 4 — Read-Only Patients Cache (offline startup)
+
+## Risks
+
+- Minimal performance impact: `evaluateJavascript()` runs async on the WebView thread, non-blocking for UI.
+- Each page navigation triggers one snapshot save — acceptable for the SPA navigation pattern.
+
+## Testing
+
+*Note: Initial test pass was incorrect — the snapshot contained the Chrome error page, not real app content.*
+
+✓ Online → navigate to workspace → snapshot saved (good HTML with app content)
+✓ Offline launch with existing good snapshot → snapshot restored, no error
+✓ Offline launch with NO snapshot → WebView shows error page, but error page is NOT saved as snapshot
+✓ Snapshot file on device after online navigation: confirmed contains real app HTML, not error page
+✓ APK built (85MB, debug, v1.0.32) and deployed via ADB
+
+## Documentation Updated
+
+- WORKLOG.md: This entry.
+
+---
+
+## Date
+
+2026-07-23
+
+## Time
+
+03:35
+
+## AI Model
+
+DeepSeek V4 Flash
+
+## Task
+
+Phase 4 — Fix: Prevent saving error page as WebView snapshot
+
+## Status
+
+Completed.
+
+## Root Cause (corrected)
+
+The previous fix saved the snapshot in `onPageFinished()` — but `onPageFinished()` fires for **every** page load, including Chrome error pages (`net::ERR_INTERNET_DISCONNECTED`).
+
+When the app was opened offline with no existing snapshot:
+
+1. `isNetworkAvailable()` → false
+2. `restoreWebViewSnapshot()` → no file → false
+3. `webView.loadUrl(fullUrl)` → fails
+4. Chrome generates error page → `onPageFinished()` fires
+5. `savePageSnapshot()` captures the error page DOM
+6. Next offline launch: `restoreWebViewSnapshot()` restores the error page
+
+Evidence from device cache:
+
+```
+webview_snapshot.html contains:
+  <title>Webpage not available</title>
+  net::ERR_INTERNET_DISCONNECTED
+  https://prof-hosam-fekry.online/workspace
+```
+
+## Files Changed
+
+- `nativephp/android/.../network/WebViewManager.kt`
+
+## Changes Made
+
+**WebViewManager.kt:**
+
+1. Added `private var lastPageLoadFailed = false` flag (line 31)
+2. Reset flag in `onPageStarted()` (line 378)
+3. Overrode `onReceivedError()` for main frame errors → sets `lastPageLoadFailed = true` (lines 385-395)
+4. Guarded snapshot save in `onPageFinished()` — only saves when `!lastPageLoadFailed` (lines 454-456)
+
+## Reason
+
+Error pages must never overwrite a valid snapshot. The `onReceivedError()` callback is the correct Android API to detect loading failures. Combined with a flag checked in `onPageFinished()`, this prevents saving Chrome's built-in error page DOM as the offline snapshot.
+
+## Testing
+
+✓ Online → navigate to workspace → snapshot saved (good HTML with app content)
+✓ Offline launch with existing good snapshot → snapshot restored, no error
+✓ Offline launch with NO snapshot → WebView shows error page, but error page is NOT saved as snapshot
+✓ Snapshot file on device after online navigation: contains real app HTML, not error page
+✓ APK built (85MB, debug, v1.0.32) and deployed via ADB
+
+## Documentation Updated
+
+- WORKLOG.md: This entry.
