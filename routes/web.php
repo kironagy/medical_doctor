@@ -7,6 +7,43 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\DoctorController;
 
+// ── Session Restore (must be outside auth middleware) ─────────────────
+// Validates a Sanctum Bearer token and creates a new web session.
+// Used by the frontend on app restart when the WebView lost its cookies.
+Route::post('/api/session/restore', function (\Illuminate\Http\Request $request) {
+    $token = $request->bearerToken();
+    if (!$token) {
+        return response()->json(['error' => 'No token provided'], 401);
+    }
+
+    try {
+        $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
+        if (!$accessToken || !$accessToken->tokenable) {
+            return response()->json(['error' => 'Invalid or expired token'], 401);
+        }
+
+        $user = $accessToken->tokenable;
+        if (!$user) {
+            return response()->json(['error' => 'User not found'], 401);
+        }
+
+        // Log the user in via web session
+        \Illuminate\Support\Facades\Auth::login($user);
+        $request->session()->regenerate();
+
+        return response()->json([
+            'success' => true,
+            'user' => array_merge($user->toArray(), [
+                'roles' => $user->roles->pluck('name'),
+                'role' => $user->roles->first()?->name,
+            ]),
+        ]);
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Log::warning('Session restore failed: ' . $e->getMessage());
+        return response()->json(['error' => 'Session restore failed'], 500);
+    }
+});
+
 Route::get('/', function () {
     if (auth()->check() && (auth()->user()->hasRole('super-admin') || auth()->user()->role === 'super-admin')) {
         return redirect()->route('admin.doctors.index');
@@ -68,7 +105,7 @@ Route::middleware('auth')->group(function () {
 
         // Direct upload endpoint
         Route::post('/patients/{patientUuid}/files', [\App\Http\Controllers\Api\UploadController::class, 'store']);
-        
+
         // Optional progress endpoint for compatibility
         Route::get('/uploads/progress', [\App\Http\Controllers\Api\UploadController::class, 'progress']);
 
@@ -78,10 +115,10 @@ Route::middleware('auth')->group(function () {
         Route::get('/files/{uuid}/thumbnail', [\App\Http\Controllers\Api\FileAccessController::class, 'thumbnailDirect']);
         Route::delete('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'destroy']);
         Route::put('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'update']);
-        
+
         // Global Search API
         Route::get('/search', [\App\Http\Controllers\Api\GlobalSearchController::class, 'search']);
-        
+
         // Category Management API
         Route::get('/categories', [\App\Http\Controllers\Api\CategoryController::class, 'index']);
         Route::put('/categories', [\App\Http\Controllers\Api\CategoryController::class, 'update']);

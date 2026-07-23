@@ -28,6 +28,17 @@ class AuthController extends Controller
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
 
+            // Generate a Sanctum "remember" token for session restore on app restart.
+            // This token is passed to the frontend via Inertia shared props and
+            // stored in localStorage. On app restart, if the WebView lost the
+            // session cookie, the token can restore the web session.
+            try {
+                $rememberToken = $request->user()->createToken('session-remember')->plainTextToken;
+                session(['session_remember_token' => encrypt($rememberToken)]);
+            } catch (\Throwable $e) {
+                Log::warning('Failed to generate session-remember token: ' . $e->getMessage());
+            }
+
             // Obtain production API token for sidebar data sync
             try {
                 $tokenResponse = ApiService::loginToRemote($credentials['email'], $credentials['password']);
@@ -44,7 +55,7 @@ class AuthController extends Controller
             if ($user && ($user->role === 'super-admin' || $user->hasRole('super-admin'))) {
                 return redirect('/admin/doctors');
             }
-            
+
             return redirect()->intended('/dashboard');
         }
 
@@ -58,6 +69,18 @@ class AuthController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+
+        // Clean up the remember token
+        try {
+            $encrypted = session('session_remember_token');
+            if ($encrypted) {
+                $token = decrypt($encrypted);
+                \Laravel\Sanctum\PersonalAccessToken::findToken($token)?->delete();
+            }
+        } catch (\Throwable $e) {
+            // Silently clean up
+        }
+        session()->forget('session_remember_token');
 
         return redirect('/login');
     }

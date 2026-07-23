@@ -26,17 +26,58 @@
 
         <script>
           (function() {
+            // ── Phase 3: Session Restore on App Restart ──────────────────────────
+            // When the NativePHP app restarts, the WebView may have lost the session
+            // cookie. This script detects that case and restores the session using a
+            // Sanctum token stored in localStorage.
             try {
-              var persist = localStorage.getItem('np_persist_login');
-              if (persist === '1') {
-                localStorage.removeItem('np_persist_login');
-                if (window.location.pathname === '/login') {
-                  window.location.href = '/';
-                  return;
-                }
-              }
-            } catch(e) {}
+              var authToken = localStorage.getItem('np_auth_token');
+              var persistFlag = localStorage.getItem('np_persist_login');
+              var currentPath = window.location.pathname;
 
+              // If we're on the login page but the user was previously logged in,
+              // the session was lost. Try to restore it using the stored token.
+              if ((currentPath === '/login' || currentPath === '/') && authToken) {
+                // Make a synchronous-style restore attempt via fetch
+                fetch('/api/session/restore', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + authToken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                  },
+                  credentials: 'include',
+                  body: JSON.stringify({}),
+                })
+                .then(function(res) {
+                  if (res.ok) {
+                    // Session restored successfully — reload to get authenticated state
+                    window.location.href = '/dashboard';
+                  } else if (res.status === 401) {
+                    // Token expired or invalid — clean up
+                    localStorage.removeItem('np_auth_token');
+                    localStorage.removeItem('np_persist_login');
+                    localStorage.removeItem('np_auth_user');
+                  }
+                  // Other errors (e.g. 419 CSRF, 500) — stay on login page
+                })
+                .catch(function() {
+                  // Server unreachable — stay on login page.
+                  // Don't remove the token; it may be valid for the next
+                  // attempt when the server comes back or the app restarts.
+                  // The absence of redirect here prevents the redirect loop
+                  // that existed when the original code redirected to /dashboard.
+                });
+              }
+
+              // If on dashboard/workspace but session is somehow lost, the Inertia
+              // page will show the login page on next navigation. The stored token
+              // ensures we can restore from there.
+            } catch(e) {
+              // localStorage not available — do nothing
+            }
+
+            // ── Theme & Locale ────────────────────────────────────────────────────
             try {
               var theme = localStorage.getItem('theme');
               if (!theme) {

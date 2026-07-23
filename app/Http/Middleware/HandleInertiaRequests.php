@@ -35,6 +35,17 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        // Decrypt the session-remember token if present
+        $rememberToken = null;
+        try {
+            $encrypted = session('session_remember_token');
+            if ($encrypted) {
+                $rememberToken = decrypt($encrypted);
+            }
+        } catch (\Exception $e) {
+            // Token corrupted or missing — ignore
+        }
+
         return [
             ...parent::share($request),
             'auth' => [
@@ -43,6 +54,7 @@ class HandleInertiaRequests extends Middleware
                     'role' => $request->user()->roles->first()?->name
                 ]) : null,
             ],
+            'session_remember_token' => $rememberToken,
         ];
     }
 }

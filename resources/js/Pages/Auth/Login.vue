@@ -68,7 +68,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useForm, usePage, Head, router } from '@inertiajs/vue3';
+import { useForm, usePage } from '@inertiajs/vue3';
 import BaseCard from '@/Components/BaseCard.vue';
 import BaseInput from '@/Components/BaseInput.vue';
 import BaseButton from '@/Components/BaseButton.vue';
@@ -78,9 +78,6 @@ const page = usePage()
 // If user is already authenticated (session survived restart), redirect to home
 const user = computed(() => page.props.auth?.user)
 if (user.value && typeof window !== 'undefined') {
-  // Using window.location.replace instead of router.visit ensures that if a user 
-  // hits the back button to reach this page, we permanently replace the login page 
-  // history entry with the home page, allowing them to continue going back.
   window.location.replace('/')
 }
 
@@ -94,7 +91,18 @@ const submit = () => {
   form.post('/login', {
     replace: true,
     onSuccess: () => {
-      try { localStorage.setItem('np_persist_login', '1') } catch(e) {}
+      try {
+        // ── Persistent auth for NativePHP app restart survival ──
+        // The session_remember_token is generated on login and shared
+        // via Inertia props. We store it in localStorage so that on
+        // app restart, if the WebView lost the session cookie, we can
+        // restore the session via /api/session/restore.
+        const token = page.props.session_remember_token;
+        if (token) {
+          localStorage.setItem('np_auth_token', token);
+          localStorage.setItem('np_persist_login', '1');
+        }
+      } catch(e) {}
     },
     onFinish: () => form.reset('password'),
   });

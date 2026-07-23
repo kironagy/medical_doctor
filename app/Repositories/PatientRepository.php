@@ -29,7 +29,7 @@ class PatientRepository implements PatientRepositoryInterface
                 $this->syncLocalCache($data['data']);
             }
             return $data;
-        } catch (ConnectionException $e) {
+        } catch (\Throwable $e) {
             Log::info('[PatientRepo] paginated() - API unavailable, using local: ' . $e->getMessage());
         }
 
@@ -65,8 +65,8 @@ class PatientRepository implements PatientRepositoryInterface
             $apiData = $this->api->create($apiPayload);
             $this->syncSingleToLocal($apiData, force: true);
             return $apiData;
-        } catch (ConnectionException $e) {
-            Log::info('[PatientRepo] create() - offline, saved locally with pending_create');
+        } catch (\Throwable $e) {
+            Log::info('[PatientRepo] create() - offline, saved locally with pending_create: ' . $e->getMessage());
         }
 
         return $localData;
@@ -84,8 +84,8 @@ class PatientRepository implements PatientRepositoryInterface
             $apiData = $this->api->update($uuid, $apiPayload);
             $this->syncSingleToLocal($apiData, force: true);
             return $apiData;
-        } catch (ConnectionException $e) {
-            Log::info('[PatientRepo] update() - offline, saved locally with pending_update');
+        } catch (\Throwable $e) {
+            Log::info('[PatientRepo] update() - offline, saved locally with pending_update: ' . $e->getMessage());
         }
 
         return $localData;
@@ -98,8 +98,8 @@ class PatientRepository implements PatientRepositoryInterface
 
         try {
             $this->api->delete($uuid);
-        } catch (ConnectionException $e) {
-            Log::info('[PatientRepo] delete() - offline, soft-deleted with pending_delete');
+        } catch (\Throwable $e) {
+            Log::info('[PatientRepo] delete() - offline, soft-deleted with pending_delete: ' . $e->getMessage());
         }
     }
 
@@ -109,7 +109,7 @@ class PatientRepository implements PatientRepositoryInterface
             $data = $this->api->search($term);
             $this->syncLocalCache($data);
             return $data;
-        } catch (ConnectionException $e) {
+        } catch (\Throwable $e) {
             Log::info('[PatientRepo] search() - API unavailable, using local: ' . $e->getMessage());
         }
 
@@ -120,7 +120,7 @@ class PatientRepository implements PatientRepositoryInterface
     {
         try {
             return $this->api->shared($userId);
-        } catch (ConnectionException $e) {
+        } catch (\Throwable $e) {
             Log::info('[PatientRepo] shared() - API unavailable, using local: ' . $e->getMessage());
         }
 
@@ -131,7 +131,7 @@ class PatientRepository implements PatientRepositoryInterface
     {
         try {
             return $this->api->stats();
-        } catch (ConnectionException $e) {
+        } catch (\Throwable $e) {
             Log::info('[PatientRepo] stats() - API unavailable, using local: ' . $e->getMessage());
         }
 
@@ -144,7 +144,7 @@ class PatientRepository implements PatientRepositoryInterface
             $data = $this->api->recent($limit);
             $this->syncLocalCache($data);
             return $data;
-        } catch (ConnectionException $e) {
+        } catch (\Throwable $e) {
             Log::info('[PatientRepo] recent() - API unavailable, using local: ' . $e->getMessage());
         }
 
@@ -157,7 +157,7 @@ class PatientRepository implements PatientRepositoryInterface
             $data = $this->api->withTrashed();
             $this->syncLocalCache($data);
             return $data;
-        } catch (ConnectionException $e) {
+        } catch (\Throwable $e) {
             Log::info('[PatientRepo] withTrashed() - API unavailable, using local: ' . $e->getMessage());
         }
 
@@ -171,8 +171,8 @@ class PatientRepository implements PatientRepositoryInterface
 
         try {
             $this->api->restore($uuid);
-        } catch (ConnectionException $e) {
-            Log::info('[PatientRepo] restore() - offline, restored locally');
+        } catch (\Throwable $e) {
+            Log::info('[PatientRepo] restore() - offline, restored locally: ' . $e->getMessage());
         }
     }
 
@@ -182,8 +182,8 @@ class PatientRepository implements PatientRepositoryInterface
             $this->api->forceDelete($uuid);
             $this->local->forceDelete($uuid);
             return;
-        } catch (ConnectionException $e) {
-            Log::info('[PatientRepo] forceDelete() - offline, marking as pending_delete');
+        } catch (\Throwable $e) {
+            Log::info('[PatientRepo] forceDelete() - offline, marking as pending_delete: ' . $e->getMessage());
         }
 
         $this->local->update($uuid, ['sync_status' => 'pending_delete', 'client_updated_at' => now()]);
