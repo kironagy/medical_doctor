@@ -106,3 +106,50 @@ Implement read-only file caching using a 3-tier architecture:
 - Created: `database/migrations/2026_07_23_000003_create_file_cache_table.php`, `app/Contracts/Repositories/FileCacheRepositoryInterface.php`, `app/Repositories/FileCacheRepository.php`, `app/Services/Mobile/FileCacheService.php`
 - Modified: `app/Http/Controllers/Api/FileAccessController.php`, `routes/web.php`, `app/Providers/RepositoryServiceProvider.php`, `resources/js/Composables/useWorkspace.js`, `resources/js/Components/workspace/InlineFilePreview.vue`, `resources/js/Components/workspace/FileActions.vue`
 - Deleted: `app/Services/Mobile/FileRepository.php` (dead code)
+
+---
+
+# AD-003: Phase 7 Offline File Upload Architecture
+
+Date: 2026-07-23
+
+Status: Implemented
+
+## Context
+
+Phase 7 requires allowing doctors to capture and upload medical files (photos, PDFs, videos, audio, documents) while offline. The existing architecture from Phase 5 (dual-write PatientRepository with sync_status) and Phase 6 (streaming file cache) provides a proven template.
+
+## Decision
+
+1. **Repository Pattern** — `OfflineFileRepository` mirrors Phase 5's `PatientRepository` pattern: local SQLite writes with `sync_status` state machine (`pending_upload → uploading → synced/failed`).
+
+2. **Streaming Only** — All file operations use streaming: `storeAs()` for persistence, `fread()` 1MB buffer for SHA-256 hashing, `fopen()` resource streams for HTTP upload via `ApiService::upload()`. No `file_get_contents()`, no memory spikes.
+
+3. **Android Permissions via useNativeBridge** — Camera (`CAMERA`), Storage (`READ_MEDIA_IMAGES`), and Audio (`RECORD_AUDIO`) permissions are requested BEFORE accessing native APIs, with proper denied/permanently-denied handling.
+
+4. **Rehydration on Workspace Load** — After app restart/process death/WebView recreation, `useWorkspace.js:selectPatient()` fetches pending offline files from `/_native/api/offline/uploads?patient_uuid={uuid}` and merges them into the workspace file list via `addFileLocally()`. This ensures files survive all restart scenarios.
+
+5. **Sync Command with Stuck State Recovery** — `SyncPendingUploadsCommand` runs every 5 minutes via Laravel scheduler. At startup, it automatically resets records stuck in `uploading` for >10 minutes back to `pending_upload`. Batching (5 files), retry limits (max 5), connection error handling, and individual file error isolation prevent cascading failures.
+
+6. **Phase 6 Cache Reuse** — Offline file preview uses the existing `FileAccessController::streamCached()` endpoint with an `offline_files` table fallback. No new preview system is created.
+
+## Rationale
+
+- The Phase 5 repository pattern is battle-tested in production. Reusing it for file uploads ensures consistency.
+- Streaming is mandatory for 500MB files on memory-constrained mobile devices.
+- Rehydration is the only reliable way to handle WebView state loss — the SQLite database is the persistent source of truth.
+- Stuck state recovery is essential: the sync command can crash at any point during the `markUploading → HTTP request → response` window.
+- Reusing Phase 6 cache for preview avoids duplicating the file serving infrastructure.
+
+## Consequences
+
+- Offline file upload is fully functional and survives all restart scenarios.
+- Pending uploads are synced to the remote API automatically when connectivity returns (max 5-minute delay).
+- Synced records remain in `offline_files` with `sync_status='synced'` and `remote_uuid` for audit trail.
+- Local files deleted after successful sync to free disk space.
+- Phase 5 and Phase 6 architectures are completely preserved — no regressions.
+
+## Files Affected
+
+- Created: `database/migrations/2026_07_23_000004_create_offline_files_table.php`, `app/Contracts/Repositories/OfflineFileRepositoryInterface.php`, `app/Repositories/OfflineFileRepository.php`, `app/Services/OfflineUploadService.php`, `app/Console/Commands/SyncPendingUploads.php`, `app/Http/Controllers/Api/OfflineUploadController.php`, `resources/js/Composables/useOfflineUploads.js`
+- Modified: `app/Http/Controllers/Api/FileAccessController.php`, `app/Http/Controllers/WorkspaceController.php`, `app/Providers/RepositoryServiceProvider.php`, `app/Services/Mobile/ApiService.php`, `routes/web.php`, `bootstrap/app.php`, `resources/js/Composables/useWorkspace.js`, `resources/js/Components/workspace/CategoryBlock.vue`, `.ai/ROADMAP.md`, `.ai/ARCHITECTURE.md`, `.ai/PROJECT_CONTEXT.md`, `.ai/DECISIONS.md`, `.ai/WORKLOG.md`

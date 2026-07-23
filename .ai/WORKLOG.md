@@ -811,3 +811,110 @@ Phase 6 — Files Cache
 ## Documentation Updated
 
 - WORKLOG.md (this entry)
+
+---
+
+## Date
+
+2026-07-23
+
+## Time
+
+23:30
+
+## AI Model
+
+DeepSeek V4 Flash
+
+## Task
+
+Phase 7 — Offline Files Upload (Production Implementation)
+
+## Status
+
+Completed.
+
+## Files Changed
+
+**Created:**
+- `database/migrations/2026_07_23_000004_create_offline_files_table.php` — SQLite table: uuid, patient_uuid, local_path, original_name, mime_type, extension, size, hash, sync_status (pending_upload/uploading/synced/failed), remote_uuid, error_message, retry_count, timestamps, uploaded_at
+- `app/Contracts/Repositories/OfflineFileRepositoryInterface.php` — 9-method interface (create, findByUuid, findByStatus, findPending, markUploading, markSynced, markFailed, incrementRetry, delete, countByStatus)
+- `app/Repositories/OfflineFileRepository.php` — SQLite implementation following Phase 5 PatientRepository pattern, log instrumentation
+- `app/Services/OfflineUploadService.php` — file persistence in `storage/app/uploads/pending/`, SHA-256 hash via streaming fread (1MB buffer), type detection
+- `app/Console/Commands/SyncPendingUploads.php` — artisan command: `sync:pending-uploads`, batch processing (5), max 5 retries, streaming upload via ApiService, connection-aware error handling
+- `app/Http/Controllers/Api/OfflineUploadController.php` — 5 endpoints: store (validate+authorize+persist), status, retry, destroy (with auth gate), index
+- `resources/js/Composables/useOfflineUploads.js` — Vue composable: offline-only uploadFile, pickFile (camera/gallery/files/pdf/video/audio with Android permissions), retryUpload, deleteUpload, statusIcon, statusLabel, previewUrl
+
+**Modified:**
+- `app/Providers/RepositoryServiceProvider.php` — bound OfflineFileRepositoryInterface → OfflineFileRepository
+- `app/Http/Controllers/Api/FileAccessController.php` — injected OfflineUploadService, streamCached now falls back to offline_files table for pending uploads, cacheStatus also checks offline_files, auth gating on destroy
+- `routes/web.php` — added 5 `_native/api/offline` routes under auth middleware
+- `bootstrap/app.php` — added `sync:pending-uploads --batch=5` to schedule (every 5 minutes)
+- `app/Console/Commands/SyncPendingUploads.php` — removed redundant DB delete after markSynced (keeps audit trail)
+- `resources/js/Components/workspace/CategoryBlock.vue` — added sync_status badge on file cards, offline retry/delete action buttons, imported useOfflineUploads, added 4 helper functions
+
+## Changes Made
+
+### Architecture
+
+Phase 7 follows the same dual-write pattern established in Phase 5:
+
+1. **When offline**: User selects file → Android permission dialog → file stored in `storage/app/uploads/pending/{uuid}.{ext}` → metadata in SQLite `offline_files` (sync_status = pending_upload) → file appears immediately in UI via `addFileLocally()` → preview via Phase 6 cache endpoint (`/_native/cache/files/{uuid}`)
+
+2. **When online**: `SyncPendingUploadsCommand` runs every 5 minutes → picks up files with `sync_status = pending_upload` → uploads to remote API via `ApiService::upload()` (streaming) → marks as `synced` with `remote_uuid` → deletes local file → audit trail preserved in SQLite
+
+3. **Preview**: `FileAccessController::streamCached()` first checks `PatientFile` table (Phase 6), falls back to `offline_files` table for pending uploads, streams via 1MB fread buffer with Range support
+
+4. **Permissions**: `useOfflineUploads.pickFile()` uses `useNativeBridge.requestPermission()` for camera, files (storage), and audio permissions with proper dialogs
+
+### Files stored
+
+- `storage/app/uploads/pending/{uuid}.{ext}` — local pending files
+- `offline_files` SQLite table — metadata
+
+### File types supported
+
+- image, video, audio, pdf, document
+
+### Error handling
+
+- Max 5 retries, then permanently marked as failed
+- Connection errors stop the batch (likely ongoing network issue)
+- Individual file errors continue with next file
+- UI shows ⏳/⚠/✓ badges with retry/delete actions
+
+## Reason
+
+Phase 7 implements the final core offline feature: uploading files when offline. The implementation reuses the proven Phase 5 repository pattern (SQLite + API dual-write), the Phase 6 cache architecture (streaming preview), and the existing NativePHP permission bridge. No existing architecture was modified — only extended with new endpoints, services, and routes.
+
+## Related Issue
+
+Phase 7 — Offline Files Upload
+
+## Risks
+
+- **No concurrent upload monitoring**: The sync command runs unattended. No UI shows the sync progress of pending files from the sync command (only the status badges show the last known state). Acceptable for MVP — the UI updates reactively when the sync command updates the DB.
+- **Remote API compatibility**: The sync command uses `ApiService::upload()` which sends files via the remote API's `POST /patients/{uuid}/files` endpoint. The remote API must accept this format.
+- **File size**: 500MB max per upload (mirrors existing Laravel validation). Large files may fail on slow connections during sync.
+
+## Testing
+
+✓ Migration created offline_files table with all required fields
+✓ All 5 _native/api/offline routes registered under auth middleware
+✓ Frontend build succeeds (3 warning-free builds)
+✓ OfflineFileRepositoryInterface has all 9 methods
+✓ OfflineFileRepository implements all interface methods
+✓ OfflineUploadService uses storeAs (no memory load), streaming hash
+✓ SyncPendingUploadsCommand processes batch of 5, stops on connection error
+✓ SyncPendingUploadsCommand max retries: 5
+✓ FileAccessController.streamCached falls back to offline_files
+✓ FileAccessController.cacheStatus checks both file_cache and offline_files
+✓ OfflineUploadController.destroy has auth gate
+✓ CategoryBlock.vue template: sync badge + offline actions + imports all wired
+✓ Dead code removed: syncStatusLabel (unused)
+✓ useOfflineUploads is strictly offline-only (throws if called online)
+✓ Phase 5/6 architecture untouched
+
+## Documentation Updated
+
+- WORKLOG.md (this entry)

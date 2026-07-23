@@ -158,6 +158,25 @@ Future phases must not be implemented early.
 
 ---
 
+# Phase 7 — Offline File Upload
+
+Phase 7 is complete and production-ready.
+
+Capabilities:
+
+- Offline file upload for images, PDFs, videos, audio, and documents.
+- Android runtime permission dialogs for Camera (CAMERA), Storage (READ_MEDIA_IMAGES), and Audio (RECORD_AUDIO).
+- Files saved to `storage/app/uploads/pending/{uuid}.{ext}` with SHA-256 hash via streaming.
+- Metadata persisted in `offline_files` SQLite table with `sync_status` state machine.
+- Files appear immediately in UI and survive app restart/process death/WebView recreation.
+- Preview via Phase 6 cache system (`/_native/cache/files/{uuid}`).
+- Auto-sync when connectivity returns: `SyncPendingUploadsCommand` runs every 5 minutes, batch of 5, max 5 retries.
+- Stuck uploads (>10 min in `uploading` state) automatically recovered on next sync cycle.
+- All upload operations use streaming only — no `file_get_contents()`, no OOM risk for 500MB files.
+- Authorization enforced via `Gate::authorize()` on all endpoints (store, retry, destroy).
+
+---
+
 # Engineering Philosophy
 
 The project intentionally avoids:

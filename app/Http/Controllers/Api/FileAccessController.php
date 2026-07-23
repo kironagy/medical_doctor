@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Contracts\Repositories\FileCacheRepositoryInterface;
 use App\Http\Controllers\Controller;
 use App\Domains\Media\Models\PatientFile;
+use App\Services\OfflineUploadService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -15,7 +17,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class FileAccessController extends Controller
 {
     public function __construct(
-        private readonly FileCacheRepositoryInterface $cacheRepo
+        private readonly FileCacheRepositoryInterface $cacheRepo,
+        private readonly OfflineUploadService $offlineUploadService,
     ) {}
     private function resolveFile(Request $request, string $uuid): PatientFile
     {
@@ -399,18 +402,117 @@ class FileAccessController extends Controller
     /**
      * Stream a cached file with Range support for video seeking.
      *
+     * Also handles Phase 7 offline pending uploads:
+     * if the file uuid is not found in PatientFile, looks in the
+     * offline_files table and streams directly from the pending directory.
+     *
      * Route: GET /_native/cache/files/{uuid}
      */
     public function streamCached(Request $request, string $uuid): StreamedResponse
     {
-        $file = PatientFile::where('uuid', $uuid)->firstOrFail();
-        Gate::authorize('view', $file->patient);
+        // Phase 6: Try server PatientFile first
+        $file = PatientFile::where('uuid', $uuid)->first();
+        if ($file) {
+            Gate::authorize('view', $file->patient);
+            return $this->cacheRepo->stream(
+                $uuid,
+                $request->header('Range'),
+                $request->isMethod('HEAD')
+            );
+        }
 
-        return $this->cacheRepo->stream(
-            $uuid,
-            $request->header('Range'),
-            $request->isMethod('HEAD')
-        );
+        // Phase 7: Fallback to offline pending file
+        $offlineFile = DB::table('offline_files')->where('uuid', $uuid)->first();
+        if (!$offlineFile) {
+            abort(404, 'File not found.');
+        }
+
+        $absolutePath = $this->offlineUploadService->absolutePath($offlineFile->local_path);
+        if (!file_exists($absolutePath)) {
+            abort(404, 'File not found on disk.');
+        }
+
+        $mime = $offlineFile->mime_type ?: 'application/octet-stream';
+        $fileSize = filesize($absolutePath);
+
+        $headers = [
+            'Content-Type'        => $mime,
+            'Content-Disposition' => 'inline; filename="' . $offlineFile->original_name . '"',
+            'Accept-Ranges'       => 'bytes',
+            'Cache-Control'       => 'private, no-transform, max-age=3600',
+        ];
+
+        if ($request->isMethod('HEAD')) {
+            $headers['Content-Length'] = (string) $fileSize;
+            return new StreamedResponse(function () {}, 200, $headers);
+        }
+
+        $rangeHeader = $request->header('Range');
+
+        if (!$rangeHeader) {
+            $headers['Content-Length'] = (string) $fileSize;
+            $fp = fopen($absolutePath, 'rb');
+            $this->logStream($uuid, 'GET', null, 200, $fileSize);
+            return new StreamedResponse(function () use ($fp) {
+                $buf = 1024 * 1024;
+                while (!feof($fp)) {
+                    echo fread($fp, $buf);
+                    fflush($fp);
+                }
+                fclose($fp);
+            }, 200, $headers);
+        }
+
+        // Range request support
+        if (!preg_match('/bytes=(\d*)-(\d*)/', $rangeHeader, $m)) {
+            return new StreamedResponse(function () {}, 416, [
+                'Content-Range' => "bytes */{$fileSize}",
+            ]);
+        }
+
+        $start = $m[1] !== '' ? (int) $m[1] : null;
+        $end   = $m[2] !== '' ? (int) $m[2] : null;
+
+        if ($start === null && $end !== null) {
+            $start = max(0, $fileSize - $end);
+            $end   = $fileSize - 1;
+        } elseif ($start === null) {
+            $start = 0;
+            $end   = $fileSize - 1;
+        }
+
+        if ($end === null || $end >= $fileSize) {
+            $end = $fileSize - 1;
+        }
+
+        if ($start > $end || $start >= $fileSize) {
+            return new StreamedResponse(function () {}, 416, [
+                'Content-Range' => "bytes */{$fileSize}",
+            ]);
+        }
+
+        $length = $end - $start + 1;
+        $headers['Content-Range'] = "bytes {$start}-{$end}/{$fileSize}";
+        $headers['Content-Length'] = (string) $length;
+
+        $fp = fopen($absolutePath, 'rb');
+        if ($start > 0) {
+            fseek($fp, $start);
+        }
+
+        $this->logStream($uuid, 'GET', $rangeHeader, 206, $length);
+
+        return new StreamedResponse(function () use ($fp, $length) {
+            $remaining = $length;
+            $buf = 1024 * 1024;
+            while (!feof($fp) && $remaining > 0) {
+                $read = min($buf, $remaining);
+                echo fread($fp, $read);
+                $remaining -= $read;
+                fflush($fp);
+            }
+            fclose($fp);
+        }, 206, $headers);
     }
 
     /**
@@ -431,16 +533,38 @@ class FileAccessController extends Controller
     /**
      * Check if a file is cached and return its status.
      *
+     * Also checks the Phase 7 offline_files table for pending uploads.
+     *
      * Route: GET /_native/cache/files/{uuid}/status
      */
     public function cacheStatus(Request $request, string $uuid)
     {
+        // Check Phase 6 cache first
         $file = PatientFile::where('uuid', $uuid)->first();
         if ($file) {
             Gate::authorize('view', $file->patient);
+            return response()->json($this->cacheRepo->status($uuid));
         }
 
-        return response()->json($this->cacheRepo->status($uuid));
+        // Check Phase 7 offline pending files
+        $offlineFile = DB::table('offline_files')->where('uuid', $uuid)->first();
+        if ($offlineFile) {
+            $exists = $this->offlineUploadService->fileExists($offlineFile->local_path);
+            return response()->json([
+                'cached'        => $exists,
+                'file_uuid'     => $offlineFile->uuid,
+                'file_name'     => $offlineFile->original_name,
+                'mime_type'     => $offlineFile->mime_type,
+                'size'          => (int) $offlineFile->size,
+                'sync_status'   => $offlineFile->sync_status,
+                'is_offline'    => true,
+            ]);
+        }
+
+        return response()->json([
+            'cached'    => false,
+            'file_uuid' => $uuid,
+        ]);
     }
 
     /**

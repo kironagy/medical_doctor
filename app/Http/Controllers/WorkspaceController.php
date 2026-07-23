@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\Repositories\OfflineFileRepositoryInterface;
 use App\Contracts\Repositories\PatientFileRepositoryInterface;
 use App\Contracts\Repositories\PatientNoteRepositoryInterface;
 use App\Contracts\Repositories\PatientRepositoryInterface;
@@ -22,6 +23,7 @@ class WorkspaceController extends Controller
         private readonly PatientNoteRepositoryInterface $noteRepo,
         private readonly PatientVisitRepositoryInterface $visitRepo,
         private readonly UserRepositoryInterface $userRepo,
+        private readonly OfflineFileRepositoryInterface $offlineFileRepo,
     ) {}
 
     private function getCategories($user)
@@ -224,6 +226,38 @@ class WorkspaceController extends Controller
         // Get all files for stats, but only return first 50 initially to prevent large payload
         $allFiles = $this->fileRepo->forPatient($uuid);
         $files = array_slice($allFiles, 0, 50);
+
+        // ── Phase 7: Merge offline pending uploads into the file list ───────────
+        $offlineFiles = $this->offlineFileRepo->findByPatientUuid($uuid);
+        if (!empty($offlineFiles)) {
+            // Transform offline files to match the frontend's file schema
+            $offlineMapped = array_map(function ($of) {
+                return [
+                    'uuid'          => $of['uuid'],
+                    'patient_id'    => $of['patient_uuid'],
+                    'title'         => $of['original_name'],
+                    'file_name'     => $of['original_name'],
+                    'mime_type'     => $of['mime_type'],
+                    'extension'     => $of['extension'],
+                    'size'          => (int) $of['size'],
+                    'type'          => match (true) {
+                        str_starts_with($of['mime_type'] ?? '', 'image/') => 'image',
+                        str_starts_with($of['mime_type'] ?? '', 'video/') => 'video',
+                        str_starts_with($of['mime_type'] ?? '', 'audio/') => 'audio',
+                        ($of['mime_type'] ?? '') === 'application/pdf' => 'pdf',
+                        default => 'document',
+                    },
+                    'sync_status'   => $of['sync_status'],
+                    'local_path'    => $of['local_path'],
+                    'upload_status' => $of['sync_status'],
+                    'created_at'    => $of['created_at'],
+                    'updated_at'    => $of['updated_at'],
+                ];
+            }, $offlineFiles);
+
+            // Prepend offline files to the list (newest first)
+            $files = array_merge($offlineMapped, $files);
+        }
 
         $t2 = microtime(true);
         $notes = $this->noteRepo->forPatient($uuid);

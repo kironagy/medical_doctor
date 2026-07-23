@@ -35,9 +35,9 @@ The objective is to minimize complexity while maintaining production stability.
 
 ## ACTIVE PHASE
 
-Phase 6
+Phase 8
 
-Only Phase 6 may be implemented.
+Only Phase 8 may be implemented.
 
 If a requested task belongs to a future phase,
 
@@ -249,17 +249,25 @@ Completed Work:
 
 Status:
 
-Future
+Completed
 
 Objective:
 
 Allow uploading files created while offline.
 
-Requires:
+Completed Work:
 
-Reliable local storage.
-
-Synchronization preparation.
+- `offline_files` SQLite table for pending upload metadata (uuid, patient_uuid, local_path, original_name, mime_type, extension, size, hash, sync_status, remote_uuid, error_message, retry_count, timestamps).
+- `OfflineFileRepository` with full CRUD and state machine (pending_upload → uploading → synced/failed) matching Phase 5 repository architecture.
+- `OfflineUploadService` for streaming local file persistence to `storage/app/uploads/pending/` with SHA-256 hash via 1MB chunked streaming.
+- `OfflineUploadController` with 5 endpoints (store, status, retry, destroy, index), each with Gate authorization.
+- `SyncPendingUploadsCommand` (every 5 minutes): batch of 5, max 5 retries, automatic recovery of stuck uploading state (>10 min timeout), streaming upload via fopen().
+- `FileAccessController.streamCached()` extended to serve offline pending files through the Phase 6 cache system.
+- `useOfflineUploads.js` composable: Android permission handling (Camera/Storage/Audio), file picker, offline upload, retry, delete, status badges.
+- `CategoryBlock.vue`: sync status badges (⏳/↑/⚠/✓) and retry/delete buttons on offline file cards.
+- `useWorkspace.js selectPatient()`: automatic rehydration of offline pending uploads on workspace load — files survive app restart, process death, WebView recreation.
+- ApiService::upload() converted to streaming via fopen() — no file_get_contents(), no OOM risk for 500MB uploads.
+- Phase 5 and Phase 6 architecture preserved — no regressions.
 
 ---
 

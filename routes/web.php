@@ -129,6 +129,15 @@ Route::middleware('auth')->group(function () {
         Route::get('/admin/doctors/{doctor}', [App\Http\Controllers\Admin\DoctorController::class, 'apiShow']);
     });
 
+    // Phase 7 — Offline File Uploads (local-first, sync when online)
+    Route::prefix('_native/api/offline')->name('offline.')->group(function () {
+        Route::post('/uploads', [\App\Http\Controllers\Api\OfflineUploadController::class, 'store'])->name('uploads.store');
+        Route::get('/uploads', [\App\Http\Controllers\Api\OfflineUploadController::class, 'index'])->name('uploads.index');
+        Route::get('/uploads/{uuid}/status', [\App\Http\Controllers\Api\OfflineUploadController::class, 'status'])->name('uploads.status');
+        Route::post('/uploads/{uuid}/retry', [\App\Http\Controllers\Api\OfflineUploadController::class, 'retry'])->name('uploads.retry');
+        Route::delete('/uploads/{uuid}', [\App\Http\Controllers\Api\OfflineUploadController::class, 'destroy'])->name('uploads.destroy');
+    });
+
     // Phase 6 — Local File Cache (served by embedded NativePHP server only)
     Route::prefix('_native/cache')->name('cache.')->group(function () {
         Route::get('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'streamCached'])->name('files.stream');

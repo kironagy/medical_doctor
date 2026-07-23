@@ -96,9 +96,16 @@ class ApiService
 
         foreach ($files as $key => $file) {
             if ($file instanceof \Illuminate\Http\UploadedFile) {
-                $request->attach($key, file_get_contents($file->getRealPath()), $file->getClientOriginalName());
+                // Use a resource stream instead of reading the entire file into memory
+                $stream = fopen($file->getRealPath(), 'rb');
+                if ($stream) {
+                    $request->attach($key, $stream, $file->getClientOriginalName());
+                }
             } elseif (is_string($file) && file_exists($file)) {
-                $request->attach($key, file_get_contents($file), basename($file));
+                $stream = fopen($file, 'rb');
+                if ($stream) {
+                    $request->attach($key, $stream, basename($file));
+                }
             }
         }
 

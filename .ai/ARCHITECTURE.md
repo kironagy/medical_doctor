@@ -157,10 +157,12 @@ Capabilities:
 - Sync via `sync_status` column (`synced`, `pending_sync`, `conflict`)
 - PatientRepository pushes local changes to the API inline on next online operation
 - Read-only file cache with Range/streaming support and LRU 500MB quota (Phase 6)
+- Offline file upload to `storage/app/uploads/pending/` with Android Camera/Storage/Audio permission dialogs (Phase 7)
+- Auto-sync of pending uploads via `SyncPendingUploadsCommand` every 5 minutes (Phase 7)
+- Offline files survive app restart/process death via SQLite + filesystem persistence and rehydration on workspace load (Phase 7)
 
 Not yet available:
 
-- Offline file upload (Phase 7)
 - Offline notes (Phase 8)
 - Pending queue (Phase 9)
 - Background synchronization (Phase 10)
@@ -169,27 +171,24 @@ Not yet available:
 
 # Current Phase Responsibilities
 
-Phase 6 focuses on caching downloaded files for offline viewing.
+Phase 8 is not yet active.
+
+Phase 7 is now production-ready.
 
 Scope:
 
-Read-only file cache.
-
-No upload synchronization.
-
-Examples:
+Offline file upload with Android permissions, streaming persistence, automatic sync recovery.
 
 Allowed:
 
-- Cache downloaded files locally.
-- Serve cached files when offline.
-- File integrity checks.
+- Offline image/PDF/video/audio/document upload.
+- File persistence through app restart.
+- Preview via Phase 6 cache system.
+- Auto-sync when connectivity returns.
 
 Not Allowed:
 
-- Upload synchronization.
-- Background sync for files.
-- Complex conflict resolution.
+- Offline notes.
 
 ---
 

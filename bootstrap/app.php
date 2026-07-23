@@ -46,5 +46,6 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule): void {
         $schedule->command('uploads:purge-expired --hours=6')->hourly();
+        $schedule->command('sync:pending-uploads --batch=5')->everyFiveMinutes();
     })
     ->create();

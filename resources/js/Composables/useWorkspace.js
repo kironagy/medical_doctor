@@ -183,6 +183,48 @@ async function selectPatient(uuid) {
     } finally {
         loadingPatient.value = false;
     }
+
+    // ── Phase 7: Rehydrate offline pending uploads after workspace loads ──
+    // This ensures pending uploads survive app restart, process death,
+    // WebView recreation, and offline launch.
+    try {
+        const offlineRes = await axios.get(`/_native/api/offline/uploads`, {
+            params: { patient_uuid: uuid },
+        });
+        const pendingFiles = offlineRes.data?.data || [];
+        if (pendingFiles.length > 0) {
+            for (const entry of pendingFiles) {
+                if (entry.sync_status === 'synced') continue;
+                const type = entry.mime_type?.startsWith('image/')
+                    ? 'image'
+                    : entry.mime_type?.startsWith('video/')
+                        ? 'video'
+                        : entry.mime_type?.startsWith('audio/')
+                            ? 'audio'
+                            : entry.mime_type === 'application/pdf'
+                                ? 'pdf'
+                                : 'document';
+                addFileLocally({
+                    uuid:          entry.uuid,
+                    patient_id:    entry.patient_uuid || uuid,
+                    title:         entry.original_name || '',
+                    file_name:     entry.original_name || '',
+                    mime_type:     entry.mime_type || null,
+                    extension:     entry.extension || null,
+                    size:          parseInt(entry.size) || 0,
+                    type:          type,
+                    sync_status:   entry.sync_status || 'pending_upload',
+                    local_path:    entry.local_path || null,
+                    upload_status: entry.sync_status || 'pending_upload',
+                    created_at:    entry.created_at || new Date().toISOString(),
+                    updated_at:    entry.updated_at || new Date().toISOString(),
+                });
+            }
+        }
+    } catch (e) {
+        // Silently fail — offline API may be unreachable (e.g. first load while online)
+        // This is expected and non-fatal.
+    }
 }
 
 const previewSiblings = ref([]);
