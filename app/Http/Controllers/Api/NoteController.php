@@ -32,6 +32,7 @@ class NoteController extends Controller
 
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
 
+        // Validate BEFORE try/catch — ValidationException must return 422, not 500
         $validated = $request->validate([
             'content' => 'required|string',
             'category' => 'nullable|string|max:100',
