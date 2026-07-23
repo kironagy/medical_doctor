@@ -16,7 +16,7 @@ class Patient extends Model
 
     protected $fillable = [
         'uuid', 'primary_doctor_id', 'code', 'name', 'phone', 'email', 'address', 'created_by_id', 'diagnosis',
-        'client_updated_at', 'date_of_birth', 'gender', 'blood_group', 'weight', 'height',
+        'client_updated_at', 'sync_status', 'date_of_birth', 'gender', 'blood_group', 'weight', 'height',
         'allergies', 'chronic_diseases', 'medical_status', 'medical_record_number',
     ];
 

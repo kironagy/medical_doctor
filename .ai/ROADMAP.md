@@ -35,9 +35,9 @@ The objective is to minimize complexity while maintaining production stability.
 
 ## ACTIVE PHASE
 
-Phase 4
+Phase 6
 
-Only Phase 4 may be implemented.
+Only Phase 6 may be implemented.
 
 If a requested task belongs to a future phase,
 
@@ -153,7 +153,7 @@ Synchronization.
 
 Status:
 
-Current
+Completed
 
 Objective:
 
@@ -169,6 +169,14 @@ No synchronization.
 
 No pending operations.
 
+Completed Work:
+
+- SQLite patient cache with schema matching patients table.
+- Read-only cache via read-through cache pattern.
+- Migration-based setup with `sync_meta` table for cache tracking.
+- Offline fallback: patients page renders from SQLite when API unavailable.
+- Cache invalidation by clearing `sync_meta` on settings page.
+
 ---
 
 # Phase 5
@@ -177,7 +185,7 @@ No pending operations.
 
 Status:
 
-Future
+Completed
 
 Objective:
 
@@ -191,6 +199,18 @@ Expected Features:
 - Offline delete
 
 Synchronization is still limited.
+
+Completed Work:
+
+- Architecture simplified: removed 12 legacy files (Hybrid repos, PendingOperation, FullSyncService, SyncStatusService, NetworkStatusService, ApiProxy, SyncPendingOperationsJob).
+- New `PatientRepository` at `app/Repositories/PatientRepository.php` replaces `EloquentPatientRepository` and `HybridPatientRepository`.
+- `sync_status` column (`synced`, `pending_sync`, `conflict`) added to `patients` table — replaces `pending_operations` table.
+- Offline create: patients created while offline receive `sync_status = 'pending_sync'` and a temporary UUID.
+- Offline edit: edits while offline update patient with `sync_status = 'pending_sync'`.
+- Offline delete: soft-deletes while offline set `sync_status = 'pending_sync'` and mark `deleted_at`.
+- Sync flow: `PendingSyncController@sync` pushes pending patients to API and marks them `synced`.
+- Legacy sync tables (`sync_queue`, `sync_states`, `sync_jobs`, `pending_operations`, `sync_meta`) remain in the database as deprecated — not dropped.
+- Migration: `2026_07_22_000001_add_sync_status_to_patients_table.php`.
 
 ---
 

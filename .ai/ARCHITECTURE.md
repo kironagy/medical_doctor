@@ -11,9 +11,9 @@ Status: Production
 
 Medical Plus follows a simple client-server architecture.
 
-The mobile application does not contain a local database.
+The mobile application contains a local SQLite database for offline operation.
 
-The backend is the single source of truth.
+The backend is the single source of truth for all business data.
 
 Every user action communicates directly with the Laravel REST API.
 
@@ -72,9 +72,13 @@ Business logic remains on the server.
 
 # Source of Truth
 
-The backend database is the only source of truth.
+The backend database is the single source of truth for all business data.
 
-Never store application data locally unless explicitly introduced in future roadmap phases.
+Patients may be created and edited offline using SQLite as a local persistence layer.
+
+Data created offline is marked with `sync_status = 'pending_sync'` and synchronized to the backend inline — when connectivity is restored, the PatientRepository pushes pending changes to the API during the next online operation.
+
+The backend is the authoritative source — local data is always reconciled against the API on the next sync operation.
 
 ---
 
@@ -128,11 +132,13 @@ Authentication persistence belongs to Phase 3.
 
 # State Management
 
-Current application state exists only in memory while the application is running.
+Current application state exists in memory while running.
 
-No local persistence exists yet.
+Patient data is persisted in SQLite for offline CRUD (Phase 5).
 
-Future persistence must follow the roadmap.
+Local patients carry a `sync_status` column (`synced`, `pending_sync`, `conflict`) to track synchronization state.
+
+Future persistence features will follow the roadmap.
 
 ---
 
@@ -140,38 +146,50 @@ Future persistence must follow the roadmap.
 
 Current Status:
 
-Disabled.
+Partial — Phase 5 implemented.
 
-There is currently:
+SQLite is used as a local persistence layer for patients.
 
-- No SQLite
-- No local cache
-- No synchronization
-- No pending operations
-- No conflict resolution
+Capabilities:
 
-Any proposal introducing these features before the appropriate roadmap phase is incorrect.
+- SQLite patient cache (read-only, Phase 4)
+- Offline patient create/edit/delete (Phase 5)
+- Sync via `sync_status` column (`synced`, `pending_sync`, `conflict`)
+- PatientRepository pushes local changes to the API inline on next online operation
+
+Not yet available:
+
+- File caching (Phase 6)
+- Offline file upload (Phase 7)
+- Offline notes (Phase 8)
+- Pending queue (Phase 9)
+- Background synchronization (Phase 10)
 
 ---
 
 # Current Phase Responsibilities
 
-Phase 2 focuses only on preserving the WebView state.
+Phase 6 focuses on caching downloaded files for offline viewing.
+
+Scope:
+
+Read-only file cache.
+
+No upload synchronization.
 
 Examples:
 
 Allowed:
 
-- Restore last rendered page.
-- Preserve navigation history.
-- Restore WebView state.
+- Cache downloaded files locally.
+- Serve cached files when offline.
+- File integrity checks.
 
 Not Allowed:
 
-- Offline CRUD.
-- Local database.
-- Data synchronization.
-- Cached business data.
+- Upload synchronization.
+- Background sync for files.
+- Complex conflict resolution.
 
 ---
 
@@ -231,16 +249,14 @@ It intentionally avoids:
 
 Future phases may introduce:
 
-- Read-only cache
-- Offline CRUD
-- File synchronization
-- Background synchronization
+- Offline file upload (Phase 7)
+- Offline notes (Phase 8)
+- Pending queue (Phase 9)
+- Background synchronization (Phase 10)
 
 However,
 
-these features do not currently exist.
-
-They must not be implemented before their roadmap phase.
+these features must not be implemented before their roadmap phase.
 
 ---
 

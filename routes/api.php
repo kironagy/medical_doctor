@@ -89,6 +89,3 @@ Route::prefix('v1')->group(function () {
     });
 });
 
-Route::post('/native/sync', function () {
-    return response()->json(['error' => 'Not available'], 403);
-});

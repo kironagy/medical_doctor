@@ -111,7 +111,7 @@ class WorkspaceController extends Controller
         $page = $request->input('page', 1);
         $status = $request->input('status');
 
-        // Try API first, fall back to local DB (HybridPatientRepository handles this transparently)
+        // API-first with local fallback (PatientRepository handles offline transparently)
         $result = $this->patientRepo->paginated(10, $page, $status);
 
         // Normalize API response format (Laravel paginator format -> { data, meta } format)

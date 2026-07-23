@@ -72,15 +72,20 @@ const selectedPatient = computed(() => {
 });
 
 const filteredPatients = computed(() => {
-    if (!searchQuery.value) return patients.value;
+    let list = patients.value.filter(p => (p.sync_status ?? 'synced') !== 'pending_delete');
+    if (!searchQuery.value) return list;
     const q = searchQuery.value.toLowerCase();
-    return patients.value.filter(
+    return list.filter(
         (p) =>
             p.name?.toLowerCase().includes(q) ||
             (p.phone && p.phone.toLowerCase().includes(q)) ||
             (p.code && p.code.toLowerCase().includes(q)) ||
             (p.uuid && p.uuid.toLowerCase().includes(q)),
     );
+});
+
+const pendingSyncPatients = computed(() => {
+    return patients.value.filter(p => p.sync_status && p.sync_status !== 'synced');
 });
 
 const isPrimaryDoctor = computed(() => {
@@ -384,7 +389,6 @@ async function refreshPatientList(page = 1) {
         });
         const count = res.data?.data?.length || 0;
         const total = res.data?.meta?.total || 0;
-        console.log(`[PatientSidebar] GET ${url}?page=${page} | Status: ${res.status} | Patients: ${count} | Total: ${total}`);
         if (res.data?.data) {
             patients.value = res.data.data;
             patientsMeta.value = res.data.meta;
@@ -405,7 +409,6 @@ async function fetchArchivedPatients(page = 1) {
         });
         const count = res.data?.data?.length || 0;
         const total = res.data?.meta?.total || 0;
-        console.log(`[PatientSidebar] GET ${url}?status=archived&page=${page} | Status: ${res.status} | Archived: ${count} | Total: ${total}`);
         if (res.data?.data) {
             archivedPatients.value = res.data.data;
             archivedPatientsMeta.value = res.data.meta;
@@ -481,6 +484,7 @@ export function useWorkspace() {
         loadingArchived,
         searchQuery,
         filteredPatients,
+        pendingSyncPatients,
         sidebarOpen,
         mobilePatientListOpen,
         activeSection,

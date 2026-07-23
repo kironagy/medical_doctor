@@ -41,6 +41,11 @@
             <span class="text-xs px-2.5 py-0.5 rounded-lg font-bold bg-teal-50 dark:bg-teal-950/50 border border-teal-200 dark:border-teal-800 text-primary-700 dark:text-primary-400 flex-shrink-0">
               #{{ patient.code }}
             </span>
+
+            <!-- Sync Status Badge -->
+            <span v-if="patient.sync_status && patient.sync_status !== 'synced'" class="text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 flex-shrink-0 me-1">
+              ⏳
+            </span>
             
             <!-- Name (Far Left in RTL, so it floats left) -->
             <p class="text-sm font-bold text-slate-900 dark:text-white truncate text-left">

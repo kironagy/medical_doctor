@@ -69,11 +69,6 @@ let globalActiveChunks = 0;
 const globalChunkQueue = [];
 let normalRequestsPending = 0;
 
-// Instrumentation helper
-function logPerf(msg) {
-    console.log(`%c[Perf] ${msg}`, 'color: #3b82f6; font-weight: bold;');
-}
-
 function isUploadRequest(config) {
     if (!config || !config.url) return false;
     return config.url.includes('/chunk/chunk') ||
@@ -87,7 +82,6 @@ axios.interceptors.request.use(config => {
     if (!isUploadRequest(config)) {
         normalRequestsPending++;
         config._perfStart = Date.now();
-        logPerf(`Normal Axios request started (${config.url}). Pending: ${normalRequestsPending}`);
     }
     return config;
 });
@@ -95,8 +89,6 @@ axios.interceptors.request.use(config => {
 function decrementNormalRequests(config) {
     if (config && !isUploadRequest(config)) {
         normalRequestsPending = Math.max(0, normalRequestsPending - 1);
-        const duration = config._perfStart ? (Date.now() - config._perfStart) : 'unknown';
-        logPerf(`Normal Axios request finished (${config.url}) in ${duration}ms. Pending: ${normalRequestsPending}`);
         pumpScheduler(); // Try to resume queued chunks if navigation finished
     }
 }
@@ -121,15 +113,12 @@ router.on('start', (event) => {
     normalRequestsPending++;
     const url = event.detail.visit.url.toString();
     inertiaVisitStarts[url] = Date.now();
-    logPerf(`Inertia navigation started (${url}). Pending: ${normalRequestsPending}`);
 });
 
 function decrementInertiaRequests(event, type) {
     normalRequestsPending = Math.max(0, normalRequestsPending - 1);
     const url = event.detail.visit.url.toString();
-    const duration = inertiaVisitStarts[url] ? (Date.now() - inertiaVisitStarts[url]) : 'unknown';
     delete inertiaVisitStarts[url];
-    logPerf(`Inertia navigation ${type} (${url}) in ${duration}ms. Pending: ${normalRequestsPending}`);
     pumpScheduler();
 }
 

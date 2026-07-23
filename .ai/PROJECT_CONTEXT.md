@@ -93,19 +93,18 @@ The project was intentionally simplified to restore production stability.
 
 # Current Architecture
 
-The current production architecture is API-only.
+The current production architecture uses SQLite as a local persistence layer with API synchronization.
 
 There is:
 
-- No SQLite
-- No local database
-- No synchronization engine
+- SQLite for local patient data
+- Online operations communicate with Laravel REST API
+- Inline sync: PatientRepository pushes pending changes when connectivity is restored
+- sync_status column tracks synchronization state (synced, pending_sync, conflict)
+- No background synchronization engine
 - No pending queue
-- No hybrid repository
-- No background synchronization
 - No conflict resolution
-
-Every operation communicates directly with the Laravel REST API.
+- The backend is the single source of truth
 
 ---
 
@@ -221,4 +220,4 @@ The objective is to achieve a stable offline-first architecture without repeatin
 
 Until then,
 
-the API-only architecture remains the production standard.
+the SQLite + API architecture remains the production standard.
