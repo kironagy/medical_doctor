@@ -102,7 +102,12 @@ Route::middleware('auth')->group(function () {
     });
 
     // Internal SPA API Routes (Inherits Web Session Auth)
-    Route::prefix('api/v1')->group(function () {
+    // 🚫 CSRF excluded — these are JSON API routes called by axios, not browser form submissions.
+    // When offline, the embedded Laravel runtime has no valid CSRF token. Without this
+    // exemption, all POST/PUT/DELETE operations return HTTP 419.
+    Route::prefix('api/v1')->withoutMiddleware([
+        \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+    ])->group(function () {
         // Client-side error logging endpoint (always returns 200 to avoid feedback loops)
         Route::post('/log/client-error', function (\Illuminate\Http\Request $request) {
             \Illuminate\Support\Facades\Log::channel('daily')->warning('CLIENT_ERROR', $request->all());
@@ -180,7 +185,10 @@ Route::middleware('auth')->group(function () {
     });
 
     // Phase 7 — Offline File Uploads (local-first, sync when online)
-    Route::prefix('_native/api/offline')->name('offline.')->group(function () {
+    // 🚫 CSRF excluded — same reasoning as api/v1 routes above
+    Route::prefix('_native/api/offline')->name('offline.')->withoutMiddleware([
+        \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+    ])->group(function () {
         Route::post('/uploads', [\App\Http\Controllers\Api\OfflineUploadController::class, 'store'])->name('uploads.store');
         Route::get('/uploads', [\App\Http\Controllers\Api\OfflineUploadController::class, 'index'])->name('uploads.index');
         Route::get('/uploads/{uuid}/status', [\App\Http\Controllers\Api\OfflineUploadController::class, 'status'])->name('uploads.status');
@@ -189,7 +197,10 @@ Route::middleware('auth')->group(function () {
     });
 
     // Phase 6 — Local File Cache (served by embedded NativePHP server only)
-    Route::prefix('_native/cache')->name('cache.')->group(function () {
+    // 🚫 CSRF excluded — same reasoning as api/v1 routes above
+    Route::prefix('_native/cache')->name('cache.')->withoutMiddleware([
+        \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+    ])->group(function () {
         Route::get('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'streamCached'])->name('files.stream');
         Route::get('/files/{uuid}/status', [\App\Http\Controllers\Api\FileAccessController::class, 'cacheStatus'])->name('files.status');
         Route::post('/files/{uuid}/cache', [\App\Http\Controllers\Api\FileAccessController::class, 'cacheFile'])->name('files.cache');

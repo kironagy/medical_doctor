@@ -820,7 +820,56 @@ Phase 6 — Files Cache
 
 ## Time
 
-23:30
+21:30
+
+## AI Model
+
+DeepSeek V4 Flash
+
+## Task
+
+Fix CSRF 419 for offline POST /api/v1/workspace/patients
+
+## Status
+
+Completed.
+
+## Root Cause
+
+The `api/v1` workspace routes are registered in `routes/web.php` (inside the `auth` group), which applies the `web` middleware group including `PreventRequestForgery` (CSRF). When the embedded Laravel receives offline requests, there is no valid CSRF token, causing HTTP 419.
+
+Despite `bootstrap/app.php` having `validateCsrfTokens(except: ['/api/v1/*'])`, the exclusion was unreliable — likely because the `PreventRequestForgery::except()` static property mechanism doesn't work as expected in Laravel 13's deprecated `validateCsrfTokens()` method, or because the embedded NativePHP runtime creates the kernel instance in a way that doesn't trigger the `afterResolving(HttpKernel)` callback correctly.
+
+## Files Changed
+
+- `routes/web.php` — added `withoutMiddleware([PreventRequestForgery::class])` to three route prefixes: `api/v1`, `_native/api/offline`, `_native/cache`
+
+## Changes Made
+
+Added `withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class])` to three JSON API route groups inside the `auth` middleware section of `routes/web.php`:
+
+1. `Route::prefix('api/v1')` — all workspace CRUD, file access, search, notes, visits, sharing endpoints
+2. `Route::prefix('_native/api/offline')` — offline file upload endpoints
+3. `Route::prefix('_native/cache')` — local file cache endpoints
+
+These JSON API routes are called by Vue/axios, not browser form submissions. CSRF tokens are meaningless for XHR requests within the embedded runtime, especially when offline.
+
+The existing `bootstrap/app.php` `validateCsrfTokens(except: [...])` exclusion is kept as a fallback.
+
+## Why This Fix Is Correct
+
+- `withoutMiddleware()` on a route group explicitly excludes `PreventRequestForgery` from the middleware stack at the route level
+- This is architecture-level, not config-level — Laravel resolves `withoutMiddleware` in `Router::gatherRouteMiddleware()`, filtering out excluded middleware during route dispatch
+- Web form routes (`/login`, `/workspace`, `/settings`, `/admin`) remain fully CSRF-protected
+- All three route groups are JSON API endpoints, not form submissions — they should never have required CSRF
+
+## Testing
+
+✓ `php artisan route:list --path=api/v1/workspace --json` confirmed middleware is `["web", "Illuminate\\Auth\\Middleware\\Authenticate"]` for `POST /api/v1/workspace/patients`
+
+## Documentation Updated
+
+- WORKLOG.md (this entry)
 
 ## AI Model
 

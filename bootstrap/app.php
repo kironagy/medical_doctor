@@ -31,8 +31,18 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: '*');
         // Exclude session restore from CSRF — it's authenticated via Bearer token,
         // not session cookie, so CSRF doesn't apply.
+        // Also exclude /api/v1/* and /_native/* from CSRF validation because these
+        // are JSON API endpoints called by Vue/axios, not browser form submissions.
+        // CSRF tokens are only meaningful for browser-based session requests.
+        // When offline, these requests are routed to the embedded Laravel runtime
+        // which has no valid CSRF token (no production session). Without this
+        // exemption, all offline POST/PUT/DELETE operations return HTTP 419.
+        // Web form routes (/login, /workspace, /settings, /admin) remain fully
+        // CSRF-protected.
         $middleware->validateCsrfTokens(except: [
             '/api/session/restore',
+            '/api/v1/*',
+            '/_native/*',
         ]);
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,
