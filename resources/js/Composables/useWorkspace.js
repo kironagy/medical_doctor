@@ -384,8 +384,18 @@ async function addPatient(formData) {
     trace('[TRACE_P3] useWorkspace.addPatient() ENTERED')
     loading.value = true;
     try {
-        trace('[TRACE_P4] axios.post to /api/v1/workspace/patients with: ' + JSON.stringify(formData))
-        const res = await axios.post("/api/v1/workspace/patients", formData);
+        const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+        let res;
+        if (online) {
+            const token = localStorage.getItem('np_api_token');
+            trace('[TRACE_P4a] ONLINE - POST to production API')
+            res = await axios.post('/api/v1/mobile/patients', formData, {
+                headers: token ? { Authorization: 'Bearer ' + token } : {},
+            });
+        } else {
+            trace('[TRACE_P4b] OFFLINE - POST to embedded Laravel')
+            res = await axios.post('/api/v1/workspace/patients', formData);
+        }
         trace('[TRACE_P8] axios.post response status: ' + res.status + ' data: ' + JSON.stringify(res.data).substring(0, 500))
         const patient = res.data?.patient || res.data;
         console.log('[DIAG] addPatient - patient.uuid:', patient?.uuid, 'has keys:', Object.keys(patient || {}).join(','))
@@ -423,7 +433,15 @@ async function addPatient(formData) {
 async function updatePatient(uuid, formData) {
     loading.value = true;
     try {
-        await axios.put(`/api/v1/workspace/patients/${uuid}`, formData);
+        const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+        if (online) {
+            const token = localStorage.getItem('np_api_token');
+            await axios.put(`/api/v1/mobile/patients/${uuid}`, formData, {
+                headers: token ? { Authorization: 'Bearer ' + token } : {},
+            });
+        } else {
+            await axios.put(`/api/v1/workspace/patients/${uuid}`, formData);
+        }
         await refreshPatientList(patientsMeta.value?.current_page || 1);
         refreshWorkspaceData();
         return { success: true };
