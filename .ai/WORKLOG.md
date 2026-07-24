@@ -1144,3 +1144,67 @@ User report: "i create new patent now from apk show log he don't created in site
 ## Documentation Updated
 
 - WORKLOG.md (this entry)
+
+---
+
+## Date
+
+2026-07-24
+
+## Time
+
+17:00
+
+## AI Model
+
+DeepSeek V4 Flash
+
+## Task
+
+Phase 8 — Fix patient not appearing on website (root cause: API token never reached embedded Laravel)
+
+## Status
+
+Completed.
+
+## Files Changed
+
+- `resources/js/Composables/useWorkspace.js` — `addPatient()` and `updatePatient()` now check `navigator.onLine`:
+  - **Online**: POST/PUT directly to the production API at `/api/v1/mobile/patients` with Bearer token from localStorage (`np_api_token`)
+  - **Offline**: Keep using the embedded Laravel at `/api/v1/workspace/patients` (saves to SQLite)
+
+## Root Cause
+
+Two issues worked together:
+
+### 1. No API token in embedded Laravel
+The embedded Laravel needed to make API calls to the production server (`POST /api/v1/mobile/patients`) to sync patients. But it had no valid Sanctum token. The token from login was stored in the **production** server's session (`HandleInertiaRequests.php` → `page.props.api_token`), but never forwarded to the embedded Laravel. The `/api/session/restore` endpoint exists in web.php but the frontend never calls it — only a comment mentions it.
+
+### 2. Production nginx log confirms
+```
+POST /api/v1/mobile/patients → 401 41 (all POSTs fail)
+GET /api/v1/mobile/patients  → 200 5784 (GETs work)
+```
+
+All mobile API POST requests from the embedded Laravel returned 401 (no valid Bearer token). The patient was saved to local SQLite with `sync_status='pending_create'` but never reached the production MySQL database.
+
+## Fix
+
+Bypass the embedded Laravel entirely when the user is online. The frontend sends `POST /api/v1/mobile/patients` directly to the production server with the Sanctum token (`localStorage.getItem('np_api_token')`) as a Bearer header. When offline, the frontend falls back to the embedded Laravel.
+
+This eliminates the need for the token to flow through the embedded Laravel — the frontend already has it from login.
+
+## Risks
+
+- If `np_api_token` in localStorage is null/expired, the API call will fail and the frontend shows an error. The user would need to re-login.
+- When offline, the behavior is unchanged (SQLite save with pending_create).
+
+## Testing
+
+✓ PHP syntax check — no errors
+✓ APK built (89.6 MB) and installed via ADB — Success
+✓ Frontend logic: online → production API, offline → embedded Laravel
+
+## Documentation Updated
+
+- WORKLOG.md (this entry)
