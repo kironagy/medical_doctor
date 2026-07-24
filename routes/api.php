@@ -33,17 +33,12 @@ Route::prefix('v1')->group(function () {
             // Dashboard
             Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 
-            // Patients - read (GET) requires auth
+            // Patients
             Route::get('/patients', [PatientController::class, 'index']);
+            Route::post('/patients', [PatientController::class, 'store']);
             Route::get('/patients/{uuid}', [PatientController::class, 'show']);
-
-            // Patients - write (CUD) no auth for offline sync compatibility
-            Route::post('/patients', [PatientController::class, 'store'])
-                ->withoutMiddleware(['auth:sanctum']);
-            Route::put('/patients/{uuid}', [PatientController::class, 'update'])
-                ->withoutMiddleware(['auth:sanctum']);
-            Route::delete('/patients/{uuid}', [PatientController::class, 'destroy'])
-                ->withoutMiddleware(['auth:sanctum']);
+            Route::put('/patients/{uuid}', [PatientController::class, 'update']);
+            Route::delete('/patients/{uuid}', [PatientController::class, 'destroy']);
 
             // Visits
             Route::get('/patients/{uuid}/visits', [VisitController::class, 'index']);
