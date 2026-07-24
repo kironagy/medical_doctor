@@ -140,14 +140,9 @@
         {{ $t('sync_failed') || 'Sync failed. Will retry later.' }}
       </div>
 
-      <PullToRefresh
-        class="flex-1 flex flex-col"
-        :refresh="handleRefresh"
-      >
-        <div class="p-4 md:p-8">
-          <slot />
-        </div>
-      </PullToRefresh>
+      <div class="flex-1 flex flex-col p-4 md:p-8">
+        <slot />
+      </div>
     </main>
 
     <!-- Mobile Bottom Navigation -->
@@ -171,9 +166,8 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { Link, usePage, router } from '@inertiajs/vue3';
+import { Link } from '@inertiajs/vue3';
 import GlobalSearch from '@/Components/GlobalSearch.vue';
-import PullToRefresh from '@/Components/PullToRefresh.vue';
 import { useTheme } from '@/Composables/useTheme';
 import { useLocale } from '@/Composables/useLocale';
 import { useToast } from '@/Composables/useToast';
@@ -181,7 +175,6 @@ import { useWorkspace } from '@/Composables/useWorkspace';
 import { useSyncEngine } from '@/Composables/useSyncEngine';
 import SettingsModal from '@/Components/workspace/SettingsModal.vue';
 
-const page = usePage();
 const { theme } = useTheme();
 const { locale } = useLocale();
 const toast = useToast();
@@ -228,28 +221,6 @@ watch(lastSyncResult, (result) => {
 // Watch sync results for UI feedback (auto-sync is handled by useSyncEngine heartbeat)
 // The heartbeat's handleOnlineEvent already calls triggerSync() when connection
 // is restored, so we don't duplicate that here.
-
-let refreshPromise = null
-
-async function handleRefresh() {
-  if (refreshPromise) return refreshPromise
-  refreshPromise = router.reload({
-    preserveState: true,
-    preserveScroll: true,
-    only: inferRefreshOnly(),
-  }).then(() => {
-    refreshPromise = null
-  }).catch(() => {
-    refreshPromise = null
-  })
-  return refreshPromise
-}
-
-function inferRefreshOnly() {
-  const url = page.url
-  if (url.startsWith('/admin/doctors')) return ['doctors']
-  return undefined
-}
 
 const LIGHT_THEME_COLOR = '#0d9488';
 const DARK_THEME_COLOR = '#030712';
