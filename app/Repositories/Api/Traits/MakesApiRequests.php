@@ -19,14 +19,43 @@ trait MakesApiRequests
         $url = $this->baseUrl() . $path;
         $encryptedToken = session('api_token');
 
+        // ═══════════════════════════════════════════════════════════════════
+        //  AUTH INSTRUMENTATION: Log every step of token resolution
+        // ═══════════════════════════════════════════════════════════════════
+        // We need to trace WHY the production server returns 401. The token
+        // chain is: session('api_token') → decrypt → Bearer token → Server.
+        // Any link in this chain could break.
+        // ═══════════════════════════════════════════════════════════════════
+        
         $token = null;
+        $tokenPrefix = 'NONE';
+        $decryptError = null;
+        
         if ($encryptedToken) {
             try {
                 $token = decrypt($encryptedToken);
+                // Log first 20 chars so we can correlate with production DB
+                $tokenPrefix = 'OK:' . substr($token, 0, 20) . '...';
             } catch (\Exception $e) {
+                $decryptError = $e->getMessage();
+                $tokenPrefix = 'DECRYPT_FAILED:' . $e->getMessage();
                 session()->forget('api_token');
             }
+        } else {
+            $tokenPrefix = 'NULL'; // session('api_token') does not exist
         }
+        
+        Log::info('[ApiAuth] Token status for ' . $method . ' ' . $path, [
+            'session_has_api_token' => $encryptedToken ? 'YES' : 'NO',
+            'token_prefix' => $tokenPrefix,
+            'decrypt_error' => $decryptError,
+            'method' => $method,
+            'path' => $path,
+            'url' => $url,
+            'session_id' => session()->getId(),
+            'auth_check' => auth()->check() ? 'YES' : 'NO',
+            'auth_user_id' => auth()->id(),
+        ]);
 
         $http = Http::timeout(30)
             ->withHeaders(['Accept' => 'application/json', 'Content-Type' => 'application/json'])
@@ -44,16 +73,28 @@ trait MakesApiRequests
 
         $timeMs = (microtime(true) - $start) * 1000;
 
-        Log::debug(sprintf(
-            '[API] %s %s | Status: %d | Time: %.0fms | Token: %s',
-            strtoupper($method),
-            $url,
-            $response->status(),
-            $timeMs,
-            $token ? 'YES' : 'NO'
-        ));
+        // ═══════════════════════════════════════════════════════════════════
+        //  RESPONSE INSTRUMENTATION: Log full response details for 401
+        // ═══════════════════════════════════════════════════════════════════
+        $responseBody = $response->json();
+        $responseMessage = is_array($responseBody) ? ($responseBody['message'] ?? 'no message') : 'non-json';
+        
+        Log::info('[ApiAuth] Response for ' . $method . ' ' . $path, [
+            'status' => $response->status(),
+            'time_ms' => round($timeMs, 1),
+            'token_was_sent' => $token ? 'YES' : 'NO',
+            'token_prefix' => $tokenPrefix,
+            'response_message' => $responseMessage,
+        ]);
 
         if ($response->unauthorized()) {
+            Log::warning('[ApiAuth] ❌ 401 UNAUTHORIZED for ' . $method . ' ' . $path, [
+                'token_was_sent' => $token ? 'YES' : 'NO',
+                'token_prefix' => $tokenPrefix,
+                'response_body' => $responseBody,
+                'session_has_api_token' => $encryptedToken ? 'YES' : 'NO',
+                'auth_check' => auth()->check() ? 'YES' : 'NO',
+            ]);
             session()->forget('api_token');
             throw new \Illuminate\Auth\AuthenticationException('Session expired. Please login again.');
         }

@@ -364,6 +364,18 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
     // Full sync: patients first, then files (only after patient is synced), then deletes
     Route::post('/engine', function () {
         try {
+            // ── AUTH INSTRUMENTATION: Log token state before sync ────────
+            $apiToken = app(\App\Services\Mobile\ApiService::class)->getToken();
+            $sessionToken = session('api_token');
+            \Illuminate\Support\Facades\Log::info('[SyncEngine] Pre-sync auth state', [
+                'api_service_token_present' => $apiToken ? 'YES' : 'NO',
+                'api_service_token_prefix' => $apiToken ? substr($apiToken, 0, 20) . '...' : 'NONE',
+                'session_api_token_present' => $sessionToken ? 'YES' : 'NO',
+                'session_id' => session()->getId(),
+                'auth_user_id' => auth()->id(),
+                'auth_check' => auth()->check() ? 'YES' : 'NO',
+            ]);
+
             $engine = app(\App\Services\SyncEngineService::class);
             $results = $engine->syncAll();
             return response()->json([
