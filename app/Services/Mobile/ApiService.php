@@ -14,6 +14,8 @@ class ApiService
 
     private const RETRY_DELAY_MS = 500;
 
+    private const TOKEN_FILE_PATH = 'app/.api_sync_token';
+
     private ?string $token = null;
 
     /** @var string Unique identifier for this instance (for singleton debugging) */
@@ -57,6 +59,10 @@ class ApiService
                 'auth_user_id' => auth()->id(),
             ]);
         }
+
+        if (empty($this->token)) {
+            $this->loadTokenFromFile();
+        }
     }
 
     public function setToken(?string $token): void
@@ -68,6 +74,7 @@ class ApiService
         if ($token) {
             try {
                 session(['api_token' => encrypt($token)]);
+                $this->writeTokenToFile($token);
                 Log::info('[DIAG.ApiService] setToken — stored new token', [
                     'instance' => $this->instanceId ?? 'unknown',
                     'session_id' => session()->getId(),
@@ -85,10 +92,59 @@ class ApiService
             }
         } else {
             session()->forget('api_token');
+            $this->deleteTokenFile();
             Log::warning('[DIAG.ApiService] setToken — token CLEARED', [
                 'instance' => $this->instanceId ?? 'unknown',
                 'old_token_prefix' => $oldPrefix,
             ]);
+        }
+    }
+
+    private function loadTokenFromFile(): void
+    {
+        $path = storage_path(self::TOKEN_FILE_PATH);
+        if (!file_exists($path)) {
+            return;
+        }
+        $contents = file_get_contents($path);
+        if (empty($contents)) {
+            return;
+        }
+        $decoded = base64_decode($contents, true);
+        if ($decoded === false || empty($decoded)) {
+            Log::warning('[DIAG.ApiService] loadTokenFromFile — invalid file contents');
+            @unlink($path);
+            return;
+        }
+        $this->token = $decoded;
+        Log::info('[DIAG.ApiService] loadTokenFromFile — token loaded from file', [
+            'instance' => $this->instanceId,
+            'token_length' => strlen($this->token),
+        ]);
+    }
+
+    private function writeTokenToFile(string $token): void
+    {
+        try {
+            $path = storage_path(self::TOKEN_FILE_PATH);
+            $dir = dirname($path);
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+            file_put_contents($path, base64_encode($token), LOCK_EX);
+        } catch (\Throwable $e) {
+            Log::warning('[DIAG.ApiService] writeTokenToFile — failed: ' . $e->getMessage());
+        }
+    }
+
+    private function deleteTokenFile(): void
+    {
+        try {
+            $path = storage_path(self::TOKEN_FILE_PATH);
+            if (file_exists($path)) {
+                @unlink($path);
+            }
+        } catch (\Throwable $e) {
         }
     }
 
