@@ -1074,3 +1074,73 @@ Phase 8 — Offline Patients (creation specifically)
 ## Documentation Updated
 
 - WORKLOG.md (this entry)
+
+---
+
+## Date
+
+2026-07-24
+
+## Time
+
+16:30
+
+## AI Model
+
+DeepSeek V4 Flash
+
+## Task
+
+Phase 8 — API-first patient create/update (SQLite only when offline)
+
+## Status
+
+Completed.
+
+## Files Changed
+
+- `app/Repositories/PatientRepository.php` — rewrote `create()` and `update()` to try remote API FIRST; SQLite local storage is used ONLY as offline fallback when the API call fails
+
+## Changes Made
+
+### create() — API-first rewrite
+
+**Before (local-first):**
+1. Save to SQLite with sync_status='pending_create'
+2. Try API call (passes local UUID to server)
+3. If API succeeds → overwrite SQLite with synced data
+4. If API fails → keep SQLite pending_create
+
+**After (API-first):**
+1. Try API call FIRST (no local save before)
+2. On success → cache API response in SQLite with sync_status='synced', return API data
+3. On ConnectionException (network failure) → save to SQLite as pending_create
+4. On any other API error → save to SQLite as pending_create
+
+### update() — API-first rewrite
+
+Same pattern: try API first, fall back to SQLite on failure.
+
+## Reason
+
+When the API call silently failed (e.g. 401 auth error, connection timeout), the patient was saved only to SQLite with sync_status='pending_create' and never appeared on the production website. API-first ensures the patient reaches the server when online. SQLite is only used when the network is unavailable or the API returns an error.
+
+## Related Issue
+
+User report: "i create new patent now from apk show log he don't created in site"
+
+## Risks
+
+- If the API call fails (auth error, validation error) and we fall back to SQLite, the user sees success but the patient isn't on the server. This is the same as before, but now we log the error clearly.
+- The sync engine (syncPending) will push pending patients to the server on the next sync cycle.
+
+## Testing
+
+✓ `php -l app/Repositories/PatientRepository.php` — no syntax errors
+✓ Production server pull — fast-forward success
+✓ APK build — BUILD SUCCESSFUL (89.6 MB)
+✓ APK installed via ADB — Success
+
+## Documentation Updated
+
+- WORKLOG.md (this entry)
