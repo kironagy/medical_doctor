@@ -175,63 +175,44 @@ class PatientRepository implements PatientRepositoryInterface
     public function create(array $data): array
     {
         $tf = '/data/local/tmp/np_traces.txt';
-        @file_put_contents($tf, now()->format('H:i:s.v') . ' P6 ENTERED name=' . ($data['name'] ?? 'none') . "\n", FILE_APPEND | LOCK_EX);
+
         try {
-            $apiPayload = $data;
-            $data['sync_status'] = 'pending_create';
-            $data['client_updated_at'] = now();
-
-            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6a calling Eloquent::create()' . "\n", FILE_APPEND | LOCK_EX);
-            $localData = $this->local->create($data);
-            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6b local create uuid=' . (isset($localData['uuid']) ? $localData['uuid'] : 'NONE') . "\n", FILE_APPEND | LOCK_EX);
-
-            if (isset($localData['uuid'])) {
-                $apiPayload['uuid'] = $localData['uuid'];
-                try {
-                    @file_put_contents($tf, now()->format('H:i:s.v') . ' P6c calling remote API' . "\n", FILE_APPEND | LOCK_EX);
-                    $apiData = $this->api->create($apiPayload);
-                    $this->doSyncSingleToLocal($apiData, force: true);
-                    @file_put_contents($tf, now()->format('H:i:s.v') . ' P6d remote SUCCESS'. "\n", FILE_APPEND | LOCK_EX);
-                    return $apiData;
-                } catch (\Throwable $e) {
-                    @file_put_contents($tf, now()->format('H:i:s.v') . ' P6e remote FAILED: ' . $e->getMessage() . "\n", FILE_APPEND | LOCK_EX);
-                    Log::info('[PatientRepo] create() - remote API unavailable: ' . $e->getMessage());
-                }
-            }
-
-            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6f returning localData'. "\n", FILE_APPEND | LOCK_EX);
-            Log::info('[DIAG] PatientRepo::create() returning uuid=' . ($localData['uuid'] ?? 'NO UUID IN localData') . ' name=' . ($localData['name'] ?? 'none') . ' sync_status=' . ($localData['sync_status'] ?? 'none'));
-            return $localData;
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6c calling remote API FIRST' . "\n", FILE_APPEND | LOCK_EX);
+            $apiData = $this->api->create($data);
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6d remote SUCCESS uuid=' . ($apiData['uuid'] ?? '?') . "\n", FILE_APPEND | LOCK_EX);
+            $this->doSyncSingleToLocal($apiData, force: true);
+            return $apiData;
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6e CONNECTION FAILED (offline): ' . $e->getMessage() . "\n", FILE_APPEND | LOCK_EX);
+            Log::info('[PatientRepo] create() - offline, saving locally: ' . $e->getMessage());
         } catch (\Throwable $e) {
-            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6g OUTER CATCH: ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine() . "\n", FILE_APPEND | LOCK_EX);
-            Log::error('[PatientRepo] create() - failed to save locally: ' . $e->getMessage(), [
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'class' => get_class($e),
-                'code' => $e->getCode(),
-                'trace' => substr($e->getTraceAsString(), 0, 1000),
-            ]);
-            throw $e;
+            @file_put_contents($tf, now()->format('H:i:s.v') . ' P6e API FAILED: ' . get_class($e) . ': ' . $e->getMessage() . "\n", FILE_APPEND | LOCK_EX);
+            Log::warning('[PatientRepo] create() - API error, saving locally: ' . $e->getMessage());
         }
+
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' P6f saving locally as pending_create' . "\n", FILE_APPEND | LOCK_EX);
+        $data['sync_status'] = 'pending_create';
+        $data['client_updated_at'] = now();
+        $localData = $this->local->create($data);
+        @file_put_contents($tf, now()->format('H:i:s.v') . ' P6g local create uuid=' . ($localData['uuid'] ?? 'NONE') . "\n", FILE_APPEND | LOCK_EX);
+        return $localData;
     }
 
     public function update(string $uuid, array $data): array
     {
-        $apiPayload = $data;
+        try {
+            $apiData = $this->api->update($uuid, $data);
+            $this->doSyncSingleToLocal($apiData, force: true);
+            return $apiData;
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            Log::info('[PatientRepo] update() - offline, saving locally: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            Log::warning('[PatientRepo] update() - API error, saving locally: ' . $e->getMessage());
+        }
 
         $data['sync_status'] = 'pending_update';
         $data['client_updated_at'] = now();
-        $localData = $this->local->update($uuid, $data);
-
-        try {
-            $apiData = $this->api->update($uuid, $apiPayload);
-            $this->doSyncSingleToLocal($apiData, force: true);
-            return $apiData;
-        } catch (\Throwable $e) {
-            Log::info('[PatientRepo] update() - offline, saved locally with pending_update: ' . $e->getMessage());
-        }
-
-        return $localData;
+        return $this->local->update($uuid, $data);
     }
 
     public function delete(string $uuid): void
