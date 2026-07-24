@@ -45,6 +45,15 @@ class AuthController extends Controller
                 if (isset($tokenResponse['token'])) {
                     app(ApiService::class)->setToken($tokenResponse['token']);
                     Log::info('Remote API token acquired successfully');
+
+                    // ── Store encrypted credentials for auto-refresh on 401 ──
+                    // These are stored encrypted in the local SQLite session so the
+                    // sync engine can automatically re-login when the token expires.
+                    // The credentials are only decryptable with this device's APP_KEY.
+                    session(['auth_credentials' => encrypt(json_encode([
+                        'email' => $credentials['email'],
+                        'password' => $credentials['password'],
+                    ]))]);
                 }
             } catch (\Throwable $e) {
                 Log::warning('Remote API login failed, sidebar will use local data: ' . $e->getMessage());

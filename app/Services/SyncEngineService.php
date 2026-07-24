@@ -142,6 +142,42 @@ class SyncEngineService
      * This ensures that even if two sync processes run simultaneously,
      * only one will pick up each patient.
      */
+    /**
+     * Try to refresh the API token using stored encrypted credentials.
+     * Called when the sync engine receives a 401 response.
+     */
+    private function refreshToken(): bool
+    {
+        try {
+            $encrypted = session('auth_credentials');
+            if (!$encrypted) {
+                Log::warning('[SyncEngine] No stored credentials available for token refresh');
+                return false;
+            }
+
+            $creds = json_decode(decrypt($encrypted), true);
+            if (!$creds || empty($creds['email']) || empty($creds['password'])) {
+                Log::warning('[SyncEngine] Invalid stored credentials for token refresh');
+                return false;
+            }
+
+            Log::info('[SyncEngine] Attempting token refresh for: ' . $creds['email']);
+            $response = ApiService::loginToRemote($creds['email'], $creds['password']);
+
+            if (isset($response['token'])) {
+                $this->api->setToken($response['token']);
+                Log::info('[SyncEngine] Token refreshed successfully');
+                return true;
+            }
+
+            Log::warning('[SyncEngine] Token refresh returned no token');
+            return false;
+        } catch (\Throwable $e) {
+            Log::error('[SyncEngine] Token refresh failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     public function syncPendingPatients(): int
     {
         $syncedCount = 0;
@@ -215,10 +251,28 @@ class SyncEngineService
 
                     // ── Phase 2: Make the API call ───────────────────────
                     if ($patient->sync_status === 'pending_create') {
-                        $apiData = $this->patientRepo->createOnRemote($data);
+                        try {
+                            $apiData = $this->patientRepo->createOnRemote($data);
+                        } catch (\Illuminate\Auth\AuthenticationException $authE) {
+                            Log::warning('[SyncEngine] 401 on create, refreshing token...');
+                            if ($this->refreshToken()) {
+                                $apiData = $this->patientRepo->createOnRemote($data);
+                            } else {
+                                throw $authE;
+                            }
+                        }
                         $remoteUuid = $apiData['uuid'] ?? $apiData['data']['uuid'] ?? 'unknown';
                     } else {
-                        $apiData = $this->patientRepo->updateOnRemote($patient->uuid, $data);
+                        try {
+                            $apiData = $this->patientRepo->updateOnRemote($patient->uuid, $data);
+                        } catch (\Illuminate\Auth\AuthenticationException $authE) {
+                            Log::warning('[SyncEngine] 401 on update, refreshing token...');
+                            if ($this->refreshToken()) {
+                                $apiData = $this->patientRepo->updateOnRemote($patient->uuid, $data);
+                            } else {
+                                throw $authE;
+                            }
+                        }
                         $remoteUuid = $apiData['uuid'] ?? $apiData['data']['uuid'] ?? $patient->uuid;
                     }
 
