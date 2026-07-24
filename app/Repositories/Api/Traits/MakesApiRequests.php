@@ -17,36 +17,66 @@ trait MakesApiRequests
     private function apiCall(string $method, string $path, array $data = []): Response
     {
         $url = $this->baseUrl() . $path;
-        $encryptedToken = session('api_token');
 
         // ═══════════════════════════════════════════════════════════════════
-        //  AUTH INSTRUMENTATION: Log every step of token resolution
+        //  AUTH SOURCE: Use ApiService (singleton) as primary token source.
         // ═══════════════════════════════════════════════════════════════════
-        // We need to trace WHY the production server returns 401. The token
-        // chain is: session('api_token') → decrypt → Bearer token → Server.
-        // Any link in this chain could break.
+        // There are TWO independent auth paths in this codebase:
+        //   Path A: ApiService — reads token from session in constructor,
+        //            stores in $this->token.
+        //   Path B: MakesApiRequests (this trait) — reads session('api_token')
+        //            directly every call.
+        //
+        // These paths MUST draw from the SAME token source, otherwise they
+        // can desync — one path has a valid token while the other doesn't —
+        // causing the INTERMITTENT 401 pattern (POST fails, GET succeeds).
+        //
+        // Priority:
+        //   1. ApiService::getToken() — singleton, set by session restore
+        //   2. session('api_token') — fallback if ApiService hasn't loaded
+        //
+        // ApiService is now registered as a singleton in AppServiceProvider,
+        // so app(ApiService::class) always returns the same instance.
         // ═══════════════════════════════════════════════════════════════════
         
         $token = null;
+        $tokenSource = 'unknown';
         $tokenPrefix = 'NONE';
         $decryptError = null;
-        
-        if ($encryptedToken) {
-            try {
-                $token = decrypt($encryptedToken);
-                // Log first 20 chars so we can correlate with production DB
+
+        // Source 1: ApiService singleton (preferred)
+        try {
+            $apiServiceToken = app(\App\Services\Mobile\ApiService::class)->getToken();
+            if (!empty($apiServiceToken)) {
+                $token = $apiServiceToken;
+                $tokenSource = 'ApiService';
                 $tokenPrefix = 'OK:' . substr($token, 0, 20) . '...';
-            } catch (\Exception $e) {
-                $decryptError = $e->getMessage();
-                $tokenPrefix = 'DECRYPT_FAILED:' . $e->getMessage();
-                session()->forget('api_token');
             }
-        } else {
-            $tokenPrefix = 'NULL'; // session('api_token') does not exist
+        } catch (\Throwable $e) {
+            Log::warning('[ApiAuth] ApiService lookup failed: ' . $e->getMessage());
+        }
+
+        // Source 2: Session fallback (if ApiService didn't have one)
+        if (empty($token)) {
+            $encryptedToken = session('api_token');
+            if ($encryptedToken) {
+                try {
+                    $token = decrypt($encryptedToken);
+                    $tokenSource = 'session';
+                    $tokenPrefix = 'OK:' . substr($token, 0, 20) . '...';
+                } catch (\Exception $e) {
+                    $decryptError = $e->getMessage();
+                    $tokenPrefix = 'DECRYPT_FAILED:' . $e->getMessage();
+                    // Don't clear the session — might be a transient read error;
+                    // the next read will retry. Clearing would cascade the failure.
+                }
+            } else {
+                $tokenSource = 'session_empty';
+            }
         }
         
         Log::info('[ApiAuth] Token status for ' . $method . ' ' . $path, [
-            'session_has_api_token' => $encryptedToken ? 'YES' : 'NO',
+            'token_source' => $tokenSource,
             'token_prefix' => $tokenPrefix,
             'decrypt_error' => $decryptError,
             'method' => $method,

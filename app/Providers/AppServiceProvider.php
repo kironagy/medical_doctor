@@ -16,7 +16,15 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // ── Singleton: ApiService ──────────────────────────────────────
+        // ApiService manages the production API token. It must be a singleton
+        // so that all consumers (SyncEngineService, MakesApiRequests, etc.)
+        // read from the SAME in-memory token. Without this, each call to
+        // app(ApiService::class) creates a new instance that independently
+        // reads session('api_token') in its constructor, leading to:
+        //   - Inconsistent token state across code paths
+        //   - Race conditions where one path has the token but another doesn't
+        $this->app->singleton(\App\Services\Mobile\ApiService::class);
     }
 
     /**
