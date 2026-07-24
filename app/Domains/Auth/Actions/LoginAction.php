@@ -5,6 +5,7 @@ namespace App\Domains\Auth\Actions;
 use App\Domains\Users\Models\User;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class LoginAction
@@ -25,13 +26,18 @@ class LoginAction
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        // Log the login activity. We must fake the auth()->id() since it's not set yet for this request lifecycle
-        // Or we just pass user_id manually if our logger allowed it. For now, since it uses auth()->id(), 
-        // we can log it after the user is authenticated, but logging in an API doesn't set session auth.
-        // Let's rely on Sanctum token.
-        // A better approach is directly passing the user to the logger if it's independent, but for simplicity we will just let it capture what it can, 
-        // or we can adjust ActivityLogger to accept a User model.
-        
+        $tokenId = explode('|', $token, 2)[0] ?? 'unknown';
+        $existingCount = $user->tokens()->count();
+
+        Log::info('[DIAG.LoginAction] Token created', [
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+            'token_sanctum_id' => $tokenId,
+            'token_prefix' => substr($token, 0, 20) . '...' . substr($token, -4),
+            'token_length' => strlen($token),
+            'existing_tokens_count' => $existingCount,
+        ]);
+
         return [
             'user' => $user,
             'token' => $token,

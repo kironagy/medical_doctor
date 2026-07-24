@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Domains\Auth\Actions\LoginAction;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class AuthController extends Controller
 {
@@ -23,6 +24,16 @@ class AuthController extends Controller
         $result = $loginAction->execute($request->email, $request->password);
 
         $this->logger->log('login', 'User', $result['user']->uuid, [], $result['user']);
+
+        $tokenId = explode('|', $result['token'], 2)[0] ?? 'unknown';
+
+        Log::info('[DIAG.AuthController] Login success', [
+            'user_id' => $result['user']->id,
+            'user_email' => $result['user']->email,
+            'token_sanctum_id' => $tokenId,
+            'token_prefix' => substr($result['token'], 0, 20) . '...' . substr($result['token'], -4),
+            'token_length' => strlen($result['token']),
+        ]);
 
         return response()->json([
             'user' => $result['user'],

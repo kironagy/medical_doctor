@@ -17,6 +17,7 @@ trait MakesApiRequests
     private function apiCall(string $method, string $path, array $data = []): Response
     {
         $url = $this->baseUrl() . $path;
+        $requestId = substr(uniqid('mac', true), -8);
 
         // ═══════════════════════════════════════════════════════════════════
         //  AUTH SOURCE: Use ApiService (singleton) as primary token source.
@@ -41,8 +42,12 @@ trait MakesApiRequests
         
         $token = null;
         $tokenSource = 'unknown';
-        $tokenPrefix = 'NONE';
+        $rawTokenPrefix = 'NONE';
+        $tokenHash = 'NONE';
         $decryptError = null;
+
+        /** @var string|null Extracted Sanctum token ID (from 'ID|hash' format) */
+        $sanctumTokenId = null;
 
         // Source 1: ApiService singleton (preferred)
         try {
@@ -50,23 +55,30 @@ trait MakesApiRequests
             if (!empty($apiServiceToken)) {
                 $token = $apiServiceToken;
                 $tokenSource = 'ApiService';
-                $tokenPrefix = 'OK:' . substr($token, 0, 20) . '...';
+                $rawTokenPrefix = substr($token, 0, 20) . '...' . substr($token, -4);
+                $tokenHash = md5($token);
+                $parts = explode('|', $token, 2);
+                $sanctumTokenId = $parts[0] ?? null;
             }
         } catch (\Throwable $e) {
             Log::warning('[ApiAuth] ApiService lookup failed: ' . $e->getMessage());
         }
 
         // Source 2: Session fallback (if ApiService didn't have one)
+        $sessionEncryptedToken = null;
         if (empty($token)) {
-            $encryptedToken = session('api_token');
-            if ($encryptedToken) {
+            $sessionEncryptedToken = session('api_token');
+            if ($sessionEncryptedToken) {
                 try {
-                    $token = decrypt($encryptedToken);
+                    $token = decrypt($sessionEncryptedToken);
                     $tokenSource = 'session';
-                    $tokenPrefix = 'OK:' . substr($token, 0, 20) . '...';
+                    $rawTokenPrefix = substr($token, 0, 20) . '...' . substr($token, -4);
+                    $tokenHash = md5($token);
+                    $parts = explode('|', $token, 2);
+                    $sanctumTokenId = $parts[0] ?? null;
                 } catch (\Exception $e) {
                     $decryptError = $e->getMessage();
-                    $tokenPrefix = 'DECRYPT_FAILED:' . $e->getMessage();
+                    $rawTokenPrefix = 'DECRYPT_FAILED:' . $e->getMessage();
                     // Don't clear the session — might be a transient read error;
                     // the next read will retry. Clearing would cascade the failure.
                 }
@@ -76,8 +88,11 @@ trait MakesApiRequests
         }
         
         Log::info('[ApiAuth] Token status for ' . $method . ' ' . $path, [
+            'request_id' => $requestId,
             'token_source' => $tokenSource,
-            'token_prefix' => $tokenPrefix,
+            'token_prefix' => $rawTokenPrefix,
+            'token_hash' => $tokenHash,
+            'sanctum_token_id' => $sanctumTokenId,
             'decrypt_error' => $decryptError,
             'method' => $method,
             'path' => $path,
@@ -110,20 +125,30 @@ trait MakesApiRequests
         $responseMessage = is_array($responseBody) ? ($responseBody['message'] ?? 'no message') : 'non-json';
         
         Log::info('[ApiAuth] Response for ' . $method . ' ' . $path, [
+            'request_id' => $requestId,
             'status' => $response->status(),
             'time_ms' => round($timeMs, 1),
             'token_was_sent' => $token ? 'YES' : 'NO',
-            'token_prefix' => $tokenPrefix,
+            'token_prefix' => $rawTokenPrefix,
+            'token_hash' => $tokenHash,
             'response_message' => $responseMessage,
+            'response_body' => $responseBody,
         ]);
 
         if ($response->unauthorized()) {
             Log::warning('[ApiAuth] ❌ 401 UNAUTHORIZED for ' . $method . ' ' . $path, [
+                'request_id' => $requestId,
                 'token_was_sent' => $token ? 'YES' : 'NO',
-                'token_prefix' => $tokenPrefix,
+                'token_prefix' => $rawTokenPrefix,
+                'token_hash' => $tokenHash,
+                'sanctum_token_id' => $sanctumTokenId,
                 'response_body' => $responseBody,
-                'session_has_api_token' => $encryptedToken ? 'YES' : 'NO',
+                'response_status' => $response->status(),
+                'response_headers' => $response->headers(),
+                'session_has_api_token' => $sessionEncryptedToken ? 'YES' : 'NO',
                 'auth_check' => auth()->check() ? 'YES' : 'NO',
+                'auth_user_id' => auth()->id(),
+                'session_id' => session()->getId(),
             ]);
             // ── CRITICAL: Do NOT clear the token or session on 401 ─────
             // The sync engine has its own retry logic and will re-attempt.

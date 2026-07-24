@@ -367,9 +367,12 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
             // ── AUTH INSTRUMENTATION: Log token state before sync ────────
             $apiToken = app(\App\Services\Mobile\ApiService::class)->getToken();
             $sessionToken = session('api_token');
+            $apiTokenId = $apiToken ? (explode('|', $apiToken, 2)[0] ?? 'unknown') : 'NONE';
             \Illuminate\Support\Facades\Log::info('[SyncEngine] Pre-sync auth state', [
                 'api_service_token_present' => $apiToken ? 'YES' : 'NO',
                 'api_service_token_prefix' => $apiToken ? substr($apiToken, 0, 20) . '...' : 'NONE',
+                'api_service_token_hash' => $apiToken ? md5($apiToken) : 'NONE',
+                'api_service_sanctum_id' => $apiTokenId,
                 'session_api_token_present' => $sessionToken ? 'YES' : 'NO',
                 'session_id' => session()->getId(),
                 'auth_user_id' => auth()->id(),
