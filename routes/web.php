@@ -416,3 +416,8 @@ Route::prefix('_native/cache')->name('cache.')->withoutMiddleware([
     Route::delete('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'removeCached'])->name('files.remove');
     Route::delete('/patient/{patientUuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'removePatientCached'])->name('patient.remove');
 });
+
+// DIAG: Create patient diagnostic (REMOVE)
+Route::get('/_native/api/diag/patient-create', [\App\Http\Controllers\Api\CreatePatientDiagnosticController::class, 'index'])->withoutMiddleware([
+    \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+]);

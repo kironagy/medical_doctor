@@ -406,8 +406,15 @@ async function addPatient(formData) {
         }
         return { success: true, patient };
     } catch (e) {
-        trace('[TRACE_P9] addPatient() CATCH - status: ' + e.response?.status + ' data: ' + JSON.stringify(e.response?.data).substring(0,500) + ' message: ' + e.message)
-        return { success: false, errors: e.response?.data?.errors || {} };
+        const errData = e.response?.data || {};
+        trace('[TRACE_P9] addPatient() CATCH - status: ' + e.response?.status + ' data: ' + JSON.stringify(errData).substring(0,500) + ' message: ' + e.message)
+        console.error('[DIAG] addPatient FAILED:', { status: e.response?.status, data: errData, message: e.message, code: e.code });
+        const enhancedErrors = {
+            ...(errData.errors || {}),
+            _server_error: errData.error_detail || errData.message || e.message,
+            _error_id: errData.error_id || null,
+        };
+        return { success: false, errors: enhancedErrors, errorId: errData.error_id };
     } finally {
         loading.value = false;
     }

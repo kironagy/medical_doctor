@@ -80,7 +80,13 @@ async function submit() {
       toast.success('تمت إضافة المريض بنجاح')
     } else {
       errors.value = result.errors || {}
-      toast.error('حدث خطأ أثناء الإضافة')
+      const serverMsg = result.errors?._server_error
+      if (serverMsg) {
+        toast.error(serverMsg)
+        console.error('[AddPatient] Server error:', serverMsg, 'errorId:', result.errorId)
+      } else {
+        toast.error('حدث خطأ أثناء الإضافة')
+      }
     }
   } catch (e) {
     if (e.response?.status === 422) {

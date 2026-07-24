@@ -228,24 +228,25 @@ class WorkspaceController extends Controller
             $patient = $this->patientRepo->create($validated);
             @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P7] PatientRepository::create() returned. Has uuid: ' . (isset($patient['uuid']) ? 'YES: ' . $patient['uuid'] : 'NO - empty!') . "\n", FILE_APPEND | LOCK_EX);
 
-            // If create returned empty, patient was not saved (e.g. DB error)
-            if (empty($patient) || !isset($patient['uuid'])) {
-                Log::error('[WorkspaceController] storePatient - repo returned empty patient', [
-                    'validated' => $validated,
-                ]);
-                return response()->json(['message' => 'Failed to save patient locally'], 500);
-            }
-
             return response()->json([
                 'patient' => $patient,
                 'message' => 'Patient created successfully',
             ]);
         } catch (\Throwable $e) {
-            Log::error('[WorkspaceController] storePatient failed: ' . $e->getMessage(), [
-                'trace' => substr($e->getTraceAsString(), 0, 500),
+            $errorId = substr(str_shuffle('0123456789abcdefghijklmnopqrstuvwxyz'), 0, 8);
+            Log::error('[WorkspaceController] storePatient failed [' . $errorId . ']: ' . $e->getMessage(), [
+                'trace' => substr($e->getTraceAsString(), 0, 1000),
                 'validated' => $validated,
+                'class' => get_class($e),
+                'file' => $e->getFile() . ':' . $e->getLine(),
             ]);
-            return response()->json(['message' => 'Failed to create patient'], 500);
+            return response()->json([
+                'message' => 'Failed to create patient',
+                'error_id' => $errorId,
+                'error_detail' => $e->getMessage(),
+                'error_class' => get_class($e),
+                'error_file' => $e->getFile() . ':' . $e->getLine(),
+            ], 422);
         }
     }
 

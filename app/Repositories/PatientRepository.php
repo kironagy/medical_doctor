@@ -205,9 +205,13 @@ class PatientRepository implements PatientRepositoryInterface
         } catch (\Throwable $e) {
             @file_put_contents($tf, now()->format('H:i:s.v') . ' P6g OUTER CATCH: ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine() . "\n", FILE_APPEND | LOCK_EX);
             Log::error('[PatientRepo] create() - failed to save locally: ' . $e->getMessage(), [
-                'trace' => substr($e->getTraceAsString(), 0, 500),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'class' => get_class($e),
+                'code' => $e->getCode(),
+                'trace' => substr($e->getTraceAsString(), 0, 1000),
             ]);
-            return [];
+            throw $e;
         }
     }
 
