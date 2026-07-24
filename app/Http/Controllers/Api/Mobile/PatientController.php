@@ -141,19 +141,38 @@ class PatientController extends Controller
 
         // ── Doctor/User ID Assignment ─────────────────────────────────────
         // Priority order:
-        //   1. Authenticated user's ID (when auth token is present)
-        //   2. primary_doctor_id from request body (when token-less)
-        //   3. null (fallback — patient will be invisible until synced)
+        //   1. Authenticated user's ID (via session or Sanctum middleware)
+        //   2. Manually resolved from Bearer token (when auth middleware removed)
+        //   3. primary_doctor_id / created_by_id from request body
+        //   4. null (fallback — patient will be invisible until synced)
         //
-        // This ensures the DoctorIsolationScope global scope can find the
-        // patient when the workspace endpoint queries it immediately after
-        // creation (the scope filters WHERE primary_doctor_id = {doctor_id}).
-        if ($request->user()) {
-            $validated['primary_doctor_id'] = $request->user()->id;
-            $validated['created_by_id'] = $request->user()->id;
+        // 🚨 CRITICAL: Without auth:sanctum middleware, $request->user() cannot
+        //    resolve the Bearer token. We must manually resolve it here.
+        //    Otherwise primary_doctor_id stays NULL and the DoctorIsolationScope
+        //    on the workspace endpoint filters out the patient → 404.
+        //
+        $user = $request->user();
+
+        if (!$user) {
+            // Manually resolve from Bearer token (Sanctum middleware is removed)
+            $bearerToken = $request->bearerToken();
+            if ($bearerToken) {
+                try {
+                    $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearerToken);
+                    if ($accessToken && $accessToken->tokenable) {
+                        $user = $accessToken->tokenable;
+                    }
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('[MobilePatient] Bearer auth failed: ' . $e->getMessage());
+                }
+            }
+        }
+
+        if ($user) {
+            $validated['primary_doctor_id'] = $user->id;
+            $validated['created_by_id'] = $user->id;
         } elseif (!empty($validated['primary_doctor_id'])) {
-            // When the endpoint is accessed without auth (temporary public mode),
-            // the mobile app sends the doctor's user ID in the request body.
+            // Fallback: doctor ID sent explicitly in request body
             $validated['created_by_id'] ??= $validated['primary_doctor_id'];
         }
 
