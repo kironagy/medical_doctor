@@ -105,6 +105,11 @@ class PatientController extends Controller
             'medical_record_number' => 'nullable|string|max:100',
             'code' => 'nullable|string|max:255',
             'uuid' => 'nullable|uuid',
+            // primary_doctor_id is accepted from the request body so the mobile app
+            // can set the correct doctor even when the endpoint is accessed without
+            // authentication (temporary public access for debugging).
+            'primary_doctor_id' => 'nullable|integer',
+            'created_by_id' => 'nullable|integer',
         ]);
 
         // ── IDEMPOTENCY CHECK: Look up existing patient by UUID ─────────
@@ -134,12 +139,22 @@ class PatientController extends Controller
             $validated['code'] = (string) random_int(100000, 999999);
         }
 
-        // If the user is authenticated, use their ID. If not (sync context),
-        // the primary_doctor_id may be set by the syncing client or may be null.
-        // The database constraint allows null for created_by_id.
+        // ── Doctor/User ID Assignment ─────────────────────────────────────
+        // Priority order:
+        //   1. Authenticated user's ID (when auth token is present)
+        //   2. primary_doctor_id from request body (when token-less)
+        //   3. null (fallback — patient will be invisible until synced)
+        //
+        // This ensures the DoctorIsolationScope global scope can find the
+        // patient when the workspace endpoint queries it immediately after
+        // creation (the scope filters WHERE primary_doctor_id = {doctor_id}).
         if ($request->user()) {
             $validated['primary_doctor_id'] = $request->user()->id;
             $validated['created_by_id'] = $request->user()->id;
+        } elseif (!empty($validated['primary_doctor_id'])) {
+            // When the endpoint is accessed without auth (temporary public mode),
+            // the mobile app sends the doctor's user ID in the request body.
+            $validated['created_by_id'] ??= $validated['primary_doctor_id'];
         }
 
         try {
