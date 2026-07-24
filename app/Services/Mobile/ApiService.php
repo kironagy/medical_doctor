@@ -110,7 +110,8 @@ class ApiService
         $response = $request->post($url, $data);
 
         if ($response->unauthorized()) {
-            $this->setToken(null);
+            // ── CRITICAL: Do NOT clear the token on 401 ─────────
+            // See send() for details. Token is preserved across retries.
             throw new RuntimeException('Session expired. Please login again.');
         }
 
@@ -130,7 +131,8 @@ class ApiService
         $response = $this->client()->sink($destination)->get($url);
 
         if ($response->unauthorized()) {
-            $this->setToken(null);
+            // ── CRITICAL: Do NOT clear the token on 401 ─────────
+            // See send() for details. Token is preserved across retries.
             throw new RuntimeException('Session expired. Please login again.');
         }
 
@@ -157,11 +159,13 @@ class ApiService
                 $response = $this->client()->send($method, $url, $options);
 
                 if ($response->unauthorized()) {
-                    // Only clear the token if we actually sent one.
-                    // If the token was valid but expired, clearing allows
-                    // re-authentication. If the token was already null,
-                    // we wouldn't reach here because the guard above catches it.
-                    $this->setToken(null);
+                    // ── CRITICAL: Do NOT clear the token on 401 ─────────
+                    // The sync engine has its own retry logic. Clearing the
+                    // token creates a cascade where all subsequent requests
+                    // fail with 401 because no Bearer header is sent.
+                    // A single transient 401 should NOT destroy the token.
+                    // This must be kept in sync with MakesApiRequests which
+                    // also now preserves the token on 401.
                     throw new RuntimeException('Session expired. Please login again.');
                 }
 
