@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Contracts\Repositories\CategoryRepositoryInterface;
 use App\Contracts\Repositories\OfflineFileRepositoryInterface;
 use App\Contracts\Repositories\PatientFileRepositoryInterface;
 use App\Contracts\Repositories\PatientNoteRepositoryInterface;
@@ -24,69 +25,33 @@ class WorkspaceController extends Controller
         private readonly PatientVisitRepositoryInterface $visitRepo,
         private readonly UserRepositoryInterface $userRepo,
         private readonly OfflineFileRepositoryInterface $offlineFileRepo,
+        private readonly CategoryRepositoryInterface $categoryRepo,
     ) {}
 
+    /**
+     * Get categories — offline-first via CategoryRepository.
+     *
+     * The repository handles:
+     *   1. API fetch (online) → cache locally → return
+     *   2. Local cache (offline) → return
+     *   3. Config defaults (last resort) → return
+     *
+     * This replaces the previous implementation that only read from
+     * config + preferences, which failed when offline and the user's
+     * preferences weren't synced to the local SQLite.
+     */
     private function getCategories($user)
     {
-        // Force load from config file to avoid stale config cache
-        $defaultCategories = null;
+        $userId = $user?->id;
+
         try {
-            $defaultCategories = config('categories');
+            return $this->categoryRepo->all($userId);
         } catch (\Throwable $e) {
-            $defaultCategories = null;
-        }
-        if (empty($defaultCategories) || !is_array($defaultCategories)) {
-            // Fallback: load directly from config file
-            $configFile = base_path('config/categories.php');
-            if (file_exists($configFile)) {
-                $defaultCategories = require $configFile;
-            } else {
-                $defaultCategories = [];
-            }
+            Log::warning('[Workspace] CategoryRepository failed, using config defaults: ' . $e->getMessage());
         }
 
-        // Ensure preferences is an array
-        // When offline, $user may be null — use null-safe operator
-        $preferences = $user?->preferences ?? [];
-        if (!is_array($preferences)) {
-            $preferences = [];
-        }
-        $customCategories = $preferences['custom_categories'] ?? [];
-
-        $merged = $this->mergeCategories($defaultCategories, $customCategories);
-
-        // Always return at least default categories if merged is empty
-        return empty($merged) ? $defaultCategories : $merged;
-    }
-
-    private function mergeCategories($defaults, $custom)
-    {
-        $customBySlug = [];
-        foreach ($custom as $c) {
-            $customBySlug[$c['slug']] = $c;
-        }
-        $result = [];
-        $seen = [];
-        foreach ($defaults as $def) {
-            $slug = $def['slug'];
-            $seen[$slug] = true;
-            if (isset($customBySlug[$slug])) {
-                $merged = array_merge($def, $customBySlug[$slug]);
-                if (isset($merged['is_visible']) && !$merged['is_visible']) continue;
-                $result[] = $merged;
-            } else {
-                $result[] = $def;
-            }
-        }
-        foreach ($custom as $c) {
-            $slug = $c['slug'] ?? '';
-            if (!$slug || isset($seen[$slug])) continue;
-            $seen[$slug] = true;
-            if (isset($c['is_visible']) && !$c['is_visible']) continue;
-            $result[] = $c;
-        }
-        usort($result, fn($a, $b) => ($a['order'] ?? 99) - ($b['order'] ?? 99));
-        return $result;
+        // Last resort: config defaults
+        return config('categories', []);
     }
 
     public function index()

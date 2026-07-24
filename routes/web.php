@@ -417,6 +417,31 @@ Route::prefix('_native/cache')->name('cache.')->withoutMiddleware([
     Route::delete('/patient/{patientUuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'removePatientCached'])->name('patient.remove');
 });
 
+// ── Phase 8 — Category Cache Refresh (OUTSIDE auth middleware) ────
+// The frontend calls this endpoint to refresh the local category cache
+// from the production server. It uses the sync engine's API token to
+// authenticate against the production API.
+// 🚫 CSRF excluded — same reasoning as other _native routes.
+Route::post('/_native/api/categories/refresh', function () {
+    try {
+        $userId = auth()->id();
+        $repo = app(\App\Contracts\Repositories\CategoryRepositoryInterface::class);
+        $categories = $repo->refresh($userId);
+        \Illuminate\Support\Facades\Log::info('[CategoryCache] Refreshed ' . count($categories) . ' categories for user ' . ($userId ?? 'null'));
+        return response()->json([
+            'success' => true,
+            'categories' => $categories,
+            'count' => count($categories),
+        ]);
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Log::warning('[CategoryCache] Refresh failed: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage(),
+        ], 500);
+    }
+})->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
+
 // DIAG: Create patient diagnostic (REMOVE)
 Route::get('/_native/api/diag/patient-create', [\App\Http\Controllers\Api\CreatePatientDiagnosticController::class, 'index'])->withoutMiddleware([
     \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,

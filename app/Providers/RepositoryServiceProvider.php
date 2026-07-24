@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Contracts\Repositories\CategoryRepositoryInterface;
 use App\Contracts\Repositories\FileCacheRepositoryInterface;
 use App\Contracts\Repositories\OfflineFileRepositoryInterface;
 use App\Contracts\Repositories\PatientFileRepositoryInterface;
@@ -9,6 +10,8 @@ use App\Contracts\Repositories\PatientNoteRepositoryInterface;
 use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Contracts\Repositories\PatientVisitRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
+use App\Repositories\CategoryRepository;
+use App\Repositories\Eloquent\EloquentCategoryRepository;
 use App\Repositories\Eloquent\EloquentPatientFileRepository;
 use App\Repositories\Eloquent\EloquentPatientNoteRepository;
 use App\Repositories\Eloquent\EloquentPatientRepository;
@@ -35,5 +38,8 @@ class RepositoryServiceProvider extends ServiceProvider
 
         // Phase 7: offline file uploads (local-first, sync when online)
         $this->app->bind(OfflineFileRepositoryInterface::class, OfflineFileRepository::class);
+
+        // Phase 8: offline category cache (API-first, local fallback)
+        $this->app->bind(CategoryRepositoryInterface::class, CategoryRepository::class);
     }
 }

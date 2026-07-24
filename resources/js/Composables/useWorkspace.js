@@ -476,6 +476,13 @@ async function refreshPatientList(page = 1) {
         }
 
         // ═══════════════════════════════════════════════════════════════
+        //  STEP 1b: Refresh category cache from production API
+        // ═══════════════════════════════════════════════════════════════
+        // After syncing pending patients, refresh the local category cache
+        // so that categories are available when opening patients offline.
+        await refreshCategoryCache();
+
+        // ═══════════════════════════════════════════════════════════════
         //  STEP 2: Load pending patients from local SQLite
         // ═══════════════════════════════════════════════════════════════
         // After app restart, patients.value is empty. The merge logic below
@@ -611,6 +618,37 @@ async function forceDeletePatient(uuid) {
         );
         return { success: true };
     } catch (e) {
+        return { success: false };
+    }
+}
+
+// ---------------------------------------------------------------
+//  Phase 8 — Offline Category Cache
+// ---------------------------------------------------------------
+
+/**
+ * Refresh the local category cache from the production API.
+ *
+ * The embedded Laravel caches categories in the cached_categories table
+ * when online. When offline, the workspace controller reads from this
+ * local cache instead of the API.
+ *
+ * This should be called:
+ *   - On app startup (when session is restored)
+ *   - When the app comes back online after being offline
+ *   - After categories are modified (add/edit/delete)
+ */
+async function refreshCategoryCache() {
+    try {
+        const res = await axios.post('/_native/api/categories/refresh', {}, { timeout: 15000 });
+        if (res.data?.success) {
+            console.log('[CategoryCache] Refreshed', res.data.count, 'categories');
+        }
+        return res.data;
+    } catch (e) {
+        // Expected when offline — the _native route calls the embedded
+        // Laravel which tries to reach the production API. Offline = fail.
+        console.log('[CategoryCache] Refresh unavailable (offline):', e.message);
         return { success: false };
     }
 }
@@ -775,5 +813,7 @@ export function useWorkspace() {
         cacheForOffline,
         removeFromCache,
         clearPatientCache,
+        // Phase 8 — Offline Category Cache
+        refreshCategoryCache,
     };
 }

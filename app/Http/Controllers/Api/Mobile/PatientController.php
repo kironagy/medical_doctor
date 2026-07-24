@@ -144,28 +144,56 @@ class PatientController extends Controller
         //   1. Authenticated user's ID (via session or Sanctum middleware)
         //   2. Manually resolved from Bearer token (when auth middleware removed)
         //   3. primary_doctor_id / created_by_id from request body
-        //   4. null (fallback — patient will be invisible until synced)
+        //   4. null (fallback — patient will be visible to all doctors via
+        //      DoctorIsolationScope's orWhereNull('primary_doctor_id') fallback)
         //
         // 🚨 CRITICAL: Without auth:sanctum middleware, $request->user() cannot
         //    resolve the Bearer token. We must manually resolve it here.
         //    Otherwise primary_doctor_id stays NULL and the DoctorIsolationScope
         //    on the workspace endpoint filters out the patient → 404.
         //
+        // 🩺 DIAGNOSTICS: We log the token state every time to capture why
+        //    Bearer token resolution fails intermittently.
+        //
         $user = $request->user();
+        $diag = ['method' => 'request->user()', 'user_found' => $user ? 'YES' : 'NO'];
 
         if (!$user) {
             // Manually resolve from Bearer token (Sanctum middleware is removed)
             $bearerToken = $request->bearerToken();
+            $diag['bearer_token_present'] = $bearerToken ? 'YES' : 'NO';
+            $diag['bearer_token_prefix'] = $bearerToken ? substr($bearerToken, 0, 20) . '...' : 'NONE';
+
             if ($bearerToken) {
+                $hasPipe = str_contains($bearerToken, '|');
+                $diag['token_has_pipe'] = $hasPipe ? 'YES' : 'NO';
+                $diag['token_length'] = strlen($bearerToken);
+
                 try {
                     $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearerToken);
+                    $diag['findToken_result'] = $accessToken ? 'FOUND' : 'NULL';
+                    $diag['findToken_tokenable'] = ($accessToken && $accessToken->tokenable) ? 'YES' : 'NO';
+
                     if ($accessToken && $accessToken->tokenable) {
                         $user = $accessToken->tokenable;
+                        $diag['resolved_user_id'] = $user->id;
+                    }
+
+                    if ($accessToken && !$accessToken->tokenable) {
+                        // Token exists but its associated user was deleted
+                        $diag['orphaned_token_id'] = $accessToken->id;
+                        \Illuminate\Support\Facades\Log::warning('[MobilePatient] Orphaned token — user deleted', [
+                            'token_id' => $accessToken->id,
+                            'tokenable_type' => $accessToken->tokenable_type,
+                        ]);
                     }
                 } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::warning('[MobilePatient] Bearer auth failed: ' . $e->getMessage());
+                    $diag['findToken_exception'] = $e->getMessage();
+                    \Illuminate\Support\Facades\Log::warning('[MobilePatient] Bearer auth threw exception: ' . $e->getMessage());
                 }
             }
+
+            \Illuminate\Support\Facades\Log::debug('[MobilePatient] Token resolution diagnostics', $diag);
         }
 
         if ($user) {
@@ -174,6 +202,17 @@ class PatientController extends Controller
         } elseif (!empty($validated['primary_doctor_id'])) {
             // Fallback: doctor ID sent explicitly in request body
             $validated['created_by_id'] ??= $validated['primary_doctor_id'];
+        } else {
+            \Illuminate\Support\Facades\Log::warning('[MobilePatient] Creating patient WITHOUT primary_doctor_id — visible but unowned', [
+                'uuid' => $validated['uuid'] ?? 'not_set',
+                'name' => $validated['name'] ?? 'unknown',
+                'diag' => $diag,
+            ]);
+            \Illuminate\Support\Facades\Log::debug('[MobilePatient] Full token diagnostic context', [
+                'uuid' => $validated['uuid'] ?? 'not_set',
+                'name' => $validated['name'] ?? 'unknown',
+                'diag' => $diag,
+            ]);
         }
 
         try {
