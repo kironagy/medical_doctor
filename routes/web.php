@@ -453,7 +453,4 @@ Route::post('/_native/api/categories/refresh', function () {
     }
 })->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
 
-// DIAG: Create patient diagnostic (REMOVE)
-Route::get('/_native/api/diag/patient-create', [\App\Http\Controllers\Api\CreatePatientDiagnosticController::class, 'index'])->withoutMiddleware([
-    \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
-]);
+

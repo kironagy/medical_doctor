@@ -209,6 +209,14 @@ async function submit() {
       emit('update:modelValue', false)
     } catch (e) {
       console.error('Note add failed:', e)
+      const status = e?.response?.status || e?.request?.status || 'unknown'
+      const data = e?.response?.data || 'no data'
+      const msg = e?.message || 'no message'
+      fetch('/_native/api/debug/trace', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: `[AddRecordModal] FAILED status=${status} msg=${msg} data=${JSON.stringify(data)}` }),
+      }).catch(() => {})
       toast.error('فشل إضافة الملاحظة')
     } finally {
       saving.value = false

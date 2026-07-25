@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
+use App\Repositories\Api\ApiPatientRepository;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -29,18 +31,6 @@ use Illuminate\Support\Str;
  */
 class OfflineNoteController extends Controller
 {
-    /**
-     * Create a note locally while offline.
-     *
-     * Steps:
-     *   1. Validate the request (content + patient_uuid)
-     *   2. Look up patient in local SQLite
-     *   3. Skip Gate authorization when no user (offline local creation)
-     *   4. Store note with sync_status = 'pending_create'
-     *   5. Return the note for immediate UI display
-     *
-     * Route: POST /_native/api/offline/notes
-     */
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -49,25 +39,17 @@ class OfflineNoteController extends Controller
             'category'     => 'nullable|string|max:100',
         ]);
 
-        $patient = Patient::where('uuid', $validated['patient_uuid'])->firstOrFail();
+        $patient = $this->resolvePatient($validated['patient_uuid']);
 
-        // Skip Gate authorization when no user is authenticated.
-        // Notes created locally are only visible on this device until synced.
         $user = $request->user();
         if ($user) {
             try {
                 Gate::authorize('update', $patient);
             } catch (\Throwable $e) {
                 Log::warning('[OfflineNote] Gate authorization failed, continuing: ' . $e->getMessage());
-                // Allow creation — the note is local-only until sync
             }
         }
 
-        // ── Resolve author_id ────────────────────────────────────────
-        // When the user is authenticated via session, use their ID.
-        // When offline with no session, try Bearer token auth (same pattern
-        // as WorkspaceController::storePatient()).
-        // Last resort: find any user in the local SQLite.
         $authorId = $user?->id;
         if (!$authorId) {
             $bearerToken = $request->bearerToken();
@@ -75,7 +57,7 @@ class OfflineNoteController extends Controller
                 try {
                     $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearerToken);
                     if ($accessToken && $accessToken->tokenable) {
-                        \Illuminate\Support\Facades\Auth::login($accessToken->tokenable);
+                        Auth::login($accessToken->tokenable);
                         $authorId = $accessToken->tokenable->id;
                     }
                 } catch (\Throwable $e) {
@@ -84,7 +66,6 @@ class OfflineNoteController extends Controller
             }
         }
         if (!$authorId) {
-            // Last resort: find the first user in local SQLite
             $anyUser = \App\Domains\Users\Models\User::first();
             $authorId = $anyUser?->id;
         }
@@ -140,11 +121,6 @@ class OfflineNoteController extends Controller
         }
     }
 
-    /**
-     * List offline notes for a patient.
-     *
-     * Route: GET /_native/api/offline/notes?patient_uuid={uuid}
-     */
     public function index(Request $request)
     {
         $patientUuid = $request->get('patient_uuid');
@@ -170,11 +146,6 @@ class OfflineNoteController extends Controller
         ]);
     }
 
-    /**
-     * Delete a pending offline note.
-     *
-     * Route: DELETE /_native/api/offline/notes/{uuid}
-     */
     public function destroy(string $uuid)
     {
         $note = PatientNote::where('uuid', $uuid)->first();
@@ -183,26 +154,50 @@ class OfflineNoteController extends Controller
             return response()->json(['message' => 'Not found'], 404);
         }
 
-        // Authorize — skip when no user (same as store)
         $user = request()->user();
         if ($user && $note->patient) {
             try {
                 Gate::authorize('update', $note->patient);
             } catch (\Throwable $e) {
-                // Allow deletion of local-only notes
             }
         }
 
-        // If already synced, mark as pending_delete
         if ($note->sync_status === 'synced') {
             $note->update(['sync_status' => 'pending_delete']);
             Log::info('[OfflineNote] Marked synced note for deletion: ' . $uuid);
         } else {
-            // Pending notes can be hard-deleted
             $note->forceDelete();
             Log::info('[OfflineNote] Deleted pending note: ' . $uuid);
         }
 
         return response()->json(['message' => 'Deleted']);
+    }
+
+    private function resolvePatient(string $uuid): Patient
+    {
+        $patient = Patient::where('uuid', $uuid)->first();
+        if ($patient) {
+            return $patient;
+        }
+
+        $apiPatient = app(ApiPatientRepository::class)->find($uuid);
+        if (!$apiPatient) {
+            abort(404, 'Patient not found');
+        }
+
+        $cleanData = \Illuminate\Support\Arr::except($apiPatient, [
+            'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes',
+        ]);
+        $cleanData['sync_status'] = 'synced';
+
+        Patient::unguard();
+        $patient = Patient::updateOrCreate(['uuid' => $uuid], $cleanData);
+        Patient::reguard();
+
+        if (!$patient) {
+            abort(404, 'Patient not found');
+        }
+
+        return $patient;
     }
 }

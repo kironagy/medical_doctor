@@ -2,17 +2,19 @@
 
 namespace App\Http\Controllers\Api\Mobile;
 
-use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
+use App\Http\Controllers\Controller;
+use App\Repositories\Api\ApiPatientRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 
 class NoteController extends Controller
 {
     public function index(string $uuid)
     {
-        $patient = Patient::where('uuid', $uuid)->firstOrFail();
+        $patient = $this->resolvePatient($uuid);
         Gate::authorize('view', $patient);
 
         $notes = $patient->notes()
@@ -25,22 +27,16 @@ class NoteController extends Controller
 
     public function store(Request $request, string $uuid)
     {
-        $patient = Patient::where('uuid', $uuid)->firstOrFail();
+        Log::info('[MobileNote::store] ENTERED uuid=' . $uuid . ' user=' . ($request->user()?->id ?? 'null') . ' online=' . (config('database.connections.sqlite.database') ?? '?'));
+        $patient = $this->resolvePatient($uuid);
         Gate::authorize('update', $patient);
 
         $validated = $request->validate([
             'content' => 'required|string',
             'category' => 'nullable|string|max:100',
-            // author_id accepted from request body so the mobile sync engine
-            // can set the correct author even when this endpoint is accessed
-            // without auth:sanctum middleware (temporary debugging bypass).
             'author_id' => 'nullable|integer',
         ]);
 
-        // ── Manual Bearer Token Resolution ──────────────────────────────
-        // auth:sanctum middleware is temporarily removed from this endpoint
-        // (same as patient creation). $request->user() cannot resolve the
-        // Bearer token via middleware, so we must resolve it manually.
         $user = $request->user();
         if (!$user) {
             $bearerToken = $request->bearerToken();
@@ -54,7 +50,7 @@ class NoteController extends Controller
 
         $authorId = $user?->id ?? $validated['author_id'] ?? $patient->primary_doctor_id;
         if (!$authorId) {
-            \Illuminate\Support\Facades\Log::warning('[MobileNote] Creating note without author_id — will be unowned', [
+            Log::warning('[MobileNote] Creating note without author_id — will be unowned', [
                 'patient_uuid' => $uuid,
             ]);
         }
@@ -73,7 +69,7 @@ class NoteController extends Controller
 
     public function update(Request $request, string $uuid, string $noteUuid)
     {
-        $patient = Patient::where('uuid', $uuid)->firstOrFail();
+        $patient = $this->resolvePatient($uuid);
         Gate::authorize('view', $patient);
 
         $note = PatientNote::where('uuid', $noteUuid)
@@ -96,7 +92,7 @@ class NoteController extends Controller
 
     public function destroy(Request $request, string $uuid, string $noteUuid)
     {
-        $patient = Patient::where('uuid', $uuid)->firstOrFail();
+        $patient = $this->resolvePatient($uuid);
 
         $note = PatientNote::where('uuid', $noteUuid)
             ->where('patient_id', $patient->id)
@@ -109,5 +105,33 @@ class NoteController extends Controller
         $note->delete();
 
         return response()->json(['message' => 'Note deleted successfully']);
+    }
+
+    private function resolvePatient(string $uuid): Patient
+    {
+        $patient = Patient::where('uuid', $uuid)->first();
+        if ($patient) {
+            return $patient;
+        }
+
+        $apiPatient = app(ApiPatientRepository::class)->find($uuid);
+        if (!$apiPatient) {
+            abort(404, 'Patient not found');
+        }
+
+        $cleanData = \Illuminate\Support\Arr::except($apiPatient, [
+            'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes',
+        ]);
+        $cleanData['sync_status'] = 'synced';
+
+        Patient::unguard();
+        $patient = Patient::updateOrCreate(['uuid' => $uuid], $cleanData);
+        Patient::reguard();
+
+        if (!$patient) {
+            abort(404, 'Patient not found');
+        }
+
+        return $patient;
     }
 }
