@@ -49,10 +49,10 @@ class NoteController extends Controller
         ]);
 
         try {
-            $noteData = [
-                'content' => $validated['content'],
-                'category' => $validated['category'] ?? null,
-            ];
+        $noteData = [
+            'content' => $validated['content'],
+            'category' => $validated['category'] ?? 'general',
+        ];
 
             if ($user) {
                 // ── Authenticated user (production server or online embedded Laravel) ──
@@ -175,8 +175,7 @@ class NoteController extends Controller
             [
                 'uuid' => $uuid,
                 'sync_status' => 'pending_sync',
-                'first_name' => 'Patient',
-                'last_name' => $uuid,
+                'name' => 'Patient (' . $uuid . ')',
             ]
         );
 

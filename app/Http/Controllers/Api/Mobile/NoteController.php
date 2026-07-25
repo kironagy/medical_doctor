@@ -114,23 +114,37 @@ class NoteController extends Controller
             return $patient;
         }
 
-        $apiPatient = app(ApiPatientRepository::class)->find($uuid);
-        if (!$apiPatient) {
-            abort(404, 'Patient not found');
+        try {
+            $apiPatient = app(ApiPatientRepository::class)->find($uuid);
+            if ($apiPatient) {
+                $cleanData = \Illuminate\Support\Arr::except($apiPatient, [
+                    'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes',
+                ]);
+                $cleanData['sync_status'] = 'synced';
+
+                Patient::unguard();
+                $patient = Patient::updateOrCreate(['uuid' => $uuid], $cleanData);
+                Patient::reguard();
+
+                if ($patient) {
+                    return $patient;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('resolvePatient API fallback failed', [
+                'uuid' => $uuid,
+                'error' => $e->getMessage(),
+            ]);
         }
 
-        $cleanData = \Illuminate\Support\Arr::except($apiPatient, [
-            'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes',
-        ]);
-        $cleanData['sync_status'] = 'synced';
-
-        Patient::unguard();
-        $patient = Patient::updateOrCreate(['uuid' => $uuid], $cleanData);
-        Patient::reguard();
-
-        if (!$patient) {
-            abort(404, 'Patient not found');
-        }
+        $patient = Patient::updateOrCreate(
+            ['uuid' => $uuid],
+            [
+                'uuid' => $uuid,
+                'sync_status' => 'pending_sync',
+                'name' => 'Patient (' . $uuid . ')',
+            ]
+        );
 
         return $patient;
     }

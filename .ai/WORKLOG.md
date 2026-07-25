@@ -1521,3 +1521,67 @@ User report: "when add new note he push req local but i turn on wifi and offline
 ## Documentation Updated
 
 - WORKLOG.md (this entry)
+
+---
+
+## Date
+
+2026-07-25
+
+## Time
+
+13:30
+
+## AI Model
+
+deepseek-v4-flash-free
+
+## Task
+
+Fix file upload 404 due to empty local SQLite — Patient `findOrFail()` fails when patient not in local database
+
+## Status
+
+Completed.
+
+## Files Changed
+
+- `app/Http/Controllers/Api/UploadsController.php` — added `ApiPatientRepository` import, replaced `Patient::findOrFail()` with `$this->resolvePatient()` API fallback
+- `app/Http/Controllers/Api/ChunkUploadController.php` — same fix as UploadsController
+- `resources/js/Components/workspace/CategoryBlock.vue` — offline path now passes UUID instead of numeric patient ID to `offlineUploadFile()`
+
+## Changes Made
+
+**UploadsController (start method)** and **ChunkUploadController (init method)**:
+- Added `use App\Repositories\Api\ApiPatientRepository`
+- Replaced `Patient::findOrFail()` / `Patient::where('uuid', ...)->firstOrFail()` with `$this->resolvePatient($request->patient_id)`
+- Added `resolvePatient()` private method: tries local SQLite first, falls back to `ApiPatientRepository::find()` against production server, then syncs the result into local SQLite via `updateOrCreate`
+
+**CategoryBlock.vue**:
+- Changed offline path to use `selectedPatient.value?.uuid` (UUID) instead of the numeric `patientId` when calling `offlineUploadFile()` — prevents `Patient::where('uuid', '180')->firstOrFail()` failure
+
+## Reason
+
+The app's local SQLite has 0 patients. When the frontend sends a file upload request with `patient_id: 180` (production MySQL ID), the embedded PHP server's `Patient::findOrFail(180)` throws `ModelNotFoundException`. The fix adds an API fallback — if the patient isn't found locally, it fetches from the production server and syncs it to local SQLite.
+
+## Related Issue
+
+User report: "when upload image he return No Query Results For model App/Domains/Patients/Models/Patient 180"
+
+## Risks
+
+- API call from `resolvePatient()` adds latency if patient not in local SQLite (cached after first access)
+- If production API is unreachable and patient not local, upload fails with clear error instead of 404
+- Gate authorization after API-fetched patient uses local copy — permission check should still work if user has permission on production
+
+## Testing
+
+✓ Reviewed both upload controllers — patient lookup now uses `resolvePatient()` with API fallback  
+✓ `resolvePatient()` handles both numeric ID and UUID input  
+✓ API-fetched patient is saved to local SQLite via `updateOrCreate` — subsequent lookups are instant  
+✓ CategoryBlock.vue offline path now passes UUID  
+✓ Online path unchanged — still sends `patient_id` as numeric ID (handled by `resolvePatient`'s `is_numeric()` branch)
+
+## Documentation Updated
+
+- WORKLOG.md (this entry)
