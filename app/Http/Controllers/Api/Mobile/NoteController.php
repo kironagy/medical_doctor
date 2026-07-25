@@ -35,6 +35,31 @@ class NoteController extends Controller
     public function store(Request $request, string $uuid)
     {
         Log::info('[MobileNote::store] ENTERED uuid=' . $uuid . ' user=' . ($request->user()?->id ?? 'null'));
+
+        // ═══════════════════════════════════════════════════════════════
+        //  CAPTURE BEARER TOKEN FROM FRONTEND
+        // ═══════════════════════════════════════════════════════════════
+        // The frontend sends the production API token in the Authorization
+        // header. We capture it here and store in ApiService so that the
+        // sync engine can use it to authenticate against the production
+        // server when uploading this note.
+        // Without this, the sync engine calls ApiService::getToken() which
+        // returns null, resulting in a 401 from the production server,
+        // and the note is NEVER created on production.
+        if (config('database.default') === 'sqlite') {
+            $bearerToken = $request->bearerToken();
+            if ($bearerToken) {
+                try {
+                    app(\App\Services\Mobile\ApiService::class)->setToken($bearerToken);
+                    Log::info('[MobileNote] Bearer token captured and stored in ApiService');
+                } catch (\Throwable $e) {
+                    Log::warning('[MobileNote] Failed to capture Bearer token: ' . $e->getMessage());
+                }
+            } else {
+                Log::warning('[MobileNote] No Bearer token in request — sync will fail with 401');
+            }
+        }
+
         $patient = $this->resolvePatient($uuid);
         // ── SQLite guard: Skip Gate when no authenticated user ──────────
         // On the embedded Laravel (SQLite), API routes have NO auth middleware.
@@ -51,7 +76,7 @@ class NoteController extends Controller
         ]);
 
         $user = $request->user();
-        $authorId = $user?->id ?? $validated['author_id'] ?? $patient->primary_doctor_id;
+        $authorId = $user?->id ?? $validated['author_id'] ?? $patient->primary_doctor_id ?? $patient->created_by_id ?? null;
         if (!$authorId) {
             Log::warning('[MobileNote] Creating note without author_id — will be unowned', [
                 'patient_uuid' => $uuid,
@@ -69,7 +94,7 @@ class NoteController extends Controller
             'patient_id'  => $patient->id,
             'author_id'   => $authorId,
             'uuid'        => (string) \Illuminate\Support\Str::uuid(),
-            'category'    => $validated['category'] ?? 'general',
+            'category'    => $validated['category'] ?? 'notes',
             'content'     => $validated['content'],
             'sync_status' => $isLocalSqlite ? 'pending_create' : 'synced',
         ]);
@@ -81,6 +106,20 @@ class NoteController extends Controller
 
     public function update(Request $request, string $uuid, string $noteUuid)
     {
+        // ═══════════════════════════════════════════════════════════════
+        //  CAPTURE BEARER TOKEN (same as store() — needed for sync engine)
+        // ═══════════════════════════════════════════════════════════════
+        if (config('database.default') === 'sqlite') {
+            $bearerToken = $request->bearerToken();
+            if ($bearerToken) {
+                try {
+                    app(\App\Services\Mobile\ApiService::class)->setToken($bearerToken);
+                } catch (\Throwable $e) {
+                    Log::warning('[MobileNote] Failed to capture Bearer token in update: ' . $e->getMessage());
+                }
+            }
+        }
+
         $patient = $this->resolvePatient($uuid);
         // ── SQLite guard: Skip Gate when no authenticated user ──────────
         if ($request->user()) {
@@ -114,6 +153,20 @@ class NoteController extends Controller
 
     public function destroy(Request $request, string $uuid, string $noteUuid)
     {
+        // ═══════════════════════════════════════════════════════════════
+        //  CAPTURE BEARER TOKEN (same as store() — needed for sync engine)
+        // ═══════════════════════════════════════════════════════════════
+        if (config('database.default') === 'sqlite') {
+            $bearerToken = $request->bearerToken();
+            if ($bearerToken) {
+                try {
+                    app(\App\Services\Mobile\ApiService::class)->setToken($bearerToken);
+                } catch (\Throwable $e) {
+                    Log::warning('[MobileNote] Failed to capture Bearer token in destroy: ' . $e->getMessage());
+                }
+            }
+        }
+
         $patient = $this->resolvePatient($uuid);
 
         $note = PatientNote::where('uuid', $noteUuid)

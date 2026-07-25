@@ -65,7 +65,7 @@ class OfflineNoteController extends Controller
                 'uuid'        => (string) Str::uuid(),
                 'author_id'   => $authorId,
                 'content'     => $validated['content'],
-                'category'    => $validated['category'] ?? 'general',
+                'category'    => $validated['category'] ?? 'notes',
                 'sync_status' => 'pending_create',
             ]);
 

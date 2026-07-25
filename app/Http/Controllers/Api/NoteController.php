@@ -35,7 +35,7 @@ class NoteController extends Controller
         try {
         $noteData = [
             'content' => $validated['content'],
-            'category' => $validated['category'] ?? 'general',
+            'category' => $validated['category'] ?? 'notes',
         ];
 
             if ($user) {

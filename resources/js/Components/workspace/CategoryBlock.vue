@@ -545,10 +545,17 @@ const categoryFiles = computed(() => {
   return allFiles.value.filter(f => f.category === props.slug)
 })
 const categoryNotes = computed(() => {
+  const localNotes = allNotes.value.filter(n => n.category === props.slug)
   if (initialLoadDone.value && serverNotes.value.length > 0) {
-    return serverNotes.value
+    // ── Merge: include new local notes not yet in serverNotes ──────
+    // This is the same pattern used by the `files` computed below.
+    // Without this merge, newly created notes are invisible because
+    // serverNotes is only refreshed on explicit loadCategoryData().
+    const serverUuids = new Set(serverNotes.value.map(n => n.uuid))
+    const newLocalNotes = localNotes.filter(n => !serverUuids.has(n.uuid))
+    return newLocalNotes.length > 0 ? [...newLocalNotes, ...serverNotes.value] : serverNotes.value
   }
-  return allNotes.value.filter(n => n.category === props.slug)
+  return localNotes
 })
 
 const filteredFilesRaw = computed(() => {

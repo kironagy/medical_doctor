@@ -807,6 +807,14 @@ async function submitNoteForm() {
     editingNote.value = null
     noteFormContent.value = ''
     refreshWorkspaceData()
+
+    // ── Trigger sync engine after note mutation ─────────────────────
+    // The note is saved locally with sync_status = 'pending_create'.
+    // Fire the full sync engine in the background so it gets pushed to
+    // the production server. Don't await — the note is already visible
+    // in the UI via refreshWorkspaceData().
+    axios.post('/_native/api/sync/engine', {}, { timeout: 120000 })
+      .catch(() => {}); // fire-and-forget
   } catch (e) {
     console.error('Note save failed', e)
     toast.error(t('common.error'))
