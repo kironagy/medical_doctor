@@ -122,6 +122,7 @@ import { ref, watch } from 'vue'
 import { useToast } from '@/Composables/useToast'
 import { useUploads } from '@/Composables/useUploads'
 import { useOfflineUploads } from '@/Composables/useOfflineUploads'
+import { useWorkspace } from '@/Composables/useWorkspace'
 import axios from 'axios'
 
 const props = defineProps({
@@ -136,6 +137,7 @@ const emit = defineEmits(['update:modelValue', 'saved'])
 const toast = useToast()
 const { uploadFile: onlineUploadFile } = useUploads()
 const { uploadFile: offlineUploadFile } = useOfflineUploads()
+const { addNoteLocally } = useWorkspace()
 
 const activeTab = ref('text')
 const notes = ref('')
@@ -189,20 +191,30 @@ async function submit() {
     try {
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true
       const token = localStorage.getItem('np_api_token')
+      let createdNote
       if (online) {
-        await axios.post(`/api/v1/mobile/patients/${props.patient.uuid}/notes`, {
+        const res = await axios.post(`/api/v1/mobile/patients/${props.patient.uuid}/notes`, {
           content: notes.value,
           category: props.categorySlug,
         }, {
           headers: token ? { Authorization: 'Bearer ' + token } : {},
         })
+        createdNote = res.data
       } else {
         // Offline: save note locally via offline endpoint
-        await axios.post('/_native/api/offline/notes', {
+        const res = await axios.post('/_native/api/offline/notes', {
           content: notes.value,
           category: props.categorySlug,
           patient_uuid: props.patient.uuid,
         })
+        createdNote = res.data
+      }
+      // ── Insert the created note into local workspace data IMMEDIATELY ──
+      // refreshWorkspaceData() fetches from the PRODUCTION server which
+      // doesn't have the new note yet. Without this, the note is invisible
+      // until sync uploads it to production and the workspace refreshes.
+      if (createdNote?.uuid) {
+        addNoteLocally(createdNote)
       }
       toast.success('تمت إضافة الملاحظة بنجاح')
       emit('saved')

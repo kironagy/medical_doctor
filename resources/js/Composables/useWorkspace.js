@@ -348,6 +348,47 @@ function removeFileLocally(fileUuid) {
     workspaceData.value = { ...workspaceData.value };
 }
 
+/**
+ * Add a created note to the local workspace data immediately.
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ *  WHY THIS IS NEEDED
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ * On the embedded Laravel, the RequestRouter sends:
+ *   - POST /api/v1/mobile/patients/{uuid}/notes  → LOCAL_PHP  (201 Created ✅)
+ *   - GET  /api/v1/workspace/{uuid}               → EXTERNAL   (production ❌)
+ *
+ * So when AddRecordModal creates a note (LOCAL_PHP, 201), then
+ * refreshWorkspaceData() fetches from the PRODUCTION server which
+ * doesn't have the new note yet. The production response replaces
+ * workspaceData.value with data that excludes the new note.
+ *
+ * Without this function, the note is invisible until the sync engine
+ * uploads it to production AND the workspace endpoint is re-polled.
+ */
+function addNoteLocally(note) {
+    if (!note?.uuid) return;
+    if (!workspaceData.value) {
+        workspaceData.value = {
+            files: [],
+            notes: [note],
+            visits: [],
+            shares: [],
+            categories: [],
+            stats: {},
+        };
+        return;
+    }
+    if (!workspaceData.value.notes) workspaceData.value.notes = [];
+    // Prevent duplicate
+    const existingIndex = workspaceData.value.notes.findIndex(n => n.uuid === note.uuid);
+    if (existingIndex === -1) {
+        workspaceData.value.notes = [note, ...workspaceData.value.notes];
+    }
+    workspaceData.value = { ...workspaceData.value };
+}
+
 function upsertPatient(patient) {
     if (!patient?.uuid) return;
     const existingIndex = patients.value.findIndex(
@@ -918,6 +959,7 @@ export function useWorkspace() {
         closePatient,
         refreshWorkspaceData,
         addFileLocally,
+        addNoteLocally,
         updateFileLocally,
         removeFileLocally,
         reloadPatientData,
