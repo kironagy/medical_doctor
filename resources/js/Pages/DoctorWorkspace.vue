@@ -754,7 +754,15 @@ async function deleteNote(note) {
   })
   if (!confirmed) return
   try {
-    await axios.delete(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`)
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+    const token = localStorage.getItem('np_api_token')
+    if (online) {
+      await axios.delete(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`, {
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
+      })
+    } else {
+      await axios.delete(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`)
+    }
     refreshWorkspaceData()
     toast.success(t('common.success'))
   } catch (e) {
@@ -766,15 +774,33 @@ async function deleteNote(note) {
 async function submitNoteForm() {
   if (!noteFormContent.value || !selectedPatient.value?.uuid) return
   try {
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+    const token = localStorage.getItem('np_api_token')
     if (editingNote.value) {
-      await axios.put(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${editingNote.value.uuid}`, {
-        content: noteFormContent.value,
-      })
+      if (online) {
+        await axios.put(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${editingNote.value.uuid}`, {
+          content: noteFormContent.value,
+        }, {
+          headers: token ? { Authorization: 'Bearer ' + token } : {},
+        })
+      } else {
+        await axios.put(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${editingNote.value.uuid}`, {
+          content: noteFormContent.value,
+        })
+      }
       toast.success(t('workspace.note_updated'))
     } else {
-      await axios.post(`/api/v1/patients/${selectedPatient.value.uuid}/notes`, {
-        content: noteFormContent.value,
-      })
+      if (online) {
+        await axios.post(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes`, {
+          content: noteFormContent.value,
+        }, {
+          headers: token ? { Authorization: 'Bearer ' + token } : {},
+        })
+      } else {
+        await axios.post(`/api/v1/patients/${selectedPatient.value.uuid}/notes`, {
+          content: noteFormContent.value,
+        })
+      }
       toast.success(t('workspace.note_added'))
     }
     showNoteModal.value = false

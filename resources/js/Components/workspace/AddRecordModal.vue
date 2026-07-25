@@ -188,10 +188,13 @@ async function submit() {
     saving.value = true
     try {
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+      const token = localStorage.getItem('np_api_token')
       if (online) {
-        await axios.post(`/api/v1/patients/${props.patient.uuid}/notes`, {
+        await axios.post(`/api/v1/mobile/patients/${props.patient.uuid}/notes`, {
           content: notes.value,
           category: props.categorySlug,
+        }, {
+          headers: token ? { Authorization: 'Bearer ' + token } : {},
         })
       } else {
         // Offline: save note locally via offline endpoint

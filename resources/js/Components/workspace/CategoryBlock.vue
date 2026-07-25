@@ -1070,11 +1070,23 @@ async function submitNote() {
     return
   }
   try {
-    trace('[TRACE_N2] axios.post to /api/v1/patients/' + selectedPatient.value.uuid + '/notes')
-    await axios.post(`/api/v1/patients/${selectedPatient.value.uuid}/notes`, {
-      content: noteContent.value,
-      category: props.slug,
-    })
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+    if (online) {
+      const token = localStorage.getItem('np_api_token')
+      trace('[TRACE_N2] ONLINE - POST to production API /api/v1/mobile/patients/' + selectedPatient.value.uuid + '/notes')
+      await axios.post(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes`, {
+        content: noteContent.value,
+        category: props.slug,
+      }, {
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
+      })
+    } else {
+      trace('[TRACE_N2b] OFFLINE - POST to embedded Laravel /api/v1/patients/' + selectedPatient.value.uuid + '/notes')
+      await axios.post(`/api/v1/patients/${selectedPatient.value.uuid}/notes`, {
+        content: noteContent.value,
+        category: props.slug,
+      })
+    }
     trace('[TRACE_N7] Note POST succeeded!')
     showCategoryMenu.value = false
     showNoteModal.value = false
@@ -1201,7 +1213,15 @@ async function deleteNoteDirectly(note) {
   })
   if (!confirmed) return
   try {
-    await axios.delete(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`)
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+    const token = localStorage.getItem('np_api_token')
+    if (online) {
+      await axios.delete(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`, {
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
+      })
+    } else {
+      await axios.delete(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`)
+    }
     refreshWorkspaceData()
     toast.success('تم حذف الملاحظة بنجاح')
   } catch (e) {

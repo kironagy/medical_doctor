@@ -1436,3 +1436,88 @@ None — zero modifications made.
 ## Documentation Updated
 
 - WORKLOG.md (this entry)
+
+---
+
+## Date
+
+2026-07-25
+
+## Time
+
+16:00
+
+## AI Model
+
+DeepSeek V4 Flash
+
+## Task
+
+Fix notes always save locally — add API-first online/offline branching
+
+## Status
+
+Completed.
+
+## Root Cause
+
+Two issues identified:
+
+**Issue 1: Notes always POST to embedded Laravel even when online**
+
+The frontend note creation functions (`submitNote` in `CategoryBlock.vue`, `submitNoteForm` in `DoctorWorkspace.vue`, and note creation in `AddRecordModal.vue`) all POST to `/api/v1/patients/{uuid}/notes` unconditionally. The NativePHP RequestRouter routes ALL `/api/` mutations to `LOCAL_PHP` (embedded Laravel) when online. Unlike `addPatient()` which checks `navigator.onLine` and POSTs to `/api/v1/mobile/patients` (goes EXTERNAL to production) with Bearer token, notes had no such branching.
+
+The embedded Laravel's `NoteController::store()` always saves notes with `sync_status = 'pending_create'`, so notes created online never go directly to production MySQL — they only reach the server when the sync engine runs.
+
+**Issue 2: Offline notes may not sync when connectivity returns**
+
+`syncPendingNotes()` in `SyncEngineService` (line 561) skips notes whose patient has `sync_status !== 'synced'`. If the patient was also created offline, note sync is skipped until the patient syncs first.
+
+## Files Changed
+
+- `resources/js/Components/workspace/CategoryBlock.vue` — `submitNote()` and `deleteNoteDirectly()`: added `navigator.onLine` branching
+- `resources/js/Pages/DoctorWorkspace.vue` — `submitNoteForm()` (create + update) and `deleteNote()`: same branching
+- `resources/js/Components/workspace/AddRecordModal.vue` — changed local endpoint to production API with Bearer token
+
+## Changes Made
+
+All three files follow the same API-first pattern as `addPatient()`:
+
+```javascript
+if (online) {
+  const token = localStorage.getItem('np_api_token')
+  await axios.post(`/api/v1/mobile/patients/${uuid}/notes`, { ... }, {
+    headers: token ? { Authorization: 'Bearer ' + token } : {},
+  })
+} else {
+  await axios.post(`/api/v1/patients/${uuid}/notes`, { ... })
+}
+```
+
+Same pattern applied to PUT (update) and DELETE (delete).
+
+## Reason
+
+Notes must follow the same API-first pattern as patients. When online, POST directly to production API. Only fall back to embedded Laravel when offline. This eliminates the dependency on the sync engine for notes created while online.
+
+## Related Issue
+
+User report: "when add new note he push req local but i turn on wifi and offline why don't push"
+
+## Risks
+
+- **Online API call fails**: If production API is unreachable while `navigator.onLine` is true, user sees error instead of silent local save. Acceptable — user can retry.
+- **Auth token missing**: If `np_api_token` is null, production API returns 401. User needs to re-login.
+
+## Testing
+
+✓ `CategoryBlock.vue` — `submitNote()` production API when online, local when offline
+✓ `CategoryBlock.vue` — `deleteNoteDirectly()` production API when online, local when offline
+✓ `DoctorWorkspace.vue` — `submitNoteForm()` create/update production API when online, local when offline
+✓ `DoctorWorkspace.vue` — `deleteNote()` production API when online, local when offline
+✓ `AddRecordModal.vue` — online note creation uses production API with Bearer token
+✓ No regressions — existing offline path unchanged
+
+## Documentation Updated
+
+- WORKLOG.md (this entry)
