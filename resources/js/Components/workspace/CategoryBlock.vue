@@ -444,7 +444,8 @@ const uploadFile = (file, patientId, options) => {
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
   if (!isOnline && typeof offlineUploadFile === 'function') {
     trace('[TRACE_F2] OFFLINE - calling offlineUploadFile() from useOfflineUploads')
-    return offlineUploadFile(file, patientId, options);
+    const patientUuid = selectedPatient.value?.uuid || patientId
+    return offlineUploadFile(file, patientUuid, options);
   }
   if (typeof onlineUploadFile === 'function') {
     trace('[TRACE_F2b] ONLINE - calling onlineUploadFile() from useUploads')
@@ -1064,30 +1065,17 @@ async function addNote() {
 }
 
 async function submitNote() {
-  trace('[TRACE_N1] CategoryBlock.submitNote() ENTERED - patient: ' + selectedPatient.value?.uuid + ' content length: ' + noteContent.value?.length)
   if (!noteContent.value || !selectedPatient.value?.id) {
-    trace('[TRACE_N1b] Missing noteContent or patient, returning')
     return
   }
   try {
-    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
-    if (online) {
-      const token = localStorage.getItem('np_api_token')
-      trace('[TRACE_N2] ONLINE - POST to production API /api/v1/mobile/patients/' + selectedPatient.value.uuid + '/notes')
-      await axios.post(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes`, {
-        content: noteContent.value,
-        category: props.slug,
-      }, {
-        headers: token ? { Authorization: 'Bearer ' + token } : {},
-      })
-    } else {
-      trace('[TRACE_N2b] OFFLINE - POST to embedded Laravel /api/v1/patients/' + selectedPatient.value.uuid + '/notes')
-      await axios.post(`/api/v1/patients/${selectedPatient.value.uuid}/notes`, {
-        content: noteContent.value,
-        category: props.slug,
-      })
-    }
-    trace('[TRACE_N7] Note POST succeeded!')
+    const token = localStorage.getItem('np_api_token')
+    await axios.post(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes`, {
+      content: noteContent.value,
+      category: props.slug,
+    }, {
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+    })
     showCategoryMenu.value = false
     showNoteModal.value = false
     noteContent.value = ''

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Repositories\Api\ApiPatientRepository;
 use App\Services\Upload\UploadSessionService;
 use App\Services\Upload\ChunkUploadService;
 use App\Services\Upload\ChunkMergeService;
@@ -43,9 +44,7 @@ class ChunkUploadController extends Controller
             'metadata.date' => 'sometimes|nullable|date',
         ]);
 
-        $patient = is_numeric($request->patient_id)
-            ? Patient::findOrFail((int) $request->patient_id)
-            : Patient::where('uuid', $request->patient_id)->firstOrFail();
+        $patient = $this->resolvePatient($request->patient_id);
 
         if ($request->user()->cannot('view', $patient)) {
             return response()->json(['message' => 'Forbidden'], 403);
@@ -238,5 +237,55 @@ class ChunkUploadController extends Controller
                 'uuid' => $uuid,
             ], 500);
         }
+    }
+
+    private function resolvePatient(string|int $patientId): Patient
+    {
+        $patient = is_numeric($patientId)
+            ? Patient::find((int) $patientId)
+            : Patient::where('uuid', $patientId)->first();
+
+        if ($patient) {
+            return $patient;
+        }
+
+        try {
+            $uuid = is_numeric($patientId) ? null : $patientId;
+            $apiPatient = app(ApiPatientRepository::class)->find($uuid ?? $patientId);
+
+            if ($apiPatient) {
+                $clean = collect($apiPatient)->only([
+                    'uuid', 'first_name', 'last_name', 'date_of_birth',
+                    'gender', 'phone', 'email', 'address', 'notes',
+                ])->toArray();
+
+                Patient::unguard();
+                $patient = Patient::updateOrCreate(['uuid' => $apiPatient['uuid']], $clean);
+                Patient::reguard();
+
+                if ($patient) {
+                    return $patient;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('resolvePatient API fallback failed', [
+                'patient_id' => $patientId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        Patient::unguard();
+        $patient = Patient::updateOrCreate(
+            ['uuid' => $patientId],
+            [
+                'uuid' => $patientId,
+                'sync_status' => 'pending_sync',
+                'first_name' => 'Patient',
+                'last_name' => $patientId,
+            ]
+        );
+        Patient::reguard();
+
+        return $patient;
     }
 }
