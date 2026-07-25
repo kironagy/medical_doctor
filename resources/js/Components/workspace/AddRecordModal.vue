@@ -193,7 +193,17 @@ async function submit() {
       const token = localStorage.getItem('np_api_token')
       let createdNote
       if (online) {
-        const res = await axios.post(`/api/v1/mobile/patients/${props.patient.uuid}/notes`, {
+        // ── ONLINE: POST directly to PRODUCTION API (EXTERNAL) ──────
+        // The URL /api/v1/patients/{uuid}/notes routes EXTERNAL via the
+        // RequestRouter, hitting the production server's Api\NoteController.
+        // The production server has the patient (created there), so no
+        // local SQLite dependency. The note is created directly in MySQL.
+        //
+        // Previously used /api/v1/mobile/patients/{uuid}/notes which routes
+        // LOCAL_PHP — but when the patient was created on production only
+        // (not in local SQLite), the Mobile\NoteController's resolvePatient()
+        // API fallback could fail, and the note was never saved.
+        const res = await axios.post(`/api/v1/patients/${props.patient.uuid}/notes`, {
           content: notes.value,
           category: props.categorySlug,
         }, {
@@ -201,7 +211,11 @@ async function submit() {
         })
         createdNote = res.data
       } else {
-        // Offline: save note locally via offline endpoint
+        // ── OFFLINE: save note locally via LOCAL_PHP ────────────────
+        // The URL /_native/api/offline/notes bypasses the RequestRouter
+        // and goes directly to the embedded Laravel. The OfflineNoteController
+        // creates the note in local SQLite with sync_status = 'pending_create'.
+        // Later, the SyncEngine picks it up and uploads to production.
         const res = await axios.post('/_native/api/offline/notes', {
           content: notes.value,
           category: props.categorySlug,
@@ -210,11 +224,18 @@ async function submit() {
         createdNote = res.data
       }
       // ── Insert the created note into local workspace data IMMEDIATELY ──
-      // refreshWorkspaceData() fetches from the PRODUCTION server which
-      // doesn't have the new note yet. Without this, the note is invisible
-      // until sync uploads it to production and the workspace refreshes.
       if (createdNote?.uuid) {
+        console.log('DEBUG_NOTE_SHOW addNoteLocally called for uuid:', createdNote.uuid, 'category:', createdNote.category, 'content:', (createdNote.content||'').substring(0,30))
         addNoteLocally(createdNote)
+        // After insertion, verify it's in workspaceData
+        try {
+          const { workspaceData } = useWorkspace()
+          const notesCount = (workspaceData.value?.notes || []).length
+          const matches = (workspaceData.value?.notes || []).filter(n => n.uuid === createdNote.uuid).length
+          console.log('DEBUG_NOTE_SHOW after addNoteLocally - totalNotes:', notesCount, 'ourNoteFound:', matches > 0 ? 'YES' : 'NO')
+        } catch(e) { console.log('DEBUG_NOTE_SHOW verify error:', e.message) }
+      } else {
+        console.log('DEBUG_NOTE_SHOW createdNote missing uuid! Response keys:', Object.keys(createdNote||{}).join(','))
       }
       toast.success('تمت إضافة الملاحظة بنجاح')
       emit('saved')

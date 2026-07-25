@@ -265,10 +265,39 @@ function closePatient() {
 function refreshWorkspaceData() {
     if (selectedPatientId.value) {
         loadingPatient.value = true;
+        // ═══════════════════════════════════════════════════════════════
+        //  Snapshot locally-added pending notes BEFORE fetch
+        // ═══════════════════════════════════════════════════════════════
+        // The GET /api/v1/workspace/{uuid} request is sent to the
+        // PRODUCTION server (EXTERNAL) by the RequestRouter. It returns
+        // data that does NOT include local pending notes. The subsequent
+        // workspaceData.value = res.data would OVERWRITE any notes
+        // inserted by addNoteLocally(), making them invisible.
+        //
+        // We snapshot these pending notes now and re-insert them after
+        // the production response arrives, ensuring they stay visible
+        // until the sync engine uploads them and production returns them.
+        const pendingLocalNotes = (workspaceData.value?.notes || [])
+            .filter(n => n.sync_status === 'pending_create')
+            .map(n => ({ ...n }));
+
         axios
             .get(`/api/v1/workspace/${selectedPatientId.value}`)
             .then((res) => {
                 workspaceData.value = res.data;
+                // ── Re-insert pending local notes ────────────────────
+                // The production response doesn't include notes still
+                // pending_create locally. We merge them back so they
+                // remain visible in the UI.
+                if (pendingLocalNotes.length > 0 && workspaceData.value) {
+                    const serverUuids = new Set((workspaceData.value.notes || []).map(n => n.uuid));
+                    const missingLocal = pendingLocalNotes.filter(n => !serverUuids.has(n.uuid));
+                    if (missingLocal.length > 0) {
+                        if (!workspaceData.value.notes) workspaceData.value.notes = [];
+                        workspaceData.value.notes = [...missingLocal, ...workspaceData.value.notes];
+                        workspaceData.value = { ...workspaceData.value };
+                    }
+                }
             })
             .catch(() => {
                 workspaceData.value = null;

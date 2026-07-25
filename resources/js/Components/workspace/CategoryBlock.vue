@@ -364,7 +364,7 @@
     :patient="selectedPatient"
     :categorySlug="slug"
     :initialTab="addRecordModalTab"
-    @saved="refreshWorkspaceData"
+
   />
 
   <!-- View Note Content Modal -->
