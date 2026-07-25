@@ -127,8 +127,38 @@ class PatientController extends Controller
             \Illuminate\Support\Facades\Log::info('[INSTRUMENT] PatientController::store() - creating patient', [
                 'formData_uuid' => $validated['uuid'] ?? 'NOT_PROVIDED',
                 'name' => $validated['name'] ?? 'unknown',
-                'is_nativephp' => env('NATIVEPHP_APP_ID') ? 'YES' : 'NO',
+                'is_nativephp' => config('database.default') === 'sqlite' ? 'YES' : 'NO',
             ]);
+
+            // ═══════════════════════════════════════════════════════════════
+            //  CAPTURE BEARER TOKEN FROM FRONTEND
+            // ═══════════════════════════════════════════════════════════════
+            // The frontend (addPatient() in useWorkspace.js) sends the
+            // production API token in the Authorization header:
+            //   Authorization: Bearer {token}
+            //
+            // On the EMBEDDED LARAVEL (SQLite), this token is NOT used for
+            // authentication (auth:sanctum middleware is disabled). Instead,
+            // we capture it here and store it in ApiService so that the sync
+            // engine can use it when making authenticated requests to the
+            // PRODUCTION server.
+            //
+            // Without this, the sync engine calls ApiService::getToken()
+            // which returns null, resulting in a 401 from the production
+            // server, and the patient NEVER gets created on production.
+            if (config('database.default') === 'sqlite') {
+                $bearerToken = $request->bearerToken();
+                if ($bearerToken) {
+                    try {
+                        app(\App\Services\Mobile\ApiService::class)->setToken($bearerToken);
+                        \Illuminate\Support\Facades\Log::info('[MobilePatient] Bearer token captured and stored in ApiService');
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning('[MobilePatient] Failed to capture Bearer token: ' . $e->getMessage());
+                    }
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('[MobilePatient] No Bearer token in request — sync will fail with 401');
+                }
+            }
 
             $patient = Patient::create($validated);
 
@@ -153,7 +183,7 @@ class PatientController extends Controller
             // Without this, the patient would NOT appear in the refresh
             // response and would disappear from the UI about 1 second
             // after creation.
-            if (env('NATIVEPHP_APP_ID')) {
+            if (config('database.default') === 'sqlite') {
                 $patient->update(['sync_status' => 'pending_create']);
                 \Illuminate\Support\Facades\Log::info('[INSTRUMENT] PatientController::store() - sync_status set to pending_create', [
                     'patient_uuid' => $patient->uuid,
