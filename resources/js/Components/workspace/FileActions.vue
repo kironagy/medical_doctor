@@ -58,12 +58,8 @@
             <div class="flex items-center gap-4 mb-4 pb-4 border-b border-slate-100 dark:border-slate-800">
               <div class="w-14 h-14 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden shrink-0 relative">
                 <img v-if="file.thumbnail_url" :src="file.thumbnail_url" loading="lazy" decoding="async" class="w-full h-full object-cover absolute inset-0 z-0" @error="e => {
-                  const relativeUrl = '/api/v1/files/' + file.uuid + '/thumbnail';
-                  if (!e.target.src.endsWith(relativeUrl)) {
-                    e.target.src = relativeUrl;
-                  } else {
-                    e.target.style.display='none';
-                  }
+                  // Fast fallback: hide broken image immediately, show icon underneath
+                  e.target.style.display='none';
                 }" />
                 <div class="w-full h-full flex items-center justify-center z-10 bg-slate-100 dark:bg-slate-800">
                   <img v-if="file.mime_type?.startsWith('image/')" :src="file.url" loading="lazy" decoding="async" class="w-full h-full object-cover" />

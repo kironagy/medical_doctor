@@ -159,13 +159,9 @@
                     </div>
                   </template>
                   <template v-else>
-                    <img v-if="item.thumbnail_url" :src="item.thumbnail_url" class="object-cover w-full h-full absolute inset-0 z-0" @click="openPreview(item, serverFiles, (page) => loadMoreForPreview(page))" @error="e => {
-                      const relativeUrl = '/api/v1/files/' + item.uuid + '/thumbnail';
-                      if (!e.target.src.endsWith(relativeUrl)) {
-                        e.target.src = relativeUrl;
-                      } else {
-                        e.target.style.display='none';
-                      }
+                    <img v-if="item.thumbnail_url" :src="item.thumbnail_url" class="object-cover w-full h-full absolute inset-0 z-0" loading="lazy" @click="openPreview(item, serverFiles, (page) => loadMoreForPreview(page))" @error="e => {
+                      // Fast fallback: hide broken image immediately, show icon underneath
+                      e.target.style.display='none';
                     }" />
 
                     <!-- Fallback / Play icon overlay for Video -->
