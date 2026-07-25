@@ -36,7 +36,10 @@ class AppServiceProvider extends ServiceProvider
         PatientFile::observe(PatientFileObserver::class);
 
         // Only run on NativePHP (mobile) environment
-        if (env('NATIVEPHP_APP_ID')) {
+        // Use database driver check (SQLite = embedded, MySQL = production)
+        // instead of env('NATIVEPHP_APP_ID') which can be accidentally set
+        // on the production server (breaking all mobile auth).
+        if (config('database.default') === 'sqlite') {
             $this->runMigrationsIfNeeded();
         }
     }

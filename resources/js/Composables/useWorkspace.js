@@ -382,6 +382,7 @@ function navigateTo(path) {
 
 async function addPatient(formData) {
     trace('[TRACE_P3] useWorkspace.addPatient() ENTERED')
+    console.log('[INSTRUMENT] addPatient called with formData keys:', Object.keys(formData || {}).join(','), 'formData.uuid:', formData?.uuid || 'NOT PROVIDED');
     loading.value = true;
     try {
         const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
@@ -397,11 +398,23 @@ async function addPatient(formData) {
             res = await axios.post('/api/v1/workspace/patients', formData);
         }
         trace('[TRACE_P8] axios.post response status: ' + res.status + ' data: ' + JSON.stringify(res.data).substring(0, 500))
+        console.log('[INSTRUMENT] addPatient POST response status:', res.status);
         const patient = res.data?.patient || res.data;
+        console.log('[INSTRUMENT] addPatient - patient from response:', JSON.stringify({
+            uuid: patient?.uuid,
+            name: patient?.name,
+            code: patient?.code,
+            id: patient?.id,
+            sync_status: patient?.sync_status,
+            all_keys: Object.keys(patient || {}).join(','),
+            created_at: patient?.created_at,
+        }));
         console.log('[DIAG] addPatient - patient.uuid:', patient?.uuid, 'has keys:', Object.keys(patient || {}).join(','))
         if (patient?.uuid) {
+            console.log('[INSTRUMENT] addPatient - patients.value BEFORE upsertPatient count:', patients.value.length, 'ids:', patients.value.map(p => p.uuid).join(','));
             console.log('[DIAG] addPatient - CALLING upsertPatient for uuid:', patient.uuid)
             upsertPatient(patient);
+            console.log('[INSTRUMENT] addPatient - patients.value AFTER upsertPatient count:', patients.value.length, 'ids:', patients.value.map(p => p.uuid).join(','));
             selectedPatientId.value = patient.uuid;
             workspaceData.value = {
                 ...(workspaceData.value || {}),
@@ -498,10 +511,11 @@ async function refreshPatientList(page = 1) {
         // Without this step, the server doesn't know about them and returns
         // an incomplete list, causing pending patients to disappear.
         try {
+            console.log('[INSTRUMENT] refreshPatientList STEP 1: POST /_native/api/sync/patients starting...');
             const syncRes = await axios.post('/_native/api/sync/patients', {}, { timeout: 60000 });
-            console.log('[Sync] Pending patients synced:', syncRes.data?.message);
+            console.log('[INSTRUMENT] refreshPatientList STEP 1 COMPLETE:', syncRes.data);
         } catch (syncErr) {
-            console.log('[Sync] Sync endpoint note:', syncErr.message);
+            console.log('[INSTRUMENT] refreshPatientList STEP 1 FAILED:', syncErr.message, syncErr.response?.data || '');
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -517,26 +531,27 @@ async function refreshPatientList(page = 1) {
         // restart. We need to query the local SQLite to find them.
         let sqlitePending = [];
         try {
+            console.log('[INSTRUMENT] refreshPatientList STEP 2: GET /_native/api/patients/pending starting...');
             const pendingRes = await axios.get('/_native/api/patients/pending');
             sqlitePending = pendingRes.data?.data || [];
-            if (sqlitePending.length > 0) {
-                console.log('[Sync] Loaded', sqlitePending.length, 'pending patients from local SQLite:', sqlitePending.map(p => p.name + '(' + (p.sync_status || '?') + ')').join(', '));
-            }
+            console.log('[INSTRUMENT] refreshPatientList STEP 2 COMPLETE: count=', sqlitePending.length, 'uuids=', sqlitePending.map(p => p.uuid + '(' + (p.sync_status || '?') + ')').join(','));
         } catch (e) {
-            console.log('[Sync] Could not load pending from SQLite:', e.message);
+            console.log('[INSTRUMENT] refreshPatientList STEP 2 FAILED:', e.message);
         }
 
         // ═══════════════════════════════════════════════════════════════
         //  STEP 3: Fetch patient list from API
         // ═══════════════════════════════════════════════════════════════
         const url = "/api/v1/workspace/patients-list";
+        console.log('[INSTRUMENT] refreshPatientList STEP 3: GET ' + url + ' page=' + page + ' starting...');
         const res = await axios.get(url, {
             params: { page },
         });
         const count = res.data?.data?.length || 0;
         const total = res.data?.meta?.total || 0;
         const firstUuid = res.data?.data?.[0]?.uuid || 'none';
-        console.log('[DIAG] refreshPatientList - count:', count, 'total:', total, 'first uuid:', firstUuid, 'has pending_create:', res.data?.data?.some(p => p.sync_status === 'pending_create'))
+        console.log('[INSTRUMENT] refreshPatientList STEP 3 COMPLETE: count=' + count + ' total=' + total + ' first_uuid=' + firstUuid);
+        console.log('[INSTRUMENT] refreshPatientList STEP 3 API response uuids:', (res.data?.data || []).map(p => p.uuid + '(' + (p.sync_status || '?') + ')').join(','));
 
         if (res.data?.data) {
             // ═══════════════════════════════════════════════════════════
@@ -578,9 +593,8 @@ async function refreshPatientList(page = 1) {
             }
 
             const localPending = Array.from(localPendingMap.values());
-            if (localPending.length > 0) {
-                console.log('[DIAG] refreshPatientList - preserving', localPending.length, 'local pending patients not in API response:', localPending.map(p => p.name + '(' + p.sync_status + ')').join(', '));
-            }
+            console.log('[INSTRUMENT] refreshPatientList STEP 4 merge - localPending count:', localPending.length, 'uuids:', localPending.map(p => p.uuid + '(' + (p.sync_status || '?') + ')').join(','));
+            console.log('[INSTRUMENT] refreshPatientList STEP 4 merge - apiUuids:', Array.from(apiUuids).join(','));
 
             // ── UNIVERSAL SAFETY NET: Preserve ANY patient from backup
             //    that is missing from the merged result.
@@ -596,18 +610,19 @@ async function refreshPatientList(page = 1) {
                 ...res.data.data.map(p => p.uuid),
             ]);
             const preservedPatients = [];
+            console.log('[INSTRUMENT] refreshPatientList STEP 4 safety net - checking', allPatientsBackup.size, 'backup patients against', finalUuids.size, 'final UUIDs');
             for (const [uuid, patient] of allPatientsBackup) {
                 if (!finalUuids.has(uuid)) {
                     const isPendingDelete = (patient.sync_status ?? 'synced') === 'pending_delete';
                     console.warn(
-                        isPendingDelete ? '[DIAG]' : '[DIAG] refreshPatientList - SAFETY NET: preserving missing patient (not in API response)',
+                        isPendingDelete ? '[INSTRUMENT]' : '[INSTRUMENT] SAFETY NET: preserving missing patient',
                         {
                             uuid: patient.uuid,
                             name: patient.name,
                             sync_status: patient.sync_status,
                             reason: isPendingDelete
-                                ? 'Patient was marked pending_delete — not added back'
-                                : 'Patient was in pre-refresh snapshot but not in API response or localPending',
+                                ? 'pending_delete'
+                                : 'missing from finalUuids',
                         }
                     );
                     if (!isPendingDelete) {
@@ -616,11 +631,29 @@ async function refreshPatientList(page = 1) {
                 }
             }
             if (preservedPatients.length > 0) {
-                console.log('[DIAG] refreshPatientList - SAFETY NET preserved', preservedPatients.length, 'patients:', preservedPatients.map(p => p.name + '(' + p.uuid + ',' + (p.sync_status || 'none') + ')').join(', '));
+                console.log('[INSTRUMENT] refreshPatientList STEP 4 safety net - PRESERVED', preservedPatients.length, 'patients:', preservedPatients.map(p => p.name + '(' + p.uuid + ',' + (p.sync_status || 'none') + ')').join(', '));
+            } else {
+                console.log('[INSTRUMENT] refreshPatientList STEP 4 safety net - nothing to preserve');
             }
+
+            console.log('[INSTRUMENT] refreshPatientList FINAL patients.value assignment:', {
+                localPending_count: localPending.length,
+                preservedPatients_count: preservedPatients.length,
+                apiData_count: res.data.data.length,
+                total: localPending.length + preservedPatients.length + res.data.data.length,
+            });
 
             patients.value = [...localPending, ...preservedPatients, ...res.data.data];
             patientsMeta.value = res.data.meta;
+
+            // Verify the new patient is in the final list
+            const allNewUuids = patients.value.map(p => p.uuid);
+            for (const [uuid,] of allPatientsBackup) {
+                if (!allNewUuids.includes(uuid)) {
+                    console.error('[INSTRUMENT] CRITICAL: Patient LOST during refresh, uuid:', uuid);
+                }
+            }
+            console.log('[INSTRUMENT] refreshPatientList COMPLETE - final patient count:', patients.value.length);
         }
     } catch (e) {
         console.error("[PatientSidebar] Failed to refresh patient list", e);

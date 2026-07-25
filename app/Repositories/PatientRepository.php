@@ -129,10 +129,22 @@ class PatientRepository implements PatientRepositoryInterface
     {
         $pendingPatients = \App\Domains\Patients\Models\Patient::whereIn('sync_status', ['pending_create', 'pending_update'])->get();
 
+        Log::info('[INSTRUMENT] syncPendingPatients() - found ' . count($pendingPatients) . ' pending patients', [
+            'uuids' => $pendingPatients->pluck('uuid')->toArray(),
+            'sync_statuses' => $pendingPatients->pluck('sync_status')->toArray(),
+        ]);
+
         foreach ($pendingPatients as $patient) {
             try {
                 $data = $patient->toArray();
                 unset($data['id'], $data['sync_status'], $data['client_updated_at'], $data['deleted_at']);
+
+                Log::info('[INSTRUMENT] syncPendingPatients() - syncing patient', [
+                    'local_uuid' => $patient->uuid,
+                    'name' => $patient->name,
+                    'sync_status' => $patient->sync_status,
+                    'data_has_uuid' => isset($data['uuid']) ? $data['uuid'] : 'MISSING',
+                ]);
 
                 if ($patient->sync_status === 'pending_create') {
                     $apiData = $this->api->create($data);
@@ -142,7 +154,22 @@ class PatientRepository implements PatientRepositoryInterface
                     $remoteUuid = $apiData['uuid'] ?? $patient->uuid;
                 }
 
+                Log::info('[INSTRUMENT] syncPendingPatients() - API response received', [
+                    'local_uuid' => $patient->uuid,
+                    'remote_uuid' => $remoteUuid,
+                    'apiData' => json_encode($apiData),
+                    'uuid_match' => $remoteUuid === $patient->uuid ? 'YES' : 'NO',
+                ]);
+
                 $this->doSyncSingleToLocal($apiData, force: true);
+
+                // Verify the local record after sync
+                $afterSync = \App\Domains\Patients\Models\Patient::where('uuid', $patient->uuid)->first();
+                Log::info('[INSTRUMENT] syncPendingPatients() - after doSyncSingleToLocal', [
+                    'uuid' => $patient->uuid,
+                    'sync_status' => $afterSync?->sync_status ?? 'NOT_FOUND',
+                    'exists' => $afterSync ? 'YES' : 'NO',
+                ]);
 
                 Log::info('[PatientRepo] Synced pending patient to server', [
                     'local_uuid' => $patient->uuid,
@@ -151,6 +178,7 @@ class PatientRepository implements PatientRepositoryInterface
                 ]);
             } catch (\Throwable $e) {
                 Log::info('[PatientRepo] Failed to sync patient (' . $patient->sync_status . '): ' . $e->getMessage());
+                Log::info('[INSTRUMENT] syncPendingPatients() - FAILED for uuid: ' . $patient->uuid . ', error: ' . $e->getMessage());
                 // Continue to next patient — don't break! Remaining patients may still sync.
             }
         }
@@ -331,7 +359,10 @@ class PatientRepository implements PatientRepositoryInterface
             $data = $data['data'];
         }
 
-        if (!isset($data['uuid'])) return;
+        if (!isset($data['uuid'])) {
+            Log::info('[INSTRUMENT] doSyncSingleToLocal - NO UUID in data, skipping', ['data_keys' => array_keys($data)]);
+            return;
+        }
 
         if (!$force) {
             $localRecord = \App\Domains\Patients\Models\Patient::where('uuid', $data['uuid'])->first();
@@ -339,6 +370,15 @@ class PatientRepository implements PatientRepositoryInterface
                 return;
             }
         }
+
+        // Log before state
+        $before = \App\Domains\Patients\Models\Patient::where('uuid', $data['uuid'])->first();
+        Log::info('[INSTRUMENT] doSyncSingleToLocal - BEFORE', [
+            'uuid' => $data['uuid'],
+            'exists' => $before ? 'YES' : 'NO',
+            'sync_status' => $before?->sync_status ?? 'N/A',
+            'force' => $force ? 'YES' : 'NO',
+        ]);
 
         $cleanData = \Illuminate\Support\Arr::except($data, [
             'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes'
@@ -352,9 +392,19 @@ class PatientRepository implements PatientRepositoryInterface
                 $cleanData
             );
             \App\Domains\Patients\Models\Patient::reguard();
+
+            // Log after state
+            $after = \App\Domains\Patients\Models\Patient::where('uuid', $data['uuid'])->first();
+            Log::info('[INSTRUMENT] doSyncSingleToLocal - AFTER', [
+                'uuid' => $data['uuid'],
+                'exists' => $after ? 'YES' : 'NO',
+                'sync_status' => $after?->sync_status ?? 'N/A',
+                'name' => $after?->name ?? 'N/A',
+            ]);
         } catch (\Exception $e) {
             \App\Domains\Patients\Models\Patient::reguard();
             Log::warning('[PatientRepo] Failed to sync local cache: ' . $e->getMessage());
+            Log::info('[INSTRUMENT] doSyncSingleToLocal - EXCEPTION: ' . $e->getMessage());
         }
     }
 

@@ -124,7 +124,20 @@ class PatientController extends Controller
         }
 
         try {
+            \Illuminate\Support\Facades\Log::info('[INSTRUMENT] PatientController::store() - creating patient', [
+                'formData_uuid' => $validated['uuid'] ?? 'NOT_PROVIDED',
+                'name' => $validated['name'] ?? 'unknown',
+                'is_nativephp' => env('NATIVEPHP_APP_ID') ? 'YES' : 'NO',
+            ]);
+
             $patient = Patient::create($validated);
+
+            \Illuminate\Support\Facades\Log::info('[INSTRUMENT] PatientController::store() - after create', [
+                'patient_id' => $patient->id,
+                'patient_uuid' => $patient->uuid,
+                'sync_status_before' => $patient->sync_status,
+                'name' => $patient->name,
+            ]);
 
             // ── Mark as pending_create on Embedded Laravel ──────────────
             // When running on NativePHP (embedded Laravel), this patient is
@@ -142,6 +155,10 @@ class PatientController extends Controller
             // after creation.
             if (env('NATIVEPHP_APP_ID')) {
                 $patient->update(['sync_status' => 'pending_create']);
+                \Illuminate\Support\Facades\Log::info('[INSTRUMENT] PatientController::store() - sync_status set to pending_create', [
+                    'patient_uuid' => $patient->uuid,
+                    'sync_status_after' => $patient->fresh()->sync_status,
+                ]);
             }
 
             $this->logger->log('patient_created', 'Patient', $patient->uuid, [

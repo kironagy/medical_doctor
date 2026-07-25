@@ -34,8 +34,15 @@ Route::prefix('v1')->group(function () {
     // On the Embedded Laravel (NativePHP), NO authentication is applied — the
     // local application is a single-user device that doesn't need token auth.
     // ApiService manages the production API token for SyncEngine requests.
+    //
+    // 🔐 ROBUST AUTH CHECK: We detect embedded Laravel by checking the
+    // database driver. SQLite = embedded (no auth), MySQL = production (auth).
+    // This is more reliable than env('NATIVEPHP_APP_ID') which can be
+    // accidentally set on the production server (breaking all mobile auth).
+    // When config is cached, config() is used — env() would be null.
+    $isEmbeddedLaravel = config('database.default') === 'sqlite';
     $mobileMiddleware = [];
-    if (!env('NATIVEPHP_APP_ID')) {
+    if (!$isEmbeddedLaravel) {
         $mobileMiddleware[] = 'auth:sanctum';
     }
 
