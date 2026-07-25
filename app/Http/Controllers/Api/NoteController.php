@@ -55,9 +55,17 @@ class NoteController extends Controller
             ];
 
             if ($user) {
+                // ── Authenticated user (production server or online embedded Laravel) ──
+                // The note is created on the production DB directly.
+                // sync_status is NOT set because the production DB doesn't have this column.
+                // sync_status is an offline-only concept for the embedded Laravel SQLite.
                 $noteData['author_id'] = $user->id;
             } else {
+                // ── No authenticated user (offline / embedded Laravel) ──
+                // The note is saved to the local SQLite with sync_status = 'pending_create'
+                // so the SyncEngine can push it to the production server later.
                 $noteData['author_id'] = $validated['author_id'] ?? $patient->primary_doctor_id;
+                $noteData['sync_status'] = 'pending_create';
 
                 if (!$noteData['author_id']) {
                     $fallbackUser = \App\Domains\Users\Models\User::query()->first();
@@ -75,8 +83,6 @@ class NoteController extends Controller
                     }
                 }
             }
-
-            $noteData['sync_status'] = 'pending_create';
 
             $note = $patient->notes()->create($noteData);
             $note->load('author:id,name,email');
@@ -136,23 +142,38 @@ class NoteController extends Controller
             return $patient;
         }
 
-        $apiPatient = app(ApiPatientRepository::class)->find($uuid);
-        if (!$apiPatient) {
-            abort(404, 'Patient not found');
+        try {
+            $apiPatient = app(ApiPatientRepository::class)->find($uuid);
+            if ($apiPatient) {
+                $cleanData = \Illuminate\Support\Arr::except($apiPatient, [
+                    'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes',
+                ]);
+                $cleanData['sync_status'] = 'synced';
+
+                Patient::unguard();
+                $patient = Patient::updateOrCreate(['uuid' => $uuid], $cleanData);
+                Patient::reguard();
+
+                if ($patient) {
+                    return $patient;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('resolvePatient API fallback failed', [
+                'uuid' => $uuid,
+                'error' => $e->getMessage(),
+            ]);
         }
 
-        $cleanData = \Illuminate\Support\Arr::except($apiPatient, [
-            'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes',
-        ]);
-        $cleanData['sync_status'] = 'synced';
-
-        Patient::unguard();
-        $patient = Patient::updateOrCreate(['uuid' => $uuid], $cleanData);
-        Patient::reguard();
-
-        if (!$patient) {
-            abort(404, 'Patient not found');
-        }
+        $patient = Patient::updateOrCreate(
+            ['uuid' => $uuid],
+            [
+                'uuid' => $uuid,
+                'sync_status' => 'pending_sync',
+                'first_name' => 'Patient',
+                'last_name' => $uuid,
+            ]
+        );
 
         return $patient;
     }
