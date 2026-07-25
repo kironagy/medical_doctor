@@ -56,16 +56,21 @@ class NoteController extends Controller
 
             if ($user) {
                 // ── Authenticated user (production server or online embedded Laravel) ──
-                // The note is created on the production DB directly.
-                // sync_status is NOT set because the production DB doesn't have this column.
-                // sync_status is an offline-only concept for the embedded Laravel SQLite.
                 $noteData['author_id'] = $user->id;
             } else {
-                // ── No authenticated user (offline / embedded Laravel) ──
-                // The note is saved to the local SQLite with sync_status = 'pending_create'
-                // so the SyncEngine can push it to the production server later.
+                // ── No authenticated user (forwarded request or offline) ──
                 $noteData['author_id'] = $validated['author_id'] ?? $patient->primary_doctor_id;
-                $noteData['sync_status'] = 'pending_create';
+
+                // Only set sync_status on the embedded Laravel (SQLite) database.
+                // sync_status is an offline-only concept for tracking notes that
+                // need to be synced to the production server. On the production
+                // server itself (MySQL), sync_status must NOT be set because:
+                //   1. The column might not exist (migration may not have run)
+                //   2. SyncEngine only runs on the embedded Laravel, not production
+                $isLocalSqlite = config('database.default') === 'sqlite';
+                if ($isLocalSqlite) {
+                    $noteData['sync_status'] = 'pending_create';
+                }
 
                 if (!$noteData['author_id']) {
                     $fallbackUser = \App\Domains\Users\Models\User::query()->first();
