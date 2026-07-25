@@ -66,15 +66,17 @@ class SyncEngineService
      * Order:
      *   1. Sync pending patients (pending_create, pending_update)
      *   2. Sync pending files (pending_upload, failed)
-     *   3. Sync pending deletes (pending_delete)
+     *   3. Sync pending notes (pending_create, pending_delete)
+     *   4. Sync pending deletes (pending_delete)
      *
-     * @return array{patients: int, files: array{uploaded: int, failed: int}, deletes: int}
+     * @return array{patients: int, files: array{uploaded: int, failed: int}, notes: array{uploaded: int, deleted: int, failed: int}, deletes: int}
      */
     public function syncAll(): array
     {
         $results = [
             'patients' => 0,
             'files'    => ['uploaded' => 0, 'failed' => 0],
+            'notes'    => ['uploaded' => 0, 'deleted' => 0, 'failed' => 0],
             'deletes'  => 0,
         ];
 
@@ -116,7 +118,15 @@ class SyncEngineService
             Log::error('[SyncEngine] File sync failed: ' . $e->getMessage());
         }
 
-        // ── STEP 3: Process pending deletes ─────────────────────────────
+        // ── STEP 3: Sync pending notes ───────────────────────────────────
+        // Must run AFTER patient sync (notes reference patients on the server).
+        try {
+            $results['notes'] = $this->syncPendingNotes();
+        } catch (\Throwable $e) {
+            Log::error('[SyncEngine] Note sync failed: ' . $e->getMessage());
+        }
+
+        // ── STEP 4: Process pending deletes ─────────────────────────────
         try {
             $results['deletes'] = $this->processPendingDeletes();
         } catch (\Throwable $e) {
@@ -527,6 +537,103 @@ class SyncEngineService
     }
 
     /**
+     * Sync pending notes to the remote server.
+     *
+     * Notes created offline (sync_status = 'pending_create') are uploaded
+     * to the production API via POST /patients/{uuid}/notes.
+     * Notes marked as pending_delete are deleted remotely.
+     *
+     * @return array{uploaded: int, deleted: int, failed: int}
+     */
+    public function syncPendingNotes(): array
+    {
+        $results = ['uploaded' => 0, 'deleted' => 0, 'failed' => 0];
+
+        // ── Step 1: Sync pending_create notes ───────────────────────────
+        $pendingNotes = \App\Domains\Patients\Models\PatientNote::where('sync_status', 'pending_create')
+            ->with('patient')
+            ->orderBy('created_at', 'asc')
+            ->take(200)
+            ->get();
+
+        foreach ($pendingNotes as $note) {
+            $patient = $note->patient;
+            if (!$patient || ($patient->sync_status ?? 'synced') !== 'synced') {
+                continue;
+            }
+
+            try {
+                $response = $this->api->post(
+                    "/patients/{$patient->uuid}/notes",
+                    [
+                        'content'  => $note->content,
+                        'category' => $note->category ?? 'general',
+                    ]
+                );
+
+                $remoteUuid = $response['uuid'] ?? $response['data']['uuid'] ?? null;
+                if (!$remoteUuid) {
+                    throw new \RuntimeException('No UUID in server response for note');
+                }
+
+                \App\Domains\Patients\Models\PatientNote::where('uuid', $note->uuid)
+                    ->update([
+                        'sync_status' => 'synced',
+                        'remote_uuid' => $remoteUuid,
+                        'updated_at'  => now(),
+                    ]);
+
+                $results['uploaded']++;
+
+                Log::info('[SyncEngine] Note synced successfully', [
+                    'local_uuid'  => $note->uuid,
+                    'remote_uuid' => $remoteUuid,
+                    'patient'     => $patient->uuid,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('[SyncEngine] Note sync failed: ' . $e->getMessage(), [
+                    'note_uuid' => $note->uuid,
+                    'patient'   => $patient?->uuid,
+                ]);
+                \App\Domains\Patients\Models\PatientNote::where('uuid', $note->uuid)
+                    ->update([
+                        'error_message' => $e->getMessage(),
+                        'updated_at'    => now(),
+                    ]);
+                $results['failed']++;
+            }
+        }
+
+        // ── Step 2: Sync pending_delete notes ───────────────────────────
+        $deleteNotes = \App\Domains\Patients\Models\PatientNote::where('sync_status', 'pending_delete')
+            ->with('patient')
+            ->orderBy('created_at', 'asc')
+            ->take(200)
+            ->get();
+
+        foreach ($deleteNotes as $note) {
+            try {
+                $remoteUuid = $note->remote_uuid ?? $note->uuid;
+                $this->api->delete("/patients/{$note->patient->uuid}/notes/{$remoteUuid}");
+
+                $note->forceDelete();
+                $results['deleted']++;
+
+                Log::info('[SyncEngine] Note deleted remotely', [
+                    'uuid' => $note->uuid,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('[SyncEngine] Note delete sync failed: ' . $e->getMessage(), [
+                    'note_uuid' => $note->uuid,
+                ]);
+                $results['failed']++;
+            }
+        }
+
+        return $results;
+    }
+
+    /**
      * Check if there are any pending operations that need syncing.
      */
     public function hasPendingOperations(): bool
@@ -539,7 +646,11 @@ class SyncEngineService
             ->whereIn('sync_status', ['pending_upload', 'failed'])
             ->count();
 
-        return ($pendingPatientCount + $pendingFileCount) > 0;
+        $pendingNoteCount = \App\Domains\Patients\Models\PatientNote::whereIn(
+            'sync_status', ['pending_create', 'pending_delete']
+        )->count();
+
+        return ($pendingPatientCount + $pendingFileCount + $pendingNoteCount) > 0;
     }
 
     /**
@@ -554,12 +665,14 @@ class SyncEngineService
         $patientUpdate = \App\Domains\Patients\Models\Patient::where('sync_status', 'pending_update')->count();
         $patientDelete = \App\Domains\Patients\Models\Patient::where('sync_status', 'pending_delete')->count();
         $filesPending  = DB::table('offline_files')->whereIn('sync_status', ['pending_upload', 'failed'])->count();
+        $notesPending  = \App\Domains\Patients\Models\PatientNote::whereIn('sync_status', ['pending_create', 'pending_delete'])->count();
 
         return [
             'patients' => $patientCreate + $patientUpdate,
             'deletes'  => $patientDelete,
             'files'    => $filesPending,
-            'total'    => $patientCreate + $patientUpdate + $patientDelete + $filesPending,
+            'notes'    => $notesPending,
+            'total'    => $patientCreate + $patientUpdate + $patientDelete + $filesPending + $notesPending,
         ];
     }
 }

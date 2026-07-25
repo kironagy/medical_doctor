@@ -1,7 +1,29 @@
 <template>
   <aside
     class="flex flex-col h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 relative"
+    @touchstart="handleTouchStart"
+    @touchmove="handleTouchMove"
+    @touchend="handleTouchEnd"
+    @touchcancel="handleTouchEnd"
   >
+    <!-- PTR Indicator (fixed at the top of sidebar) -->
+    <div v-if="ptrVisible" class="flex flex-col items-center justify-center pointer-events-none z-50 flex-shrink-0" style="height:56px;padding-top:8px" :style="{ transform: `translateY(${pullDistance - 56}px)` }">
+      <div class="w-8 h-8 rounded-full bg-white dark:bg-slate-800 shadow-lg flex items-center justify-center text-primary-600 dark:text-primary-400" :style="{ transform: `scale(${ptrScale})`, opacity: ptrOpacity }">
+        <svg v-if="!isRefreshing" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.15"/>
+          <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" :stroke-dasharray="`${ptrArcLen} ${ptrCircumference}`" transform="rotate(-90 12 12)"/>
+          <g :style="{ transform: `rotate(${ptrArrowRotation}deg)`, transformOrigin: '12px 12px' }">
+            <path d="M12 5 L12 17 M8 13 L12 17 L16 13" stroke-linejoin="round"/>
+          </g>
+        </svg>
+        <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" class="animate-spin">
+          <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="35 75" stroke-linecap="round" transform="rotate(-90 12 12)"/>
+        </svg>
+      </div>
+      <span v-if="thresholdReached && !isRefreshing" class="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap mt-0.5">{{ $t('workspace.release_to_refresh') || 'Release to refresh' }}</span>
+      <span v-if="isRefreshing" class="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap mt-0.5">{{ $t('workspace.refreshing') || 'Refreshing' }}</span>
+    </div>
+
     <!-- Add Patient Button at the top (Desktop Only) -->
     <div v-if="!isMobile" class="p-3 pb-2 flex-shrink-0">
       <button
@@ -26,8 +48,8 @@
       </div>
     </div>
 
-    <!-- Patients List -->
-    <div class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-1">
+    <!-- Patients List (scrollable container for PTR) -->
+    <div ref="sidebarScrollRef" class="flex-1 overflow-y-auto overscroll-contain p-2 space-y-1" :style="ptrContentStyle">
       <div v-for="patient in filteredPatients" :key="patient.uuid">
         <button
           @click="selectAndClose(patient.uuid)"
@@ -97,11 +119,17 @@
         </button>
       </div>
 
-      <!-- Settings Button -->
+      <!-- Settings Button with Online/Offline Status Dot -->
       <button
         @click="openSettings()"
-        class="w-full flex items-center justify-center gap-2 py-2.5 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-sm transition-colors"
+        class="w-full flex items-center justify-center gap-2 py-2.5 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-sm transition-colors relative"
       >
+        <!-- Online/Offline Status Dot -->
+        <span
+          class="w-2.5 h-2.5 rounded-full flex-shrink-0 transition-colors duration-300 shadow-sm"
+          :class="isOnline ? 'bg-emerald-500 shadow-emerald-500/40' : 'bg-rose-500 shadow-rose-500/40'"
+          :title="isOnline ? 'Online' : 'Offline'"
+        ></span>
         <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
         {{ $t('nav.settings') }}
       </button>
@@ -112,7 +140,8 @@
 <script setup>
 import { router } from '@inertiajs/vue3'
 import { useWorkspace } from '@/Composables/useWorkspace'
-import { computed } from 'vue'
+import { usePullToRefresh } from '@/Composables/usePullToRefresh'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
   user: Object,
@@ -150,6 +179,36 @@ const {
   loadingArchived,
   openSettings,
 } = useWorkspace()
+
+// ── Online/Offline Status from Sync Engine ───────────────────────────
+import { useSyncEngine } from '@/Composables/useSyncEngine'
+const { isOnline } = useSyncEngine()
+
+// ── Pull-to-Refresh for Patient List ─────────────────────────────────
+const sidebarScrollRef = ref(null)
+
+const PTR_RADIUS = 10
+const PTR_CIRCUMFERENCE = 2 * Math.PI * PTR_RADIUS
+
+const {
+  pullDistance, pullProgress, isRefreshing, thresholdReached,
+  handleTouchStart, handleTouchMove, handleTouchEnd,
+} = usePullToRefresh({
+  scrollContainer: sidebarScrollRef,
+  onRefresh: async () => {
+    await refreshPatientList()
+  },
+})
+
+const ptrVisible = computed(() => pullDistance.value > 0 || isRefreshing.value)
+const ptrScale = computed(() => 0.3 + pullProgress.value * 0.7)
+const ptrOpacity = computed(() => Math.min(pullProgress.value * 2, 1))
+const ptrArcLen = computed(() => pullProgress.value * PTR_CIRCUMFERENCE)
+const ptrArrowRotation = computed(() => pullProgress.value * 180)
+const ptrContentStyle = computed(() => ({
+  transform: `translateY(${pullDistance.value}px)`,
+  willChange: 'transform',
+}))
 
 function toggleArchived() {
   showArchived.value = !showArchived.value

@@ -121,6 +121,7 @@
 import { ref, watch } from 'vue'
 import { useToast } from '@/Composables/useToast'
 import { useUploads } from '@/Composables/useUploads'
+import { useOfflineUploads } from '@/Composables/useOfflineUploads'
 import axios from 'axios'
 
 const props = defineProps({
@@ -133,7 +134,8 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'saved'])
 
 const toast = useToast()
-const { uploadFile } = useUploads()
+const { uploadFile: onlineUploadFile } = useUploads()
+const { uploadFile: offlineUploadFile } = useOfflineUploads()
 
 const activeTab = ref('text')
 const notes = ref('')
@@ -185,10 +187,20 @@ async function submit() {
     }
     saving.value = true
     try {
-      await axios.post(`/api/v1/patients/${props.patient.uuid}/notes`, {
-        content: notes.value,
-        category: props.categorySlug,
-      })
+      const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+      if (online) {
+        await axios.post(`/api/v1/patients/${props.patient.uuid}/notes`, {
+          content: notes.value,
+          category: props.categorySlug,
+        })
+      } else {
+        // Offline: save note locally via offline endpoint
+        await axios.post('/_native/api/offline/notes', {
+          content: notes.value,
+          category: props.categorySlug,
+          patient_uuid: props.patient.uuid,
+        })
+      }
       toast.success('تمت إضافة الملاحظة بنجاح')
       emit('saved')
       emit('update:modelValue', false)
@@ -205,13 +217,23 @@ async function submit() {
     }
     saving.value = true
     try {
-      // Process uploads
+      const online = typeof navigator !== 'undefined' ? navigator.onLine : true
       const patientId = props.patient.id
+      const patientUuid = props.patient.uuid
       for (const file of selectedFiles.value) {
-        uploadFile(file, patientId, { 
-          category: props.categorySlug,
-          description: notes.value
-        })
+        if (online) {
+          // Online: use chunked upload composable
+          onlineUploadFile(file, patientId, { 
+            category: props.categorySlug,
+            desc: notes.value
+          })
+        } else {
+          // Offline: save file locally via offline upload composable
+          await offlineUploadFile(file, patientUuid, { 
+            category: props.categorySlug,
+            desc: notes.value
+          })
+        }
       }
       toast.success('بدء رفع الملفات بنجاح')
       emit('saved')

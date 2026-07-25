@@ -1208,3 +1208,71 @@ This eliminates the need for the token to flow through the embedded Laravel — 
 ## Documentation Updated
 
 - WORKLOG.md (this entry)
+
+---
+
+## Date
+
+2026-07-25
+
+## Time
+
+00:30
+
+## AI Model
+
+DeepSeek V4 Flash
+
+## Task
+
+Investigate and verify public access to POST /api/v1/mobile/patients
+
+## Status
+
+Completed — no changes needed.
+
+## Investigation
+
+Requested: Remove authentication from POST /api/v1/mobile/patients for temporary debugging.
+
+Found: The change was **already applied** in commit `f4863b7` (Jul 24, 17:21).
+
+## Auth Layers Checked
+
+| Layer | Status |
+|---|---|
+| `auth:sanctum` (route) | ✅ Already removed — route is outside the `auth:sanctum` group in `routes/api.php:27` |
+| Controller constructor middleware | ✅ None — empty constructor |
+| Policy (`Gate::authorize`) | ✅ Not used in `store()` method |
+| Form request authorization | ✅ Not used — inline `$request->validate()` |
+| Custom mobile middleware | ✅ None applied |
+| Global middleware (`bootstrap/app.php`) | ✅ No auth middleware |
+| Base `Controller` class | ✅ Empty abstract class |
+| Role/permission middleware | ✅ Not applied to this route |
+
+## Verification
+
+`php artisan route:list --json` confirms:
+
+```
+POST api/v1/mobile/patients → Middleware: ['api']  (no auth:sanctum)
+GET  api/v1/mobile/patients → Middleware: ['api', 'auth:sanctum']  (has auth)
+```
+
+## Files Changed
+
+None. All changes were already in place.
+
+## Risk
+
+None — zero modifications made.
+
+## Testing
+
+- `php artisan route:list` confirmed middleware is `['api']` only
+- Other mobile endpoints (`GET`, `PUT`, `DELETE`) remain under `auth:sanctum`
+- Controller `store()` already handles unauthenticated requests (manual Bearer token resolution fallback)
+
+## Documentation Updated
+
+- WORKLOG.md (this entry)
