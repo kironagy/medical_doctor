@@ -458,6 +458,38 @@ async function refreshPatientList(page = 1) {
     loadingPatients.value = true;
     try {
         // ═══════════════════════════════════════════════════════════════
+        //  STEP 0: Snapshot ALL patients BEFORE any async calls
+        // ═══════════════════════════════════════════════════════════════
+        // Capture TWO things:
+        //   1. allPatientsBackup — Map<uuid, patient> of EVERY patient visible
+        //      right now. This is the UNIVERSAL SAFETY NET. ANY patient that
+        //      was visible before the refresh but is missing from the merged
+        //      result will be preserved, regardless of sync_status. This
+        //      prevents newly created patients (even those without sync_status)
+        //      from disappearing when the API response doesn't include them.
+        //   2. snapshotPending — patients with sync_status !== 'synced', used
+        //      for the primary merge path with API responses.
+        //
+        // The key insight: p.sync_status may be undefined/null for newly
+        // created patients (the API response might not include this field).
+        // The old code excluded these from snapshotPending because
+        // 'p.sync_status &&' evaluates to false for undefined/null. Now
+        // allPatientsBackup captures ALL of them unconditionally.
+        const allPatientsBackup = new Map();
+        const snapshotUuids = new Set();
+        const snapshotPending = [];
+        for (const p of patients.value) {
+            allPatientsBackup.set(p.uuid, { ...p });
+            snapshotUuids.add(p.uuid);
+            if (p.sync_status && p.sync_status !== 'synced') {
+                snapshotPending.push({ ...p });
+            }
+        }
+        if (allPatientsBackup.size > 0) {
+            console.log('[DIAG] refreshPatientList - SNAPSHOT all patients:', allPatientsBackup.size, 'total,', snapshotPending.length, 'pending');
+        }
+
+        // ═══════════════════════════════════════════════════════════════
         //  STEP 1: Upload pending local patients to server
         // ═══════════════════════════════════════════════════════════════
         // The phone's embedded Laravel has pending patients in local SQLite
@@ -469,17 +501,12 @@ async function refreshPatientList(page = 1) {
             const syncRes = await axios.post('/_native/api/sync/patients', {}, { timeout: 60000 });
             console.log('[Sync] Pending patients synced:', syncRes.data?.message);
         } catch (syncErr) {
-            // Expected when online — request goes EXTERNAL, not LOCAL.
-            // The _native/* routes go LOCAL even when online, so this
-            // should work. Log but don't block the refresh.
             console.log('[Sync] Sync endpoint note:', syncErr.message);
         }
 
         // ═══════════════════════════════════════════════════════════════
         //  STEP 1b: Refresh category cache from production API
         // ═══════════════════════════════════════════════════════════════
-        // After syncing pending patients, refresh the local category cache
-        // so that categories are available when opening patients offline.
         await refreshCategoryCache();
 
         // ═══════════════════════════════════════════════════════════════
@@ -496,7 +523,6 @@ async function refreshPatientList(page = 1) {
                 console.log('[Sync] Loaded', sqlitePending.length, 'pending patients from local SQLite:', sqlitePending.map(p => p.name + '(' + (p.sync_status || '?') + ')').join(', '));
             }
         } catch (e) {
-            // Local endpoint may be unavailable — fall through gracefully
             console.log('[Sync] Could not load pending from SQLite:', e.message);
         }
 
@@ -514,25 +540,30 @@ async function refreshPatientList(page = 1) {
 
         if (res.data?.data) {
             // ═══════════════════════════════════════════════════════════
-            //  STEP 4: Merge — preserve pending local patients
+            //  STEP 4: Merge — ALWAYS preserve pending local patients
             // ═══════════════════════════════════════════════════════════
-            // Three sources of pending patients:
-            //   1. patients.value — may have pending from current session
+            // Sources of truth:
+            //   1. Snapshot (captured BEFORE async calls) — may have pending
+            //      from current session. Using snapshot instead of
+            //      patients.value prevents race conditions where concurrent
+            //      state changes clear patients.value between steps.
             //   2. sqlitePending — from local SQLite (survives app restart)
             //   3. API data — from the server
             //
             // After sync, some pending patients may have been uploaded and
-            // are now included in the API response. They'll have sync_status
-            // 'synced' from the server. Those that failed sync remain pending
-            // locally and must be preserved.
+            // are now included in the API response (with sync_status 'synced'
+            // from the server). Those that failed remain pending locally
+            // and MUST be preserved.
+            //
+            // GUARANTEE: No pending_create patient is ever removed.
             const apiUuids = new Set(res.data.data.map(p => p.uuid));
 
-            // Collect all local pending patients from both sources
+            // Collect all local pending patients from snapshot + SQLite
             const localPendingMap = new Map();
 
-            // Source 1: Current session's patients.value
-            for (const p of patients.value) {
-                if (p.sync_status && p.sync_status !== 'synced' && !apiUuids.has(p.uuid)) {
+            // Source 1: Snapshot (captured before any async calls)
+            for (const p of snapshotPending) {
+                if (p.sync_status !== 'synced' && !apiUuids.has(p.uuid)) {
                     localPendingMap.set(p.uuid, p);
                 }
             }
@@ -551,7 +582,44 @@ async function refreshPatientList(page = 1) {
                 console.log('[DIAG] refreshPatientList - preserving', localPending.length, 'local pending patients not in API response:', localPending.map(p => p.name + '(' + p.sync_status + ')').join(', '));
             }
 
-            patients.value = [...localPending, ...res.data.data];
+            // ── UNIVERSAL SAFETY NET: Preserve ANY patient from backup
+            //    that is missing from the merged result.
+            //    This ensures that even newly created patients (with no
+            //    sync_status set) or synced patients that accidentally fall
+            //    out of the API response (pagination edge case, race
+            //    condition, production API lag) are NOT removed from the UI.
+            //
+            //    GUARANTEE: No patient visible before the refresh is ever
+            //    removed unless they have sync_status='pending_delete'.
+            const finalUuids = new Set([
+                ...localPending.map(p => p.uuid),
+                ...res.data.data.map(p => p.uuid),
+            ]);
+            const preservedPatients = [];
+            for (const [uuid, patient] of allPatientsBackup) {
+                if (!finalUuids.has(uuid)) {
+                    const isPendingDelete = (patient.sync_status ?? 'synced') === 'pending_delete';
+                    console.warn(
+                        isPendingDelete ? '[DIAG]' : '[DIAG] refreshPatientList - SAFETY NET: preserving missing patient (not in API response)',
+                        {
+                            uuid: patient.uuid,
+                            name: patient.name,
+                            sync_status: patient.sync_status,
+                            reason: isPendingDelete
+                                ? 'Patient was marked pending_delete — not added back'
+                                : 'Patient was in pre-refresh snapshot but not in API response or localPending',
+                        }
+                    );
+                    if (!isPendingDelete) {
+                        preservedPatients.push(patient);
+                    }
+                }
+            }
+            if (preservedPatients.length > 0) {
+                console.log('[DIAG] refreshPatientList - SAFETY NET preserved', preservedPatients.length, 'patients:', preservedPatients.map(p => p.name + '(' + p.uuid + ',' + (p.sync_status || 'none') + ')').join(', '));
+            }
+
+            patients.value = [...localPending, ...preservedPatients, ...res.data.data];
             patientsMeta.value = res.data.meta;
         }
     } catch (e) {

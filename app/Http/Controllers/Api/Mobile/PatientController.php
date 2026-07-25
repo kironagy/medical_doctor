@@ -126,11 +126,29 @@ class PatientController extends Controller
         try {
             $patient = Patient::create($validated);
 
+            // ── Mark as pending_create on Embedded Laravel ──────────────
+            // When running on NativePHP (embedded Laravel), this patient is
+            // created in local SQLite ONLY — the production API doesn't know
+            // about it yet. Setting sync_status to 'pending_create' ensures:
+            //   1. The sync engine (SyncEngineService) picks it up and
+            //      pushes it to the production server.
+            //   2. The paginated() merge logic in PatientRepository correctly
+            //      adds it back when the production API returns a list
+            //      without it.
+            //   3. The /_native/api/patients/pending endpoint returns it
+            //      for frontend rehydration after app restart.
+            // Without this, the patient would NOT appear in the refresh
+            // response and would disappear from the UI about 1 second
+            // after creation.
+            if (env('NATIVEPHP_APP_ID')) {
+                $patient->update(['sync_status' => 'pending_create']);
+            }
+
             $this->logger->log('patient_created', 'Patient', $patient->uuid, [
                 'patient_name' => $patient->name,
             ]);
 
-            return response()->json(new PatientResource($patient), 201);
+            return response()->json(new PatientResource($patient->fresh()), 201);
         } catch (\Illuminate\Database\QueryException $e) {
             $errorMessage = $e->getMessage();
             if (\Illuminate\Support\Str::contains($errorMessage, 'UNIQUE constraint failed')
