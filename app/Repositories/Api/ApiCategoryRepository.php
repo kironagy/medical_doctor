@@ -24,6 +24,15 @@ class ApiCategoryRepository implements CategoryRepositoryInterface
     use MakesApiRequests;
 
     /**
+     * Categories live at /api/v1/categories, NOT /api/v1/mobile/categories.
+     * Override baseUrl to strip the /mobile prefix.
+     */
+    private function baseUrl(): string
+    {
+        return rtrim(str_replace('/mobile', '', config('app.mobile_api_url')), '/');
+    }
+
+    /**
      * Fetch all categories for a user from the production API.
      *
      * @param  int|null  $userId  Not used directly — the API identifies the user

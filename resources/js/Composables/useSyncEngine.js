@@ -111,7 +111,7 @@ function initialise() {
     // Runs every 15 seconds. Detects offline→online transitions by
     // tracking previousOnlineState. Also refreshes the pending summary.
     // This is a last-resort fallback when all event-based paths fail.
-    setInterval(runHeartbeat, 15000)
+    setInterval(runHeartbeat, 30000)
 
     // Initial heartbeat + summary fetch
     setTimeout(() => {
@@ -199,6 +199,11 @@ function checkNativeNetworkState() {
 }
 
 async function runHeartbeat() {
+    // Skip when page is hidden (app in background, screen off)
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return
+    }
+
     const currentState = typeof navigator !== 'undefined' ? navigator.onLine : true
     const stateChanged = currentState !== previousOnlineState
 

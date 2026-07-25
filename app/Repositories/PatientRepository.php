@@ -217,6 +217,13 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function delete(string $uuid): void
     {
+        $patient = \App\Domains\Patients\Models\Patient::where('uuid', $uuid)->first();
+
+        if ($patient && $patient->sync_status === 'pending_create') {
+            $patient->forceDelete();
+            return;
+        }
+
         $this->local->update($uuid, ['sync_status' => 'pending_delete', 'client_updated_at' => now()]);
         $this->local->delete($uuid);
 

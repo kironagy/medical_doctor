@@ -25,17 +25,39 @@ class NoteController extends Controller
         $tf = '/data/local/tmp/np_traces.txt';
         @file_put_contents($tf, now()->format('H:i:s.v') . ' N1 NoteController.store() ENTERED uuid=' . $patientUuid . "\n", FILE_APPEND | LOCK_EX);
         @file_put_contents($tf, now()->format('H:i:s.v') . ' N1b session user=' . ($request->user() ? 'yes' : 'no') . ' id=' . ($request->user()?->id ?? 'null') . "\n", FILE_APPEND | LOCK_EX);
-        
-        // ── Guard: user must be authenticated ──────────────────────────────
-        // When offline and session is lost, $request->user() is null and
-        // accessing ->id would throw a 500 error ("حدث خطأ في الإدارة").
+
+        // ── Auth guard: try session first, then Bearer token ────────────────
+        // When offline or on app restart, the embedded Laravel has no session.
+        // The Sanctum token from localStorage may not resolve to a user in the
+        // local SQLite. In those cases, we allow offline note creation without
+        // a user — the note is saved with sync_status='pending_create' and the
+        // author_id is assigned when the SyncEngine pushes it to the production
+        // server.
         $user = $request->user();
         if (!$user) {
-            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N1c USER NULL 401' . "\n", FILE_APPEND | LOCK_EX);
-            return response()->json(['message' => 'Unauthenticated'], 401);
+            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N1c USER NULL - trying Bearer token' . "\n", FILE_APPEND | LOCK_EX);
+
+            // Try to authenticate via Sanctum Bearer token (stored in localStorage)
+            $bearerToken = $request->bearerToken();
+            if ($bearerToken) {
+                try {
+                    $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearerToken);
+                    if ($accessToken && $accessToken->tokenable) {
+                        \Illuminate\Support\Facades\Auth::login($accessToken->tokenable);
+                        $user = $accessToken->tokenable;
+                        @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N1c2 Auth via Bearer: user_id=' . $user->id . "\n", FILE_APPEND | LOCK_EX);
+                    }
+                } catch (\Throwable $e) {
+                    @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N1c3 Bearer auth failed: ' . $e->getMessage() . "\n", FILE_APPEND | LOCK_EX);
+                }
+            }
+
+            if (!$user) {
+                @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N1c4 No auth - saving offline without author' . "\n", FILE_APPEND | LOCK_EX);
+            }
         }
 
-        @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N2 Auth OK, lookup patient' . "\n", FILE_APPEND | LOCK_EX);
+        @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N2 Lookup patient' . "\n", FILE_APPEND | LOCK_EX);
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N3 Patient found id=' . $patient->id . "\n", FILE_APPEND | LOCK_EX);
 
@@ -48,12 +70,50 @@ class NoteController extends Controller
 
         try {
             @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N5 Creating note' . "\n", FILE_APPEND | LOCK_EX);
-            $note = $patient->notes()->create([
-                'author_id' => $user->id,
+
+            $noteData = [
                 'content' => $validated['content'],
                 'category' => $validated['category'] ?? null,
-            ]);
-            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N6 Note created id=' . $note->id . ' uuid=' . $note->uuid . "\n", FILE_APPEND | LOCK_EX);
+            ];
+
+            // ── Resolve author_id ────────────────────────────────────────────
+            // When authenticated via session or Bearer token, use the logged-in user.
+            // When offline (no auth), resolve from request body or fall back to the
+            // patient's primary doctor. If both are null (offline-created patient
+            // with no doctor), try the first user in the local DB as last resort.
+            // author_id is NOT NULL with a FK constraint in the schema, so we MUST
+            // provide a value or the DB throws a constraint violation -> 500 error.
+            if ($user) {
+                $noteData['author_id'] = $user->id;
+            } else {
+                $noteData['author_id'] = $validated['author_id'] ?? $patient->primary_doctor_id;
+
+                // Last resort: try any user in the local SQLite
+                if (!$noteData['author_id']) {
+                    $fallbackUser = \App\Domains\Users\Models\User::query()->first();
+                    if ($fallbackUser) {
+                        $noteData['author_id'] = $fallbackUser->id;
+                        \Illuminate\Support\Facades\Log::info('[NoteController] Used fallback user for offline note', [
+                            'patient_uuid' => $patientUuid,
+                            'fallback_user_id' => $fallbackUser->id,
+                        ]);
+                    } else {
+                        // No users at all in local DB — can't create note
+                        \Illuminate\Support\Facades\Log::error('[NoteController] Cannot create offline note: no user found', [
+                            'patient_uuid' => $patientUuid,
+                        ]);
+                        return response()->json(['message' => 'Cannot create note offline. Please login and sync first.'], 500);
+                    }
+                }
+            }
+
+            // Always set pending_create so the SyncEngine pushes to the remote server.
+            // Without this, the note only lives in the local SQLite and never reaches
+            // the production database — a silent data loss bug.
+            $noteData['sync_status'] = 'pending_create';
+
+            $note = $patient->notes()->create($noteData);
+            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' N6 Note created id=' . $note->id . ' uuid=' . $note->uuid . ' sync_status=' . $noteData['sync_status'] . "\n", FILE_APPEND | LOCK_EX);
 
             $note->load('author:id,name,email');
 
