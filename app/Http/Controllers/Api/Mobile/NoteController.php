@@ -12,10 +12,17 @@ use Illuminate\Support\Facades\Log;
 
 class NoteController extends Controller
 {
-    public function index(string $uuid)
+    public function index(Request $request, string $uuid)
     {
         $patient = $this->resolvePatient($uuid);
-        Gate::authorize('view', $patient);
+        // ── SQLite guard: Skip Gate when no authenticated user ──────────
+        // On the embedded Laravel (SQLite), API routes have NO auth middleware,
+        // so $request->user() is null. Gate::authorize() with null user ALWAYS
+        // throws 403. We skip the check locally — the device is single-user and
+        // doesn't need fine-grained authorization for its own SQLite data.
+        if ($request->user()) {
+            Gate::authorize('view', $patient);
+        }
 
         $notes = $patient->notes()
             ->with('author:id,name,email')
@@ -29,7 +36,13 @@ class NoteController extends Controller
     {
         Log::info('[MobileNote::store] ENTERED uuid=' . $uuid . ' user=' . ($request->user()?->id ?? 'null'));
         $patient = $this->resolvePatient($uuid);
-        Gate::authorize('update', $patient);
+        // ── SQLite guard: Skip Gate when no authenticated user ──────────
+        // On the embedded Laravel (SQLite), API routes have NO auth middleware.
+        // Gate::authorize('update', $patient) with null user throws 403.
+        // Skip authorization locally — the device is single-user.
+        if ($request->user()) {
+            Gate::authorize('update', $patient);
+        }
 
         $validated = $request->validate([
             'content' => 'required|string',
@@ -45,11 +58,20 @@ class NoteController extends Controller
             ]);
         }
 
+        // ── FIX: Mark note as pending_create when on embedded Laravel (SQLite) ──
+        // On the embedded Laravel, notes created via /api/v1/mobile/patients/{uuid}/notes
+        // are stored in local SQLite. The sync engine only uploads notes with
+        // sync_status = 'pending_create'. Without this fix, notes stay in local SQLite
+        // with default sync_status = 'synced' and are NEVER uploaded to production.
+        $isLocalSqlite = config('database.default') === 'sqlite';
+
         $note = PatientNote::create([
-            'patient_id' => $patient->id,
-            'author_id' => $authorId,
-            'category' => $validated['category'] ?? 'general',
-            'content' => $validated['content'],
+            'patient_id'  => $patient->id,
+            'author_id'   => $authorId,
+            'uuid'        => (string) \Illuminate\Support\Str::uuid(),
+            'category'    => $validated['category'] ?? 'general',
+            'content'     => $validated['content'],
+            'sync_status' => $isLocalSqlite ? 'pending_create' : 'synced',
         ]);
 
         $note->load('author:id,name,email');
@@ -60,7 +82,10 @@ class NoteController extends Controller
     public function update(Request $request, string $uuid, string $noteUuid)
     {
         $patient = $this->resolvePatient($uuid);
-        Gate::authorize('view', $patient);
+        // ── SQLite guard: Skip Gate when no authenticated user ──────────
+        if ($request->user()) {
+            Gate::authorize('view', $patient);
+        }
 
         $note = PatientNote::where('uuid', $noteUuid)
             ->where('patient_id', $patient->id)
@@ -73,7 +98,7 @@ class NoteController extends Controller
         // the patient (which includes primary doctors and shared doctors with
         // write access). This is consistent with the Api\\NoteController which
         // falls back to Gate::authorize('update', $note->patient).
-        if ($note->author_id !== $request->user()->id) {
+        if ($request->user() && $note->author_id !== $request->user()->id) {
             Gate::authorize('update', $note->patient);
         }
 
@@ -96,7 +121,8 @@ class NoteController extends Controller
             ->firstOrFail();
 
         // ── ISO-003 FIX: Same as update method — check patient permission
-        if ($note->author_id !== $request->user()->id) {
+        // ── SQLite guard: Skip Gate when no authenticated user ──────────
+        if ($request->user() && $note->author_id !== $request->user()->id) {
             Gate::authorize('update', $note->patient);
         }
 

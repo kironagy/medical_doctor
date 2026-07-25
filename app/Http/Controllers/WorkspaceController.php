@@ -101,6 +101,31 @@ class WorkspaceController extends Controller
     {
         $user = $request->user();
 
+        // ═══════════════════════════════════════════════════════════════
+        //  CAPTURE BEARER TOKEN FROM FRONTEND
+        // ═══════════════════════════════════════════════════════════════
+        // The frontend now ALWAYS sends the production API token in the
+        // Authorization header, even during offline creation. We capture
+        // it here and store it in ApiService so that when WiFi comes back,
+        // the sync engine has a valid token to authenticate against the
+        // production server.
+        //
+        // Previously, the offline branch of addPatient() did NOT send the
+        // Bearer token, so ApiService::getToken() returned null during
+        // sync, causing a 401 from the production server. The patient
+        // stayed pending_create forever and never appeared on the web.
+        if (config('database.default') === 'sqlite') {
+            $bearerToken = $request->bearerToken();
+            if ($bearerToken) {
+                try {
+                    app(\App\Services\Mobile\ApiService::class)->setToken($bearerToken);
+                    \Illuminate\Support\Facades\Log::info('[WorkspaceController] Bearer token captured and stored in ApiService');
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('[WorkspaceController] Failed to capture Bearer token: ' . $e->getMessage());
+                }
+            }
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:255',

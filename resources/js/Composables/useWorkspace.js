@@ -387,15 +387,37 @@ async function addPatient(formData) {
     try {
         const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
         let res;
+        // ═══════════════════════════════════════════════════════════════
+        //  ALWAYS send Bearer token (even when offline)
+        // ═══════════════════════════════════════════════════════════════
+        // The embedded Laravel captures this token from the request and
+        // stores it in ApiService. When WiFi comes back, the sync engine
+        // reads the token from ApiService and uses it to authenticate
+        // against the production server.
+        //
+        // Without ALWAYS sending the token:
+        //   - OFFLINE creation: no token sent → ApiService never gets it
+        //   - WiFi online: sync engine calls ApiService::getToken() → null
+        //   - POST to production: no Bearer header → 401 Unauthenticated
+        //   - Sync FAILS silently → patient stays pending_create forever
+        //
+        // When online, we use /api/v1/mobile/patients (which creates the
+        // patient on the embedded Laravel AND captures the token).
+        // When offline, we use /api/v1/workspace/patients (same behavior).
+        //
+        // Both routes now capture the Bearer token from the request.
+        const token = localStorage.getItem('np_api_token');
+        const authHeaders = token ? { Authorization: 'Bearer ' + token } : {};
         if (online) {
-            const token = localStorage.getItem('np_api_token');
             trace('[TRACE_P4a] ONLINE - POST to production API')
             res = await axios.post('/api/v1/mobile/patients', formData, {
-                headers: token ? { Authorization: 'Bearer ' + token } : {},
+                headers: authHeaders,
             });
         } else {
             trace('[TRACE_P4b] OFFLINE - POST to embedded Laravel')
-            res = await axios.post('/api/v1/workspace/patients', formData);
+            res = await axios.post('/api/v1/workspace/patients', formData, {
+                headers: authHeaders,
+            });
         }
         trace('[TRACE_P8] axios.post response status: ' + res.status + ' data: ' + JSON.stringify(res.data).substring(0, 500))
         console.log('[INSTRUMENT] addPatient POST response status:', res.status);
@@ -512,7 +534,7 @@ async function refreshPatientList(page = 1) {
         // an incomplete list, causing pending patients to disappear.
         try {
             console.log('[INSTRUMENT] refreshPatientList STEP 1: POST /_native/api/sync/patients starting...');
-            const syncRes = await axios.post('/_native/api/sync/patients', {}, { timeout: 60000 });
+            const syncRes = await axios.post('/_native/api/sync/patients', {}, { timeout: 15000 });
             console.log('[INSTRUMENT] refreshPatientList STEP 1 COMPLETE:', syncRes.data);
         } catch (syncErr) {
             console.log('[INSTRUMENT] refreshPatientList STEP 1 FAILED:', syncErr.message, syncErr.response?.data || '');
