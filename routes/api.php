@@ -21,76 +21,84 @@ Route::get('/files/{uuid}/stream', [FileAccessController::class, 'streamDirect']
 Route::prefix('v1')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
 
-    // 🚨 TEMPORARY: Public patient creation & notes creation for debugging — no auth required.
-    // TODO: Move back inside auth:sanctum when testing is complete.
-    Route::prefix('mobile')->group(function () {
-        Route::post('/patients', [PatientController::class, 'store']);
-        Route::post('/patients/{uuid}/notes', [NoteController::class, 'store']);
-    });
-
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
 
         // Category files endpoint
         Route::get('/patients/{patientUuid}/categories/{slug}/files', [CategoryFileController::class, 'files']);
+    });
 
-        // Mobile API endpoints
-        Route::prefix('mobile')->group(function () {
-            // Dashboard
-            Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
+    // ── Mobile API (Sanctum session + Bearer token fallback) ─────────
+    // Uses TWO middleware stacked together:
+    //   1) `mobile.auth` — runs FIRST. Tries manual Bearer token resolution
+    //      via PersonalAccessToken::findToken() + Auth::login(). This handles
+    //      requests from the SyncEngine (GuzzleHttp with Bearer token).
+    //      If no Bearer token, passes through to the next middleware.
+    //   2) `auth:sanctum` — runs SECOND. Handles session cookie auth for
+    //      requests from the production frontend (SPA). Also catches requests
+    //      that have a valid Bearer token that Sanctum CAN resolve.
+    //
+    // This means:
+    //   - SyncEngine (Bearer token) → mobile.auth resolves it → auth:sanctum sees user → ✅
+    //   - Production SPA (session cookie) → mobile.auth does nothing → auth:sanctum resolves → ✅
+    //   - Unauthenticated → mobile.auth does nothing → auth:sanctum returns 401 → ❌
+    Route::prefix('mobile')->middleware(['mobile.auth', 'auth:sanctum'])->group(function () {
+        // Dashboard
+        Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 
-            // Patients (POST is defined separately above — no auth)
-            Route::get('/patients', [PatientController::class, 'index']);
-            Route::get('/patients/{uuid}', [PatientController::class, 'show']);
-            Route::put('/patients/{uuid}', [PatientController::class, 'update']);
-            Route::delete('/patients/{uuid}', [PatientController::class, 'destroy']);
+        // Patients
+        Route::get('/patients', [PatientController::class, 'index']);
+        Route::get('/patients/{uuid}', [PatientController::class, 'show']);
+        Route::post('/patients', [PatientController::class, 'store']);
+        Route::put('/patients/{uuid}', [PatientController::class, 'update']);
+        Route::delete('/patients/{uuid}', [PatientController::class, 'destroy']);
 
-            // Visits
-            Route::get('/patients/{uuid}/visits', [VisitController::class, 'index']);
-            Route::post('/patients/{uuid}/visits', [VisitController::class, 'store']);
-            Route::put('/patients/{uuid}/visits/{visitId}', [VisitController::class, 'update']);
-            Route::delete('/patients/{uuid}/visits/{visitId}', [VisitController::class, 'destroy']);
+        // Visits
+        Route::get('/patients/{uuid}/visits', [VisitController::class, 'index']);
+        Route::post('/patients/{uuid}/visits', [VisitController::class, 'store']);
+        Route::put('/patients/{uuid}/visits/{visitId}', [VisitController::class, 'update']);
+        Route::delete('/patients/{uuid}/visits/{visitId}', [VisitController::class, 'destroy']);
 
-            // Notes (POST is defined separately above — no auth)
-            Route::get('/patients/{uuid}/notes', [NoteController::class, 'index']);
-            Route::put('/patients/{uuid}/notes/{noteUuid}', [NoteController::class, 'update']);
-            Route::delete('/patients/{uuid}/notes/{noteUuid}', [NoteController::class, 'destroy']);
+        // Notes
+        Route::get('/patients/{uuid}/notes', [NoteController::class, 'index']);
+        Route::post('/patients/{uuid}/notes', [NoteController::class, 'store']);
+        Route::put('/patients/{uuid}/notes/{noteUuid}', [NoteController::class, 'update']);
+        Route::delete('/patients/{uuid}/notes/{noteUuid}', [NoteController::class, 'destroy']);
 
-            // Files
-            Route::get('/patients/{uuid}/files', [FileController::class, 'index']);
-            Route::post('/patients/{uuid}/files', [FileController::class, 'store']);
-            Route::put('/files/{fileUuid}', [FileController::class, 'update']);
-            Route::delete('/files/{fileUuid}', [FileController::class, 'destroy']);
-            Route::get('/files/{fileUuid}', [FileController::class, 'show']);
-            Route::get('/files/{fileUuid}/stream', [FileController::class, 'stream'])->name('mobile.files.stream');
-            Route::get('/files/{fileUuid}/thumbnail', [FileController::class, 'thumbnail'])->name('mobile.files.thumbnail');
+        // Files
+        Route::get('/patients/{uuid}/files', [FileController::class, 'index']);
+        Route::post('/patients/{uuid}/files', [FileController::class, 'store']);
+        Route::put('/files/{fileUuid}', [FileController::class, 'update']);
+        Route::delete('/files/{fileUuid}', [FileController::class, 'destroy']);
+        Route::get('/files/{fileUuid}', [FileController::class, 'show']);
+        Route::get('/files/{fileUuid}/stream', [FileController::class, 'stream'])->name('mobile.files.stream');
+        Route::get('/files/{fileUuid}/thumbnail', [FileController::class, 'thumbnail'])->name('mobile.files.thumbnail');
 
-            // Doctors
-            Route::get('/doctors', [DoctorController::class, 'index']);
-            Route::get('/doctors/search', [DoctorController::class, 'search']);
-            Route::get('/doctors/{doctorId}', [DoctorController::class, 'show']);
+        // Doctors
+        Route::get('/doctors', [DoctorController::class, 'index']);
+        Route::get('/doctors/search', [DoctorController::class, 'search']);
+        Route::get('/doctors/{doctorId}', [DoctorController::class, 'show']);
 
-            // Sharing
-            Route::get('/patients/{uuid}/shares', [ShareController::class, 'index']);
-            Route::post('/patients/{uuid}/shares', [ShareController::class, 'store']);
-            Route::delete('/patients/{uuid}/shares/{shareId}', [ShareController::class, 'destroy']);
+        // Sharing
+        Route::get('/patients/{uuid}/shares', [ShareController::class, 'index']);
+        Route::post('/patients/{uuid}/shares', [ShareController::class, 'store']);
+        Route::delete('/patients/{uuid}/shares/{shareId}', [ShareController::class, 'destroy']);
 
-            // Search
-            Route::get('/search', [SearchController::class, 'search']);
+        // Search
+        Route::get('/search', [SearchController::class, 'search']);
 
-            // Profile
-            Route::put('/profile', [DoctorController::class, 'updateProfile']);
-            Route::put('/profile/password', [DoctorController::class, 'updatePassword']);
+        // Profile
+        Route::put('/profile', [DoctorController::class, 'updateProfile']);
+        Route::put('/profile/password', [DoctorController::class, 'updatePassword']);
 
-            // Resumable Uploads
-            Route::post('/uploads/start', [\App\Http\Controllers\Api\UploadsController::class, 'start']);
-            Route::post('/uploads/chunk', [\App\Http\Controllers\Api\UploadsController::class, 'chunk']);
-            Route::get('/uploads/{id}/status', [\App\Http\Controllers\Api\UploadsController::class, 'status']);
-            Route::post('/uploads/{id}/resume', [\App\Http\Controllers\Api\UploadsController::class, 'resume']);
-            Route::post('/uploads/{id}/finish', [\App\Http\Controllers\Api\UploadsController::class, 'finish']);
-            Route::delete('/uploads/{id}', [\App\Http\Controllers\Api\UploadsController::class, 'destroy']);
-        });
+        // Resumable Uploads
+        Route::post('/uploads/start', [\App\Http\Controllers\Api\UploadsController::class, 'start']);
+        Route::post('/uploads/chunk', [\App\Http\Controllers\Api\UploadsController::class, 'chunk']);
+        Route::get('/uploads/{id}/status', [\App\Http\Controllers\Api\UploadsController::class, 'status']);
+        Route::post('/uploads/{id}/resume', [\App\Http\Controllers\Api\UploadsController::class, 'resume']);
+        Route::post('/uploads/{id}/finish', [\App\Http\Controllers\Api\UploadsController::class, 'finish']);
+        Route::delete('/uploads/{id}', [\App\Http\Controllers\Api\UploadsController::class, 'destroy']);
     });
 });
 
