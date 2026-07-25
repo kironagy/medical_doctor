@@ -3,30 +3,21 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\AuthenticateWithBearer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 class CategoryController extends Controller
 {
+    use AuthenticateWithBearer;
+
     public function index(Request $request)
     {
         $user = $request->user();
-
-        // ── Bearer token auth (when called by ApiCategoryRepository) ──
-        // This route is in the api/v1 group WITHOUT auth:sanctum middleware.
-        // When ApiCategoryRepository on the phone calls this endpoint,
-        // it sends the Sanctum Bearer token. We must resolve it manually.
         if (!$user) {
-            $bearerToken = $request->bearerToken();
-            if ($bearerToken) {
-                try {
-                    $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearerToken);
-                    if ($accessToken && $accessToken->tokenable) {
-                        $user = $accessToken->tokenable;
-                    }
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::warning('[CategoryController] Bearer auth failed: ' . $e->getMessage());
-                }
+            $user = $this->resolveFromBearerToken($request);
+            if ($user) {
+                \Illuminate\Support\Facades\Auth::login($user);
             }
         }
 
@@ -96,13 +87,10 @@ class CategoryController extends Controller
             foreach ($allUsers as $u) {
                 $preferences = $u->preferences ?? [];
                 $customCategories = $preferences['custom_categories'] ?? [];
-                
-                // check if exists
                 $exists = false;
                 foreach($customCategories as $c) {
                     if (($c['slug'] ?? '') === $validated['slug']) { $exists = true; break; }
                 }
-                
                 if (!$exists) {
                     $customCategories[] = $newCategory;
                     $preferences['custom_categories'] = $customCategories;
@@ -119,7 +107,6 @@ class CategoryController extends Controller
             Cache::forget("user_categories_{$user->id}");
         }
 
-        // Return the modified categories for the current user
         return response()->json($user->fresh()->preferences['custom_categories'] ?? []);
     }
 

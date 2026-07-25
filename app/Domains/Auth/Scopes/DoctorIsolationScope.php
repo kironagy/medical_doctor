@@ -30,12 +30,15 @@ class DoctorIsolationScope implements Scope
             if ($table === 'patients') {
                 $builder->where(function ($q) use ($user) {
                     $q->where('primary_doctor_id', $user->id)
-                      // ── NEW: Include patients with null primary_doctor_id
-                      // Patients created via the sync engine without a valid
-                      // Bearer token may have primary_doctor_id = NULL. Without
-                      // this fallback, those patients are invisible to all doctors
-                      // and can never be claimed or edited.
-                      ->orWhereNull('primary_doctor_id')
+                      // ── Patients created offline without a doctor — show only
+                      // to the doctor who CREATED the patient. This replaces the
+                      // previous orWhereNull('primary_doctor_id') which exposed
+                      // ALL unowned patients to ALL doctors (SEC-001).
+                      ->orWhere(function ($sub) use ($user) {
+                          $sub->whereNull('primary_doctor_id')
+                              ->where('created_by_id', $user->id);
+                      })
+                      // ── Patients shared with this doctor via patient_shares
                       ->orWhereIn('id', function ($query) use ($user) {
                           $query->select('patient_id')
                                 ->from('patient_shares')
@@ -49,11 +52,10 @@ class DoctorIsolationScope implements Scope
                 // For tables like patient_files, patient_visits which have a patient_id
                 $builder->whereHas('patient', function ($q) use ($user) {
                     $q->where('primary_doctor_id', $user->id)
-                      // ── NEW: Include patients with null primary_doctor_id
-                      // Same reasoning as above — sync-created patients without
-                      // a doctor ID must still be accessible so their files,
-                      // visits, and notes can be viewed by the doctor.
-                      ->orWhereNull('primary_doctor_id')
+                      ->orWhere(function ($sub) use ($user) {
+                          $sub->whereNull('primary_doctor_id')
+                              ->where('created_by_id', $user->id);
+                      })
                       ->orWhereIn('id', function ($query) use ($user) {
                           $query->select('patient_id')
                                 ->from('patient_shares')

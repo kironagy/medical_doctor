@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\AuthenticateWithBearer;
 use App\Repositories\Api\ApiPatientRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,21 +17,19 @@ use Illuminate\Support\Str;
  * OfflineNoteController — Phase 8: Offline Note Creation & Sync
  *
  * Handles notes created while the device is offline.
- * Follows the exact same pattern as OfflineUploadController.
- *
  * Routes (all under /_native/api/offline/notes):
  *   POST   /notes        — Create a note locally (sync_status = pending_create)
  *   GET    /notes        — List offline notes for a patient
  *   DELETE /notes/{uuid} — Delete a pending offline note
  *
  * Sync Strategy:
- *   Notes are stored directly in the patient_notes table with
- *   sync_status = 'pending_create'. When connectivity returns,
- *   SyncEngineService uploads them to the production API and
- *   marks them as 'synced'.
+ *   Notes stored directly in patient_notes with sync_status = 'pending_create'.
+ *   SyncEngineService uploads them when connectivity returns.
  */
 class OfflineNoteController extends Controller
 {
+    use AuthenticateWithBearer;
+
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -41,7 +40,12 @@ class OfflineNoteController extends Controller
 
         $patient = $this->resolvePatient($validated['patient_uuid']);
 
+        // ── Use shared Bearer token resolver ───────────────────────────
         $user = $request->user();
+        if (!$user) {
+            $user = $this->resolveFromBearerToken($request);
+        }
+
         if ($user) {
             try {
                 Gate::authorize('update', $patient);
@@ -51,24 +55,11 @@ class OfflineNoteController extends Controller
         }
 
         $authorId = $user?->id;
-        if (!$authorId) {
-            $bearerToken = $request->bearerToken();
-            if ($bearerToken) {
-                try {
-                    $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearerToken);
-                    if ($accessToken && $accessToken->tokenable) {
-                        Auth::login($accessToken->tokenable);
-                        $authorId = $accessToken->tokenable->id;
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('[OfflineNote] Bearer auth failed: ' . $e->getMessage());
-                }
-            }
-        }
-        if (!$authorId) {
-            $anyUser = \App\Domains\Users\Models\User::first();
-            $authorId = $anyUser?->id;
-        }
+
+        // ── No fallback to first user in DB ─────────────────────────────
+        // Previously this code grabbed the first user from the database as
+        // a fallback author, which caused wrong authorship attribution
+        // (OFFLINE-003). Now we require a valid authenticated user.
         if (!$authorId) {
             return response()->json([
                 'success' => false,
@@ -203,13 +194,20 @@ class OfflineNoteController extends Controller
             ]);
         }
 
+        // ── SEC-003 FIX: Set primary_doctor_id on stub patients
+        $stubData = [
+            'uuid' => $uuid,
+            'sync_status' => 'pending_sync',
+            'name' => 'Patient (' . $uuid . ')',
+        ];
+        if (auth()->check()) {
+            $stubData['primary_doctor_id'] = auth()->id();
+            $stubData['created_by_id'] = auth()->id();
+        }
+
         $patient = Patient::updateOrCreate(
             ['uuid' => $uuid],
-            [
-                'uuid' => $uuid,
-                'sync_status' => 'pending_sync',
-                'name' => 'Patient (' . $uuid . ')',
-            ]
+            $stubData
         );
 
         return $patient;

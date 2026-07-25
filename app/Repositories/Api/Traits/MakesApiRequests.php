@@ -20,86 +20,38 @@ trait MakesApiRequests
         $requestId = substr(uniqid('mac', true), -8);
 
         // ═══════════════════════════════════════════════════════════════════
-        //  AUTH SOURCE: Use ApiService (singleton) as primary token source.
+        //  AUTH SOURCE: Single source of truth — ApiService singleton
         // ═══════════════════════════════════════════════════════════════════
-        // There are TWO independent auth paths in this codebase:
-        //   Path A: ApiService — reads token from session in constructor,
-        //            stores in $this->token.
-        //   Path B: MakesApiRequests (this trait) — reads session('api_token')
-        //            directly every call.
+        // AUTH-001 FIX: Previous code had TWO independent auth paths:
+        //   Path A: ApiService — reads token from session in constructor
+        //   Path B: Direct session('api_token') read
+        // These paths could desync, causing intermittent 401 errors.
         //
-        // These paths MUST draw from the SAME token source, otherwise they
-        // can desync — one path has a valid token while the other doesn't —
-        // causing the INTERMITTENT 401 pattern (POST fails, GET succeeds).
-        //
-        // Priority:
-        //   1. ApiService::getToken() — singleton, set by session restore
-        //   2. session('api_token') — fallback if ApiService hasn't loaded
-        //
-        // ApiService is now registered as a singleton in AppServiceProvider,
+        // Now we use a SINGLE path: ApiService::getToken().
+        // ApiService is registered as a singleton in AppServiceProvider,
         // so app(ApiService::class) always returns the same instance.
+        // ApiService's constructor already loads from session('api_token')
+        // and from the disk file as fallback — so no dual-source needed here.
         // ═══════════════════════════════════════════════════════════════════
         
         $token = null;
-        $tokenSource = 'unknown';
-        $rawTokenPrefix = 'NONE';
-        $tokenHash = 'NONE';
-        $decryptError = null;
-
-        /** @var string|null Extracted Sanctum token ID (from 'ID|hash' format) */
-        $sanctumTokenId = null;
-
-        // Source 1: ApiService singleton (preferred)
         try {
-            $apiServiceToken = app(\App\Services\Mobile\ApiService::class)->getToken();
-            if (!empty($apiServiceToken)) {
-                $token = $apiServiceToken;
-                $tokenSource = 'ApiService';
-                $rawTokenPrefix = substr($token, 0, 20) . '...' . substr($token, -4);
-                $tokenHash = md5($token);
-                $parts = explode('|', $token, 2);
-                $sanctumTokenId = $parts[0] ?? null;
-            }
+            $token = app(\App\Services\Mobile\ApiService::class)->getToken();
         } catch (\Throwable $e) {
             Log::warning('[ApiAuth] ApiService lookup failed: ' . $e->getMessage());
         }
-
-        // Source 2: Session fallback (if ApiService didn't have one)
-        $sessionEncryptedToken = null;
-        if (empty($token)) {
-            $sessionEncryptedToken = session('api_token');
-            if ($sessionEncryptedToken) {
-                try {
-                    $token = decrypt($sessionEncryptedToken);
-                    $tokenSource = 'session';
-                    $rawTokenPrefix = substr($token, 0, 20) . '...' . substr($token, -4);
-                    $tokenHash = md5($token);
-                    $parts = explode('|', $token, 2);
-                    $sanctumTokenId = $parts[0] ?? null;
-                } catch (\Exception $e) {
-                    $decryptError = $e->getMessage();
-                    $rawTokenPrefix = 'DECRYPT_FAILED:' . $e->getMessage();
-                    // Don't clear the session — might be a transient read error;
-                    // the next read will retry. Clearing would cascade the failure.
-                }
-            } else {
-                $tokenSource = 'session_empty';
-            }
-        }
+        
+        $tokenPrefix = $token ? substr($token, 0, 20) . '...' : 'NONE';
         
         Log::info('[ApiAuth] Token status for ' . $method . ' ' . $path, [
             'request_id' => $requestId,
-            'token_source' => $tokenSource,
-            'token_prefix' => $rawTokenPrefix,
-            'token_hash' => $tokenHash,
-            'sanctum_token_id' => $sanctumTokenId,
-            'decrypt_error' => $decryptError,
+            'token_present' => $token ? 'YES' : 'NO',
+            'token_prefix' => $tokenPrefix,
             'method' => $method,
             'path' => $path,
             'url' => $url,
             'session_id' => session()->getId(),
             'auth_check' => auth()->check() ? 'YES' : 'NO',
-            'auth_user_id' => auth()->id(),
         ]);
 
         $http = Http::timeout(30)

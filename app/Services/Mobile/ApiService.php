@@ -110,17 +110,18 @@ class ApiService
         if (empty($contents)) {
             return;
         }
-        $decoded = base64_decode($contents, true);
-        if ($decoded === false || empty($decoded)) {
-            Log::warning('[DIAG.ApiService] loadTokenFromFile — invalid file contents');
+        // ── TOKEN-004 FIX: Use decrypt() instead of base64_decode()
+        try {
+            $this->token = decrypt($contents);
+            Log::info('[DIAG.ApiService] loadTokenFromFile — token loaded from file', [
+                'instance' => $this->instanceId,
+                'token_length' => strlen($this->token),
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('[DIAG.ApiService] loadTokenFromFile — decrypt failed, clearing file: ' . $e->getMessage());
             @unlink($path);
-            return;
+            $this->token = null;
         }
-        $this->token = $decoded;
-        Log::info('[DIAG.ApiService] loadTokenFromFile — token loaded from file', [
-            'instance' => $this->instanceId,
-            'token_length' => strlen($this->token),
-        ]);
     }
 
     private function writeTokenToFile(string $token): void
@@ -131,7 +132,12 @@ class ApiService
             if (!is_dir($dir)) {
                 mkdir($dir, 0755, true);
             }
-            file_put_contents($path, base64_encode($token), LOCK_EX);
+            // ── TOKEN-004 FIX: Use encrypt() instead of base64_encode()
+            // Previous code used base64_encode() which is encoding, NOT
+            // encryption. This exposed the token to any process with
+            // filesystem access. Now using Laravel's encrypt() which
+            // uses AES-256-CBC with the APP_KEY.
+            file_put_contents($path, encrypt($token), LOCK_EX);
         } catch (\Throwable $e) {
             Log::warning('[DIAG.ApiService] writeTokenToFile — failed: ' . $e->getMessage());
         }

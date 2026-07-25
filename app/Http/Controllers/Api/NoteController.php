@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\AuthenticateWithBearer;
 use App\Repositories\Api\ApiPatientRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\Log;
 
 class NoteController extends Controller
 {
+    use AuthenticateWithBearer;
+
     public function index(Request $request, string $patientUuid)
     {
         $patient = $this->resolvePatient($patientUuid);
@@ -25,19 +28,13 @@ class NoteController extends Controller
 
     public function store(Request $request, string $patientUuid)
     {
+        // ── Use shared Bearer token resolver (replaces duplicated code) ──
         $user = $request->user();
         if (!$user) {
-            $bearerToken = $request->bearerToken();
-            if ($bearerToken) {
-                try {
-                    $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearerToken);
-                    if ($accessToken && $accessToken->tokenable) {
-                        Auth::login($accessToken->tokenable);
-                        $user = $accessToken->tokenable;
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('[NoteController] Bearer auth failed: ' . $e->getMessage());
-                }
+            $user = $this->resolveFromBearerToken($request);
+            if ($user) {
+                // Log into session for downstream code (Gate checks, policies)
+                \Illuminate\Support\Facades\Auth::login($user);
             }
         }
 
@@ -55,37 +52,20 @@ class NoteController extends Controller
         ];
 
             if ($user) {
-                // ── Authenticated user (production server or online embedded Laravel) ──
                 $noteData['author_id'] = $user->id;
             } else {
-                // ── No authenticated user (forwarded request or offline) ──
                 $noteData['author_id'] = $validated['author_id'] ?? $patient->primary_doctor_id;
 
-                // Only set sync_status on the embedded Laravel (SQLite) database.
-                // sync_status is an offline-only concept for tracking notes that
-                // need to be synced to the production server. On the production
-                // server itself (MySQL), sync_status must NOT be set because:
-                //   1. The column might not exist (migration may not have run)
-                //   2. SyncEngine only runs on the embedded Laravel, not production
                 $isLocalSqlite = config('database.default') === 'sqlite';
                 if ($isLocalSqlite) {
                     $noteData['sync_status'] = 'pending_create';
                 }
 
                 if (!$noteData['author_id']) {
-                    $fallbackUser = \App\Domains\Users\Models\User::query()->first();
-                    if ($fallbackUser) {
-                        $noteData['author_id'] = $fallbackUser->id;
-                        Log::info('[NoteController] Used fallback user for offline note', [
-                            'patient_uuid' => $patientUuid,
-                            'fallback_user_id' => $fallbackUser->id,
-                        ]);
-                    } else {
-                        Log::error('[NoteController] Cannot create offline note: no user found', [
-                            'patient_uuid' => $patientUuid,
-                        ]);
-                        return response()->json(['message' => 'Cannot create note offline. Please login and sync first.'], 500);
-                    }
+                    Log::error('[NoteController] Cannot create offline note: no user found', [
+                        'patient_uuid' => $patientUuid,
+                    ]);
+                    return response()->json(['message' => 'Cannot create note offline. Please login and sync first.'], 500);
                 }
             }
 
@@ -170,13 +150,23 @@ class NoteController extends Controller
             ]);
         }
 
+        // ── SEC-003 FIX: When creating a stub patient, set primary_doctor_id
+        // from the current authenticated user if available. Previously this
+        // created patients with NULL primary_doctor_id, which made them
+        // visible to ALL doctors. Now only the authenticated user sees them.
+        $stubData = [
+            'uuid' => $uuid,
+            'sync_status' => 'pending_sync',
+            'name' => 'Patient (' . $uuid . ')',
+        ];
+        if (auth()->check()) {
+            $stubData['primary_doctor_id'] = auth()->id();
+            $stubData['created_by_id'] = auth()->id();
+        }
+
         $patient = Patient::updateOrCreate(
             ['uuid' => $uuid],
-            [
-                'uuid' => $uuid,
-                'sync_status' => 'pending_sync',
-                'name' => 'Patient (' . $uuid . ')',
-            ]
+            $stubData
         );
 
         return $patient;

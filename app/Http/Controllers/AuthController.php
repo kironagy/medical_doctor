@@ -75,8 +75,19 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        // Clean up the remember token BEFORE invalidating the session,
-        // otherwise session() will return null and the token is never deleted.
+        // ── TOKEN-003 FIX: Clean up ALL tokens, not just the remember token ──
+        // Previous code only cleaned up the session-remember Sanctum token.
+        // It left behind:
+        //   1. session('api_token') — production API token
+        //   2. session('auth_credentials') — encrypted email/password
+        //   3. The disk token file (storage/app/.api_sync_token)
+        //   4. localStorage tokens (handled by frontend JS)
+        //
+        // Now we clean up everything to prevent stale credentials from
+        // persisting after logout. This ensures that re-login doesn't
+        // accidentally reuse old credentials.
+
+        // 1. Delete the Sanctum session-remember token
         try {
             $encrypted = session('session_remember_token');
             if ($encrypted) {
@@ -87,6 +98,20 @@ class AuthController extends Controller
             // Silently clean up
         }
         session()->forget('session_remember_token');
+
+        // 2. Clean up the production API token via ApiService singleton
+        try {
+            $apiService = app(\App\Services\Mobile\ApiService::class);
+            $apiService->setToken(null); // This clears session + disk file
+        } catch (\Throwable $e) {
+            Log::warning('Failed to clean up API token on logout: ' . $e->getMessage());
+        }
+
+        // 3. Clean up stored credentials
+        session()->forget('auth_credentials');
+
+        // 4. Clean up any other authentication artifacts
+        session()->forget('api_token');
 
         Auth::logout();
         $request->session()->invalidate();

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Mobile;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\AuthenticateWithBearer;
 use App\Repositories\Api\ApiPatientRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Log;
 
 class NoteController extends Controller
 {
+    use AuthenticateWithBearer;
+
     public function index(string $uuid)
     {
         $patient = $this->resolvePatient($uuid);
@@ -27,7 +30,7 @@ class NoteController extends Controller
 
     public function store(Request $request, string $uuid)
     {
-        Log::info('[MobileNote::store] ENTERED uuid=' . $uuid . ' user=' . ($request->user()?->id ?? 'null') . ' online=' . (config('database.connections.sqlite.database') ?? '?'));
+        Log::info('[MobileNote::store] ENTERED uuid=' . $uuid . ' user=' . ($request->user()?->id ?? 'null'));
         $patient = $this->resolvePatient($uuid);
         Gate::authorize('update', $patient);
 
@@ -39,13 +42,7 @@ class NoteController extends Controller
 
         $user = $request->user();
         if (!$user) {
-            $bearerToken = $request->bearerToken();
-            if ($bearerToken) {
-                $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearerToken);
-                if ($accessToken && $accessToken->tokenable) {
-                    $user = $accessToken->tokenable;
-                }
-            }
+            $user = $this->resolveFromBearerToken($request);
         }
 
         $authorId = $user?->id ?? $validated['author_id'] ?? $patient->primary_doctor_id;
@@ -76,8 +73,15 @@ class NoteController extends Controller
             ->where('patient_id', $patient->id)
             ->firstOrFail();
 
+        // ── ISO-003 FIX: Check patient update permission instead of author_id
+        // Previous code checked $note->author_id !== $request->user()->id,
+        // which prevented the PRIMARY DOCTOR from editing notes authored by
+        // other doctors on THEIR OWN patient. Now checks if user can update
+        // the patient (which includes primary doctors and shared doctors with
+        // write access). This is consistent with the Api\NoteController which
+        // falls back to Gate::authorize('update', $note->patient).
         if ($note->author_id !== $request->user()->id) {
-            abort(403, 'You can only edit your own notes.');
+            Gate::authorize('update', $note->patient);
         }
 
         $validated = $request->validate([
@@ -98,8 +102,9 @@ class NoteController extends Controller
             ->where('patient_id', $patient->id)
             ->firstOrFail();
 
+        // ── ISO-003 FIX: Same as update method — check patient permission
         if ($note->author_id !== $request->user()->id) {
-            abort(403, 'You can only delete your own notes.');
+            Gate::authorize('update', $note->patient);
         }
 
         $note->delete();
@@ -137,13 +142,20 @@ class NoteController extends Controller
             ]);
         }
 
+        // ── SEC-003 FIX: Set primary_doctor_id on stub patients
+        $stubData = [
+            'uuid' => $uuid,
+            'sync_status' => 'pending_sync',
+            'name' => 'Patient (' . $uuid . ')',
+        ];
+        if (auth()->check()) {
+            $stubData['primary_doctor_id'] = auth()->id();
+            $stubData['created_by_id'] = auth()->id();
+        }
+
         $patient = Patient::updateOrCreate(
             ['uuid' => $uuid],
-            [
-                'uuid' => $uuid,
-                'sync_status' => 'pending_sync',
-                'name' => 'Patient (' . $uuid . ')',
-            ]
+            $stubData
         );
 
         return $patient;

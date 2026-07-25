@@ -2,21 +2,27 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Contracts\Repositories\PatientFileRepositoryInterface;
-use App\Contracts\Repositories\PatientRepositoryInterface;
-use App\Domains\Auth\Scopes\DoctorIsolationScope;
 use App\Domains\Media\Models\PatientFile;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class CategoryFileController extends Controller
 {
     public function files(Request $request, string $patientUuid, string $slug)
     {
-        $patient = Patient::withoutGlobalScope(DoctorIsolationScope::class)
-            ->where('uuid', $patientUuid)->firstOrFail();
+        // ── Use the global DoctorIsolationScope (don't bypass it) ─────────
+        // Previously this controller called withoutGlobalScope(), which could
+        // leak patient data across doctors. The scope now properly handles
+        // null primary_doctor_id via created_by_id matching (SEC-002 fix).
+        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
+
+        // ── Gate authorization: verify the current user can view this patient
+        // This is the SECOND layer of defense (scope is first layer).
+        // The scope filters at the query level, while Gate checks explicitly.
+        Gate::authorize('view', $patient);
 
         $page = (int) $request->input('page', 1);
         $perPage = (int) $request->input('per_page', 6);
@@ -30,8 +36,8 @@ class CategoryFileController extends Controller
         if ($perPage < 1 || $perPage > 100) $perPage = 6;
         if ($page < 1) $page = 1;
 
-        $fileQuery = PatientFile::withoutGlobalScope(DoctorIsolationScope::class)
-            ->where('patient_id', $patient->id)
+        // ── Use normal queries (scope applies automatically) ─────────────
+        $fileQuery = PatientFile::where('patient_id', $patient->id)
             ->where('category', $slug);
 
         // Date filtering
@@ -97,9 +103,8 @@ class CategoryFileController extends Controller
 
         $files = $fileQuery->with('uploader:id,name')->paginate($perPage, ['*'], 'page', $page);
 
-        // Notes search (not paginated - typically few per category)
-        $noteQuery = PatientNote::withoutGlobalScope(DoctorIsolationScope::class)
-            ->where('patient_id', $patient->id)
+        // ── Notes query (scope applies automatically) ────────────────────
+        $noteQuery = PatientNote::where('patient_id', $patient->id)
             ->where('category', $slug);
 
         if ($search && strlen(trim($search)) > 0) {

@@ -11,6 +11,7 @@ use App\Contracts\Repositories\PatientVisitRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientShare;
+use App\Http\Middleware\AuthenticateWithBearer;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Log;
@@ -18,6 +19,8 @@ use Illuminate\Support\Str;
 
 class WorkspaceController extends Controller
 {
+    use AuthenticateWithBearer;
+
     public function __construct(
         private readonly PatientRepositoryInterface $patientRepo,
         private readonly PatientFileRepositoryInterface $fileRepo,
@@ -30,15 +33,6 @@ class WorkspaceController extends Controller
 
     /**
      * Get categories — offline-first via CategoryRepository.
-     *
-     * The repository handles:
-     *   1. API fetch (online) → cache locally → return
-     *   2. Local cache (offline) → return
-     *   3. Config defaults (last resort) → return
-     *
-     * This replaces the previous implementation that only read from
-     * config + preferences, which failed when offline and the user's
-     * preferences weren't synced to the local SQLite.
      */
     private function getCategories($user)
     {
@@ -50,7 +44,6 @@ class WorkspaceController extends Controller
             Log::warning('[Workspace] CategoryRepository failed, using config defaults: ' . $e->getMessage());
         }
 
-        // Last resort: config defaults
         return config('categories', []);
     }
 
@@ -79,10 +72,8 @@ class WorkspaceController extends Controller
         $page = $request->input('page', 1);
         $status = $request->input('status');
 
-        // API-first with local fallback (PatientRepository handles offline transparently)
         $result = $this->patientRepo->paginated(10, $page, $status);
 
-        // Normalize API response format (Laravel paginator format -> { data, meta } format)
         if (isset($result['current_page']) && !isset($result['meta'])) {
             $result = [
                 'data' => $result['data'] ?? [],
@@ -111,46 +102,15 @@ class WorkspaceController extends Controller
 
     public function storePatient(Request $request)
     {
-        $traceFile = '/data/local/tmp/np_traces.txt';
-        $traceLine = now()->format('H:i:s.v') . ' [TRACE_P5] WorkspaceController.storePatient() ENTERED' . "\n";
-        @file_put_contents($traceFile, $traceLine, FILE_APPEND | LOCK_EX);
-        $traceLine = now()->format('H:i:s.v') . ' [TRACE_P5b] URL: ' . $request->fullUrl() . ' Method: ' . $request->method() . "\n";
-        @file_put_contents($traceFile, $traceLine, FILE_APPEND | LOCK_EX);
-        $traceLine = now()->format('H:i:s.v') . ' [TRACE_P5c] Sessions: ' . json_encode([
-            'session_id' => $request->session()->getId(),
-            'session_exists' => $request->session()->has('_token'),
-            'has_user' => $request->user() ? 'yes' : 'no',
-            'user_id' => $request->user()?->id,
-        ]) . "\n";
-        @file_put_contents($traceFile, $traceLine, FILE_APPEND | LOCK_EX);
-        // ── Auth guard: try session first, then Bearer token ────────────────
-        // When running offline, the embedded Laravel has no session from the
-        // production server. The Sanctum token from localStorage may not be
-        // in the local SQLite yet. In these cases, we allow offline creation
-        // without a user — the PatientRepository saves with sync_status='pending_create'
-        // and assigns doctor IDs when syncing to the production server later.
+        // ── Auth guard: try session first, then Bearer token ────────────
+        // Uses the shared AuthenticateWithBearer trait (replaces duplicated
+        // Bearer resolution code that was previously inline here).
         $user = $request->user();
         if (!$user) {
-            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5d] USER IS NULL - checking Bearer token' . "\n", FILE_APPEND | LOCK_EX);
-
-            // Try to authenticate via Sanctum Bearer token (stored in localStorage)
-            $bearerToken = $request->bearerToken();
-            if ($bearerToken) {
-                try {
-                    $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearerToken);
-                    if ($accessToken && $accessToken->tokenable) {
-                        \Illuminate\Support\Facades\Auth::login($accessToken->tokenable);
-                        $user = $accessToken->tokenable;
-                        @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5d2] Authenticated via Bearer token: user_id=' . $user->id . "\n", FILE_APPEND | LOCK_EX);
-                    }
-                } catch (\Throwable $e) {
-                    @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5d3] Bearer auth failed: ' . $e->getMessage() . "\n", FILE_APPEND | LOCK_EX);
-                }
-            }
-
-            if (!$user) {
-                @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5d4] No auth - saving offline without doctor IDs' . "\n", FILE_APPEND | LOCK_EX);
-                // Allow offline creation — doctor IDs will be set during sync
+            $user = $this->resolveFromBearerToken($request);
+            if ($user) {
+                // Log into session for downstream code (Gate checks, policies)
+                \Illuminate\Support\Facades\Auth::login($user);
             }
         }
 
@@ -172,26 +132,22 @@ class WorkspaceController extends Controller
         ]);
 
         try {
-            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5e] Validation passed, starting try block' . "\n", FILE_APPEND | LOCK_EX);
-            // Generate patient code with fallback — random_int can throw on Android
             try {
                 $validated['code'] = (string) random_int(100000, 999999);
             } catch (\Throwable $e) {
-                @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5f] random_int failed: ' . $e->getMessage() . "\n", FILE_APPEND | LOCK_EX);
                 $validated['code'] = (string) mt_rand(100000, 999999);
             }
+
             if ($user) {
                 $validated['primary_doctor_id'] = $user->id;
                 $validated['created_by_id'] = $user->id;
             } else {
-                // Offline: will be assigned when synced to production server
+                // Offline: doctor IDs will be assigned during sync
                 $validated['primary_doctor_id'] = null;
                 $validated['created_by_id'] = null;
             }
 
-            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P5g] Calling PatientRepository::create() with name: ' . ($validated['name'] ?? 'none') . "\n", FILE_APPEND | LOCK_EX);
             $patient = $this->patientRepo->create($validated);
-            @file_put_contents('/data/local/tmp/np_traces.txt', now()->format('H:i:s.v') . ' [TRACE_P7] PatientRepository::create() returned. Has uuid: ' . (isset($patient['uuid']) ? 'YES: ' . $patient['uuid'] : 'NO - empty!') . "\n", FILE_APPEND | LOCK_EX);
 
             return response()->json([
                 'patient' => $patient,
@@ -279,14 +235,12 @@ class WorkspaceController extends Controller
         }
         $t1 = microtime(true);
 
-        // Get all files for stats, but only return first 50 initially to prevent large payload
         $allFiles = $this->fileRepo->forPatient($uuid);
         $files = array_slice($allFiles, 0, 50);
 
-        // ── Phase 7: Merge offline pending uploads into the file list ───────────
+        // Merge offline pending uploads into the file list
         $offlineFiles = $this->offlineFileRepo->findByPatientUuid($uuid);
         if (!empty($offlineFiles)) {
-            // Transform offline files to match the frontend's file schema
             $offlineMapped = array_map(function ($of) {
                 return [
                     'uuid'          => $of['uuid'],
@@ -311,7 +265,6 @@ class WorkspaceController extends Controller
                 ];
             }, $offlineFiles);
 
-            // Prepend offline files to the list (newest first)
             $files = array_merge($offlineMapped, $files);
         }
 
@@ -324,7 +277,6 @@ class WorkspaceController extends Controller
         $today = now()->toDateString();
         $visitsCollection = collect($visits);
 
-        // Latest past visit (most recent visit_date or created_at <= today)
         $latestPastVisit = $visitsCollection
             ->filter(function ($v) use ($today) {
                 $vDate = !empty($v['visit_date']) ? substr($v['visit_date'], 0, 10) : substr($v['created_at'] ?? $today, 0, 10);
@@ -335,7 +287,6 @@ class WorkspaceController extends Controller
             })
             ->first();
 
-        // Next appointment: earliest next_visit_date >= today from any visit
         $nextAppointment = $visitsCollection
             ->filter(function ($v) use ($today) {
                 return !empty($v['next_visit_date']) && substr($v['next_visit_date'], 0, 10) >= $today;
@@ -367,16 +318,13 @@ class WorkspaceController extends Controller
         }
 
         $user = auth()->user();
-        $t5 = microtime(true);
 
-        // Get the Patient model instance for permission checks
+        // Permission checks
         $patientModel = Patient::where('uuid', $uuid)->firstOrFail();
 
-        // If this doctor has access via a share (not as primary), load share metadata
-        // so the frontend can show who shared the patient and enforce read-only mode.
         $myShare = null;
         if (($patient['primary_doctor_id'] ?? null) !== $user?->id) {
-            $myShare = \App\Domains\Patients\Models\PatientShare::where('patient_id', $patientModel->id)
+            $myShare = PatientShare::where('patient_id', $patientModel->id)
                 ->where('doctor_id', $user?->id)
                 ->with('sharedBy:id,name')
                 ->first();
@@ -395,7 +343,6 @@ class WorkspaceController extends Controller
                 'can_delete'      => $user?->can('delete', $patientModel) ?? false,
                 'can_share'       => $user?->can('share', $patientModel) ?? false,
                 'is_primary'      => ($patient['primary_doctor_id'] ?? null) === $user?->id,
-                // Share metadata — null when this is the primary doctor
                 'is_shared'       => $myShare !== null,
                 'access_level'    => $myShare?->access_level ?? 'write',
                 'shared_by_name'  => $myShare?->sharedBy?->name ?? null,
@@ -404,17 +351,14 @@ class WorkspaceController extends Controller
 
         $t6 = microtime(true);
         $response = response()->json($payload);
-        $t7 = microtime(true);
 
-        \Illuminate\Support\Facades\Log::channel('single')->info('Controller: patientData Profiling', [
+        Log::info('Controller: patientData Profiling', [
             'repo_patient_ms' => round(($t1 - $t0) * 1000, 2),
             'repo_files_ms' => round(($t2 - $t1) * 1000, 2),
             'repo_notes_ms' => round(($t3 - $t2) * 1000, 2),
             'repo_visits_ms' => round(($t4 - $t3) * 1000, 2),
-            'controller_processing_ms' => round(($t5 - $t4) * 1000, 2),
-            'payload_assembly_ms' => round(($t6 - $t5) * 1000, 2),
-            'json_encoding_ms' => round(($t7 - $t6) * 1000, 2),
-            'total_ms' => round(($t7 - $t0) * 1000, 2),
+            'payload_assembly_ms' => round(($t6 - $t4) * 1000, 2),
+            'total_ms' => round(($t6 - $t0) * 1000, 2),
             'total_files_count' => count($allFiles),
             'returned_files_count' => count($files),
         ]);
@@ -495,7 +439,7 @@ class WorkspaceController extends Controller
             abort(404);
         }
 
-        $patient = \App\Domains\Patients\Models\Patient::where('uuid', $uuid)->first();
+        $patient = Patient::where('uuid', $uuid)->first();
         $downloadName = $patient ? (str_replace(' ', '_', $patient->name) . '_' . $patient->code . '_files.zip') : $zipName;
 
         return response()->download($zipPath, $downloadName)->deleteFileAfterSend(true);
