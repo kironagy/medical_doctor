@@ -150,19 +150,16 @@
                 </div>
 
                 <!-- Preview Area -->
-                <div class="aspect-[4/3] w-full bg-white dark:bg-slate-950 border border-teal-100 dark:border-slate-800 rounded-2xl flex items-center justify-center relative overflow-hidden mb-2.5 cursor-pointer">
+                <div class="aspect-[4/3] w-full bg-white dark:bg-slate-950 border border-teal-100 dark:border-slate-800 rounded-2xl flex items-center justify-center relative overflow-hidden mb-2.5 cursor-pointer" @click="openPreview(item, serverFiles, (page) => loadMoreForPreview(page))">
                   <template v-if="item.type === 'note'">
-                    <div @click="viewNoteContent(item)" class="w-full h-full flex items-center justify-center bg-teal-50/10 text-teal-600 dark:text-teal-400">
+                    <div @click.stop="viewNoteContent(item)" class="w-full h-full flex items-center justify-center bg-teal-50/10 text-teal-600 dark:text-teal-400">
                       <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16m-7 6h7" />
                       </svg>
                     </div>
                   </template>
                   <template v-else>
-                    <img v-if="item.thumbnail_url" :src="item.thumbnail_url" class="object-cover w-full h-full absolute inset-0 z-0" loading="lazy" @click="openPreview(item, serverFiles, (page) => loadMoreForPreview(page))" @error="e => {
-                      // Fast fallback: hide broken image immediately, show icon underneath
-                      e.target.style.display='none';
-                    }" />
+                    <img v-if="item.thumbnail_url" :src="item.thumbnail_url" class="object-cover w-full h-full absolute inset-0 z-0" />
 
                     <!-- Fallback / Play icon overlay for Video -->
                     <div v-if="item.mime_type?.startsWith('video/')" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none" :class="{ 'bg-slate-900/40': item.thumbnail_url }">
@@ -172,7 +169,7 @@
                     </div>
 
                     <!-- Generic fallback for image without thumbnail -->
-                    <div class="w-full h-full flex items-center justify-center z-10 bg-slate-50 dark:bg-slate-950" @click="openPreview(item, serverFiles, (page) => loadMoreForPreview(page))">
+                    <div class="w-full h-full flex items-center justify-center bg-slate-50 dark:bg-slate-950">
                       <div v-if="item.mime_type?.startsWith('image/')" class="text-slate-400 flex items-center justify-center">
                         <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                       </div>
