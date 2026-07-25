@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\Mobile;
 
 use App\Http\Controllers\Controller;
-use App\Http\Middleware\AuthenticateWithBearer;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Resources\PatientResource;
 use App\Domains\ActivityLogs\Services\ActivityLogger;
@@ -12,8 +11,6 @@ use Illuminate\Support\Facades\Gate;
 
 class PatientController extends Controller
 {
-    use AuthenticateWithBearer;
-
     public function __construct(
         private readonly ActivityLogger $logger
     ) {}
@@ -111,11 +108,8 @@ class PatientController extends Controller
             $validated['code'] = (string) random_int(100000, 999999);
         }
 
-        // ── Use shared Bearer token resolver ───────────────────────────
+        // Use the currently authenticated user (session-based or Sanctum)
         $user = $request->user();
-        if (!$user) {
-            $user = $this->resolveFromBearerToken($request);
-        }
 
         if ($user) {
             $validated['primary_doctor_id'] = $user->id;

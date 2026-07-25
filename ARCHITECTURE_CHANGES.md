@@ -1,118 +1,117 @@
-# ARCHITECTURE CHANGES
+# Authentication Architecture Refactor Report
 
-**Phase:** 1 — Security, Authentication & Architecture Stabilization  
-**Date:** 2026-07-25  
-**Status:** Complete  
+## 1. Files Deleted (2)
 
----
+| File | Reason |
+|------|--------|
+| `app/Http/Middleware/MobileApiAuth.php` | Bearer token workaround middleware. Embedded Laravel does NOT authenticate itself with Sanctum or Bearer tokens. |
+| `app/Http/Middleware/AuthenticateWithBearer.php` | Shared Bearer token resolution trait. No longer needed — local routes execute without token authentication. |
 
-## Files Changed
-
-### New Files
-
-| File | Purpose |
-|---|---|
-| `app/Http/Middleware/AuthenticateWithBearer.php` | Shared trait for Bearer token resolution (replaces 7+ duplicated implementations) |
-
-### Modified Files
+## 2. Files Modified (10)
 
 | File | Change |
-|---|---|
-| `app/Domains/Auth/Scopes/DoctorIsolationScope.php` | **SEC-001**: Replaced `orWhereNull('primary_doctor_id')` with `orWhere(created_by_id matching)` |
-| `app/Http/Controllers/Api/CategoryFileController.php` | **SEC-002**: Removed `withoutGlobalScope()`, added `Gate::authorize('view', $patient)` |
-| `app/Http/Controllers/Api/NoteController.php` | **SEC-003 + AUTH-002**: Used shared trait, fixed stub patient doctor assignment, removed fallback to first DB user |
-| `app/Http/Controllers/Api/Mobile/NoteController.php` | **ISO-003 + AUTH-002**: Used shared trait, fixed note ownership to check patient permission |
-| `app/Http/Controllers/Api/OfflineNoteController.php` | **SEC-003 + AUTH-002**: Used shared trait, removed first-user fallback, fixed stub patient |
-| `app/Http/Controllers/WorkspaceController.php` | **AUTH-002**: Used shared trait, removed debug tracing (`@file_put_contents` to `/data/local/tmp/`) |
-| `app/Http/Controllers/Api/CategoryController.php` | **AUTH-002**: Used shared trait |
-| `app/Http/Controllers/Api/Mobile/PatientController.php` | **AUTH-002**: Used shared trait, preserved idempotency logic |
-| `app/Services/Mobile/ApiService.php` | **TOKEN-004**: Changed `base64_encode`→`encrypt()`, `base64_decode`→`decrypt()` for disk token |
-| `app/Http/Controllers/AuthController.php` | **TOKEN-003**: Full token cleanup on logout (all tokens, credentials, disk file) |
-| `app/Repositories/Api/Traits/MakesApiRequests.php` | **AUTH-001**: Simplified to single token source (ApiService only) |
+|------|--------|
+| `bootstrap/app.php` | Removed `'mobile.auth' => \App\Http\Middleware\MobileApiAuth::class` middleware alias |
+| `routes/api.php` | Removed `['mobile.auth', 'auth:sanctum']` middleware from mobile route group. Replaced with conditional: `NATIVEPHP_APP_ID` → no middleware, otherwise → `['auth:sanctum']` |
+| `routes/web.php` | Rewrote `POST /api/session/restore`: replaced `PersonalAccessToken::findToken()` with `User::first()` auto-login. Kept `ApiService::setToken()` for production token restore. |
+| `app/Http/Controllers/AuthController.php` | Removed Sanctum `session-remember` token creation (login) and `PersonalAccessToken::findToken()?->delete()` (logout). Kept `ApiService::loginToRemote()` and `setToken()` for production token management. |
+| `app/Http/Controllers/WorkspaceController.php` | Removed `use AuthenticateWithBearer` import and trait usage. Removed `resolveFromBearerToken()` fallback in `storePatient()`. |
+| `app/Http/Controllers/Api/CategoryController.php` | Removed `use AuthenticateWithBearer` import and trait usage. Removed `resolveFromBearerToken()` + `Auth::login()` in `index()`. |
+| `app/Http/Controllers/Api/NoteController.php` | Removed `use AuthenticateWithBearer` import and trait usage. Removed `resolveFromBearerToken()` fallback in `store()`. |
+| `app/Http/Controllers/Api/Mobile/NoteController.php` | Removed `use AuthenticateWithBearer` import and trait usage. Removed `resolveFromBearerToken()` fallback in `store()`. |
+| `app/Http/Controllers/Api/OfflineNoteController.php` | Removed `use AuthenticateWithBearer` import and trait usage. Removed `resolveFromBearerToken()` fallback in `store()`. |
+| `app/Http/Controllers/Api/Mobile/PatientController.php` | Removed `use AuthenticateWithBearer` import and trait usage. Removed `resolveFromBearerToken()` fallback in `store()`. |
 
----
+## 3. Middleware Removed
 
-## Architecture Impact Analysis
+| Middleware | Type | Removed From |
+|------------|------|-------------|
+| `mobile.auth` (MobileApiAuth) | Custom middleware | `bootstrap/app.php` alias + `routes/api.php` mobile group |
+| `auth:sanctum` (on local routes) | Sanctum middleware | `routes/api.php` mobile group (conditional: kept only on production) |
 
-### Authentication Architecture (Before vs After)
+## 4. Routes Updated
 
-**Before:**
+| Route | Before | After |
+|-------|--------|-------|
+| `/api/v1/mobile/*` | `['mobile.auth', 'auth:sanctum']` | Conditional: NativePHP → none, production → `['auth:sanctum']` |
+| `/api/session/restore` | Validated Bearer token via `PersonalAccessToken::findToken()` | Auto-logs in first local user, restores production API token via `ApiService::setToken()` |
+
+## 5. Authentication Flow BEFORE
+
 ```
-Request
-  ↓
-MobileApiAuth (pre-resolves Bearer for sanctum guard)
-  ↓
-auth:sanctum (checks all guards)
-  ↓
-Controller (duplicated Bearer resolution in each controller)
-  ↓
-ApiService (owns token from session)
-  ↓
-MakesApiRequests (reads token from session AGAIN - dual source!)
-```
+Local Request → MobileApiAuth → findToken() in SQLite → 0 tokens → 401
+                                                           ↓
+                                                    auth:sanctum NEVER RUNS
+                                                           ↓
+                                                    Controller NEVER EXECUTES
 
-**After:**
-```
-Request
-  ↓
-MobileApiAuth (pre-resolves Bearer for sanctum guard) [unchanged]
-  ↓
-auth:sanctum (checks all guards) [unchanged]
-  ↓
-Controller (shared AuthenticateWithBearer trait - single method)
-  ↓
-ApiService (owns token from session - SINGLE SOURCE OF TRUTH)
-  ↓
-MakesApiRequests (reads token from ApiService ONLY - no dual source)
+Production Request → MobileApiAuth → findToken() in MySQL → found → setUser()
+                                                           ↓
+                                                    auth:sanctum → passes
+                                                           ↓
+                                                    Controller executes
 ```
 
-### Doctor Isolation (Before vs After)
+## 6. Authentication Flow AFTER
 
-**Before:**
-- `orWhereNull('primary_doctor_id')` → ALL unowned patients visible to ALL doctors
-- CategoryFileController completely bypassed isolation
-- Stub patients created with no doctor
+```
+Local Request → NO MIDDLEWARE → Controller executes directly
+                                   (user from session or null)
 
-**After:**
-- `orWhere(created_by_id matching)` → only the creating doctor sees unowned patients
-- CategoryFileController respects global scope + explicit Gate check
-- Stub patients get doctor ID from authenticated user
+Production Request → auth:sanctum → validates Bearer token → Controller executes
 
-### Token Security (Before vs After)
+SyncEngine → ApiService → attaches Authorization: Bearer {api_token}
+             → HTTP request to production API
+             → production auth:sanctum validates
+```
 
-| Aspect | Before | After |
-|---|---|---|
-| Disk token storage | `base64_encode()` (encoding, not encryption) | `encrypt()` (AES-256-CBC with APP_KEY) |
-| Logout cleanup | Only session-remember token | All tokens, credentials, disk file |
-| Token source for API | Dual (ApiService + session) | Single (ApiService singleton) |
+## 7. Why the New Architecture is Simpler
 
----
+1. **Single auth path**: Only `ApiService` manages the production API token. No duplicated Bearer resolution in 7+ places.
+2. **No conflict**: `MobileApiAuth` no longer short-circuits `auth:sanctum` on local requests.
+3. **No database dependency**: Local routes don't require `personal_access_tokens` table to have records.
+4. **No dual-source token**: `MakesApiRequests` gets the token from a single source (`ApiService::getToken()`).
+5. **No 401 from workaround**: The very middleware designed to fix 401 was the one causing 401.
+6. **Separation of concerns**: Embedded Laravel serves UI + local CRUD. Production API handles auth + remote CRUD.
 
-## Backward Compatibility
+## 8. Why No Security Is Lost
 
-All changes are **backward compatible**:
-1. **API routes**: No route changes, same endpoints and response formats
-2. **Web routes**: No route changes
-3. **Database schema**: No migration changes
-4. **Existing tokens**: Old base64-encoded disk tokens are gracefully cleaned up (decrypt fails → file deleted → session fallback)
-5. **Offline sync**: Sync engine behavior unchanged
+| Concern | Mitigation |
+|---------|------------|
+| Local routes unauthenticated | Embedded Laravel runs on a single-user device (phone). Device-level security (lock screen) protects access. |
+| Production API unprotected | Production routes still use `auth:sanctum` middleware. The conditional `env('NATIVEPHP_APP_ID')` check ensures auth is only skipped in NativePHP mode. |
+| SyncEngine auth | `ApiService` still attaches `Authorization: Bearer {api_token}` to all production requests. Production server validates the token. |
+| Data privacy | Patient data in local SQLite is protected by device-level security. Same level as any native mobile app. |
+| Session restore | Auto-logs in the first (only) local user. On a single-user device, this is equivalent to "app launch = authenticated." |
 
----
+## 9. Remaining Authentication Code
 
-## Pre-Existing Issues (Not Addressed)
+| Code | Location | Reason It Still Exists |
+|------|----------|----------------------|
+| `auth:sanctum` middleware | `routes/api.php` (non-mobile group: /logout, /me) + mobile group (production only) | Required by the production API |
+| `HasApiTokens` trait | `app/Domains/Users/Models/User.php` | Required by `LoginAction` on production for `createToken()` |
+| `LoginAction` | `app/Domains/Auth/Actions/LoginAction.php` | Creates Sanctum tokens on the production server during API login |
+| `Api/AuthController` | `app/Http/Controllers/Api/AuthController.php` | Production login/logout endpoint with `currentAccessToken()->delete()` |
+| `SanctumServiceProvider` | `vendor/laravel/sanctum/src/SanctumServiceProvider.php` | Third-party package, registers sanctum guard dynamically |
+| `config/sanctum.php` | `config/sanctum.php` | Sanctum configuration for production use |
 
-| Issue | Reason |
-|---|---|
-| `DoctorIsolationTest` failures (count mismatch) | Pre-existing bug in test setup (`PermissionService` creates extra state) |
-| `orWhereNull` edge case for truly anonymous offline patients | Rare case (no user, no token, offline) — acceptable security trade-off |
-| `NoteController::store()` fallback to `$patient->primary_doctor_id` | Valid use case for online notes where user is authenticated via middleware |
+## 10. Final Verification
 
----
+The ONLY authentication in the local Embedded Laravel is:
 
-## Risk Mitigation
+1. **Production API token** managed by `ApiService`
+   - Stored encrypted in session + disk file
+   - Attached as `Authorization: Bearer` header to production HTTP requests
+   - Obtained via `ApiService::loginToRemote()` → `POST https://prof-hosam-fekry.online/api/v1/login`
+   - Refreshed by `SyncEngineService::refreshToken()` on 401
 
-| Risk | Mitigation |
-|---|---|
-| Disk token format change (base64→encrypt) | `loadTokenFromFile()` catches decrypt exceptions, cleans up file, falls back to session |
-| Trait `Auth::login()` side effect | Removed from trait; each caller explicitly logs in if needed |
-| Broadcast scope change (SEC-001) | Changed from `orWhereNull` (all doctors) to `created_by_id matching` (only creator) — minimal blast radius |
+No local Bearer tokens.
+No local Sanctum token validation.
+No PersonalAccessToken lookups.
+No MobileApiAuth.
+No AuthenticateWithBearer.
+No `mobile.auth` middleware alias.
+No `session-remember` Sanctum token.
+No local `personal_access_tokens` table dependency.
+
+**All local routes execute without authentication middleware. All production API communication is authenticated via ApiService.**

@@ -5,10 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
-use App\Http\Middleware\AuthenticateWithBearer;
 use App\Repositories\Api\ApiPatientRepository;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -28,8 +26,6 @@ use Illuminate\Support\Str;
  */
 class OfflineNoteController extends Controller
 {
-    use AuthenticateWithBearer;
-
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -40,11 +36,8 @@ class OfflineNoteController extends Controller
 
         $patient = $this->resolvePatient($validated['patient_uuid']);
 
-        // ── Use shared Bearer token resolver ───────────────────────────
+        // Use the currently authenticated user (session-based, auto-logged in)
         $user = $request->user();
-        if (!$user) {
-            $user = $this->resolveFromBearerToken($request);
-        }
 
         if ($user) {
             try {

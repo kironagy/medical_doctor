@@ -29,16 +29,14 @@ return Application::configure(basePath: dirname(__DIR__))
             $middleware->append(\App\Http\Middleware\NativePHPProfilerMiddleware::class);
         }
         $middleware->trustProxies(at: '*');
-        // Exclude session restore from CSRF — it's authenticated via Bearer token,
-        // not session cookie, so CSRF doesn't apply.
-        // Also exclude /api/v1/* and /_native/* from CSRF validation because these
-        // are JSON API endpoints called by Vue/axios, not browser form submissions.
-        // CSRF tokens are only meaningful for browser-based session requests.
-        // When offline, these requests are routed to the embedded Laravel runtime
-        // which has no valid CSRF token (no production session). Without this
-        // exemption, all offline POST/PUT/DELETE operations return HTTP 419.
-        // Web form routes (/login, /workspace, /settings, /admin) remain fully
-        // CSRF-protected.
+        // ── CSRF Exemptions ────────────────────────────────────────────
+        // /api/session/restore: Bearer-token-authenticated, not a form submission.
+        // /api/v1/*: JSON API endpoints called by Vue/axios, not browser forms.
+        // /_native/*: Offline routes for the embedded Laravel runtime, which
+        //   has no valid CSRF token (no production session). Without this
+        //   exemption, all offline POST/PUT/DELETE return HTTP 419.
+        // Web form routes (/login, /workspace, /settings, /admin) remain
+        // fully CSRF-protected.
         $middleware->validateCsrfTokens(except: [
             '/api/session/restore',
             '/api/v1/*',
@@ -52,7 +50,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
-            'mobile.auth' => \App\Http\Middleware\MobileApiAuth::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

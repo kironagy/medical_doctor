@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api\Mobile;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
-use App\Http\Middleware\AuthenticateWithBearer;
 use App\Repositories\Api\ApiPatientRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -13,8 +12,6 @@ use Illuminate\Support\Facades\Log;
 
 class NoteController extends Controller
 {
-    use AuthenticateWithBearer;
-
     public function index(string $uuid)
     {
         $patient = $this->resolvePatient($uuid);
@@ -41,10 +38,6 @@ class NoteController extends Controller
         ]);
 
         $user = $request->user();
-        if (!$user) {
-            $user = $this->resolveFromBearerToken($request);
-        }
-
         $authorId = $user?->id ?? $validated['author_id'] ?? $patient->primary_doctor_id;
         if (!$authorId) {
             Log::warning('[MobileNote] Creating note without author_id — will be unowned', [
@@ -78,7 +71,7 @@ class NoteController extends Controller
         // which prevented the PRIMARY DOCTOR from editing notes authored by
         // other doctors on THEIR OWN patient. Now checks if user can update
         // the patient (which includes primary doctors and shared doctors with
-        // write access). This is consistent with the Api\NoteController which
+        // write access). This is consistent with the Api\\NoteController which
         // falls back to Gate::authorize('update', $note->patient).
         if ($note->author_id !== $request->user()->id) {
             Gate::authorize('update', $note->patient);

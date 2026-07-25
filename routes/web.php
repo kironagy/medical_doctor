@@ -7,24 +7,25 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\DoctorController;
 
-// ── Session Restore (must be outside auth middleware) ─────────────────
-// Validates a Sanctum Bearer token and creates a new web session.
-// Used by the frontend on app restart when the WebView lost its cookies.
+// ── Session Restore (auto-login for Embedded Laravel) ────────────────
+// The embedded Laravel application does NOT use Sanctum tokens for local
+// authentication. When the WebView restarts, the frontend calls this
+// endpoint to auto-establish the web session using the local database user.
+// The production API token (from localStorage) is restored via ApiService.
 Route::post('/api/session/restore', function (\Illuminate\Http\Request $request) {
-    $token = $request->bearerToken();
-    if (!$token) {
-        return response()->json(['error' => 'No token provided'], 401);
-    }
-
     try {
-        $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
-        if (!$accessToken || !$accessToken->tokenable) {
-            return response()->json(['error' => 'Invalid or expired token'], 401);
-        }
+        // ── Auto-login the local user ──────────────────────────────────
+        // The embedded Laravel is a single-user device. Find the first
+        // (and only) user in the local SQLite and establish the session.
+        // This replaces the previous Sanctum token validation which required
+        // a valid PersonalAccessToken in the local database. Since the local
+        // application no longer uses Sanctum, we auto-login directly.
+        /** @var \App\Domains\Users\Models\User|null $user */
+        $user = \App\Domains\Users\Models\User::first();
 
-        $user = $accessToken->tokenable;
         if (!$user) {
-            return response()->json(['error' => 'User not found'], 401);
+            \Illuminate\Support\Facades\Log::warning('Session restore failed: no user found in local database');
+            return response()->json(['error' => 'No user configured'], 401);
         }
 
         // Log the user in via web session

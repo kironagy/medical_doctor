@@ -5,17 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
-use App\Http\Middleware\AuthenticateWithBearer;
 use App\Repositories\Api\ApiPatientRepository;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 
 class NoteController extends Controller
 {
-    use AuthenticateWithBearer;
-
     public function index(Request $request, string $patientUuid)
     {
         $patient = $this->resolvePatient($patientUuid);
@@ -28,16 +24,7 @@ class NoteController extends Controller
 
     public function store(Request $request, string $patientUuid)
     {
-        // ── Use shared Bearer token resolver (replaces duplicated code) ──
         $user = $request->user();
-        if (!$user) {
-            $user = $this->resolveFromBearerToken($request);
-            if ($user) {
-                // Log into session for downstream code (Gate checks, policies)
-                \Illuminate\Support\Facades\Auth::login($user);
-            }
-        }
-
         $patient = $this->resolvePatient($patientUuid);
 
         $validated = $request->validate([

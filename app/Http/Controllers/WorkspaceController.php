@@ -11,7 +11,6 @@ use App\Contracts\Repositories\PatientVisitRepositoryInterface;
 use App\Contracts\Repositories\UserRepositoryInterface;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientShare;
-use App\Http\Middleware\AuthenticateWithBearer;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Log;
@@ -19,8 +18,6 @@ use Illuminate\Support\Str;
 
 class WorkspaceController extends Controller
 {
-    use AuthenticateWithBearer;
-
     public function __construct(
         private readonly PatientRepositoryInterface $patientRepo,
         private readonly PatientFileRepositoryInterface $fileRepo,
@@ -102,17 +99,7 @@ class WorkspaceController extends Controller
 
     public function storePatient(Request $request)
     {
-        // ── Auth guard: try session first, then Bearer token ────────────
-        // Uses the shared AuthenticateWithBearer trait (replaces duplicated
-        // Bearer resolution code that was previously inline here).
         $user = $request->user();
-        if (!$user) {
-            $user = $this->resolveFromBearerToken($request);
-            if ($user) {
-                // Log into session for downstream code (Gate checks, policies)
-                \Illuminate\Support\Facades\Auth::login($user);
-            }
-        }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',

@@ -29,21 +29,17 @@ Route::prefix('v1')->group(function () {
         Route::get('/patients/{patientUuid}/categories/{slug}/files', [CategoryFileController::class, 'files']);
     });
 
-    // ── Mobile API (Sanctum session + Bearer token fallback) ─────────
-    // Uses TWO middleware stacked together:
-    //   1) `mobile.auth` — runs FIRST. Tries manual Bearer token resolution
-    //      via PersonalAccessToken::findToken() + Auth::login(). This handles
-    //      requests from the SyncEngine (GuzzleHttp with Bearer token).
-    //      If no Bearer token, passes through to the next middleware.
-    //   2) `auth:sanctum` — runs SECOND. Handles session cookie auth for
-    //      requests from the production frontend (SPA). Also catches requests
-    //      that have a valid Bearer token that Sanctum CAN resolve.
-    //
-    // This means:
-    //   - SyncEngine (Bearer token) → mobile.auth resolves it → auth:sanctum sees user → ✅
-    //   - Production SPA (session cookie) → mobile.auth does nothing → auth:sanctum resolves → ✅
-    //   - Unauthenticated → mobile.auth does nothing → auth:sanctum returns 401 → ❌
-    Route::prefix('mobile')->middleware(['mobile.auth', 'auth:sanctum'])->group(function () {
+    // ── Mobile API ────────────────────────────────────────────────────
+    // On the PRODUCTION server, these routes require auth:sanctum (Bearer token).
+    // On the Embedded Laravel (NativePHP), NO authentication is applied — the
+    // local application is a single-user device that doesn't need token auth.
+    // ApiService manages the production API token for SyncEngine requests.
+    $mobileMiddleware = [];
+    if (!env('NATIVEPHP_APP_ID')) {
+        $mobileMiddleware[] = 'auth:sanctum';
+    }
+
+    Route::prefix('mobile')->middleware($mobileMiddleware)->group(function () {
         // Dashboard
         Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 

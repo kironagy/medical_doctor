@@ -3,23 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Http\Middleware\AuthenticateWithBearer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 class CategoryController extends Controller
 {
-    use AuthenticateWithBearer;
-
     public function index(Request $request)
     {
         $user = $request->user();
-        if (!$user) {
-            $user = $this->resolveFromBearerToken($request);
-            if ($user) {
-                \Illuminate\Support\Facades\Auth::login($user);
-            }
-        }
 
         $customCategories = $user?->preferences['custom_categories'] ?? [];
         $defaultCategories = config('categories', []);
