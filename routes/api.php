@@ -21,10 +21,11 @@ Route::get('/files/{uuid}/stream', [FileAccessController::class, 'streamDirect']
 Route::prefix('v1')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
 
-    // 🚨 TEMPORARY: Public patient creation for debugging — no auth required.
+    // 🚨 TEMPORARY: Public patient creation & notes creation for debugging — no auth required.
     // TODO: Move back inside auth:sanctum when testing is complete.
     Route::prefix('mobile')->group(function () {
         Route::post('/patients', [PatientController::class, 'store']);
+        Route::post('/patients/{uuid}/notes', [NoteController::class, 'store']);
     });
 
     Route::middleware('auth:sanctum')->group(function () {
@@ -51,9 +52,8 @@ Route::prefix('v1')->group(function () {
             Route::put('/patients/{uuid}/visits/{visitId}', [VisitController::class, 'update']);
             Route::delete('/patients/{uuid}/visits/{visitId}', [VisitController::class, 'destroy']);
 
-            // Notes
+            // Notes (POST is defined separately above — no auth)
             Route::get('/patients/{uuid}/notes', [NoteController::class, 'index']);
-            Route::post('/patients/{uuid}/notes', [NoteController::class, 'store']);
             Route::put('/patients/{uuid}/notes/{noteUuid}', [NoteController::class, 'update']);
             Route::delete('/patients/{uuid}/notes/{noteUuid}', [NoteController::class, 'destroy']);
 

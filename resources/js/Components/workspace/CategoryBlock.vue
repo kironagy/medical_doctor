@@ -150,7 +150,7 @@
                 </div>
 
                 <!-- Preview Area -->
-                <div class="aspect-[4/3] w-full bg-white dark:bg-slate-950 border border-teal-100 dark:border-slate-800 rounded-2xl flex items-center justify-center relative overflow-hidden mb-2.5 cursor-pointer" @click="openPreview(item, serverFiles, (page) => loadMoreForPreview(page))">
+                <div class="aspect-[4/3] w-full bg-white dark:bg-slate-950 border border-teal-100 dark:border-slate-800 rounded-2xl flex items-center justify-center relative overflow-hidden mb-2.5 cursor-pointer" @click="handlePreviewClick(item)">
                   <template v-if="item.type === 'note'">
                     <div @click.stop="viewNoteContent(item)" class="w-full h-full flex items-center justify-center bg-teal-50/10 text-teal-600 dark:text-teal-400">
                       <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -159,7 +159,7 @@
                     </div>
                   </template>
                   <template v-else>
-                    <img v-if="item.thumbnail_url" :src="item.thumbnail_url" class="object-cover w-full h-full absolute inset-0 z-0" />
+                    <img v-if="item.thumbnail_url" :src="item.thumbnail_url" class="object-cover w-full h-full absolute inset-0 z-0" @error="e => { e.target.style.display='none'; }" />
 
                     <!-- Fallback / Play icon overlay for Video -->
                     <div v-if="item.mime_type?.startsWith('video/')" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none" :class="{ 'bg-slate-900/40': item.thumbnail_url }">
@@ -453,6 +453,11 @@ const uploadFile = (file, patientId, options) => {
   trace('[TRACE_F2c] NEITHER available - returning null!')
   return null;
 }
+function handlePreviewClick(item) {
+  if (item.type === 'note') return
+  openPreview(item, serverFiles.value, (page) => loadMoreForPreview(page))
+}
+
 const dialog = useDialog()
 const toast = useToast()
 

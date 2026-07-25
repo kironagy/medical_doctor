@@ -136,7 +136,7 @@
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, watchEffect } from 'vue'
 import { useWorkspace } from '@/Composables/useWorkspace'
 import VideoPlayer from '@/Components/VideoPlayer.vue'
 import { useDialog } from '@/Composables/useDialog'

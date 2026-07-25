@@ -31,11 +31,37 @@ class NoteController extends Controller
         $validated = $request->validate([
             'content' => 'required|string',
             'category' => 'nullable|string|max:100',
+            // author_id accepted from request body so the mobile sync engine
+            // can set the correct author even when this endpoint is accessed
+            // without auth:sanctum middleware (temporary debugging bypass).
+            'author_id' => 'nullable|integer',
         ]);
+
+        // ── Manual Bearer Token Resolution ──────────────────────────────
+        // auth:sanctum middleware is temporarily removed from this endpoint
+        // (same as patient creation). $request->user() cannot resolve the
+        // Bearer token via middleware, so we must resolve it manually.
+        $user = $request->user();
+        if (!$user) {
+            $bearerToken = $request->bearerToken();
+            if ($bearerToken) {
+                $accessToken = \Laravel\Sanctum\PersonalAccessToken::findToken($bearerToken);
+                if ($accessToken && $accessToken->tokenable) {
+                    $user = $accessToken->tokenable;
+                }
+            }
+        }
+
+        $authorId = $user?->id ?? $validated['author_id'] ?? $patient->primary_doctor_id;
+        if (!$authorId) {
+            \Illuminate\Support\Facades\Log::warning('[MobileNote] Creating note without author_id — will be unowned', [
+                'patient_uuid' => $uuid,
+            ]);
+        }
 
         $note = PatientNote::create([
             'patient_id' => $patient->id,
-            'author_id' => $request->user()->id,
+            'author_id' => $authorId,
             'category' => $validated['category'] ?? 'general',
             'content' => $validated['content'],
         ]);
