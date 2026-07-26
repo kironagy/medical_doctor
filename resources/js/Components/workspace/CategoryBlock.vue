@@ -535,8 +535,10 @@ const categoryFiles = computed(() => {
   return allFiles.value.filter(f => f.category === props.slug)
 })
 const categoryNotes = computed(() => {
-  const localNotes = allNotes.value.filter(n => n.category === props.slug)
-  if (initialLoadDone.value && serverNotes.value.length > 0) {
+	const allNotesList = allNotes.value || []
+	const localNotes = allNotesList.filter(n => n.category === props.slug)
+	trace(`[CategoryBlock] categoryNotes recomputed: category=${props.slug} initialLoadDone=${initialLoadDone.value} serverNotes=${serverNotes.value.length} allNotes=${allNotesList.length} localNotes=${localNotes.length}`)
+	if (initialLoadDone.value && serverNotes.value.length > 0) {
     // ── Merge: include new local notes not yet in serverNotes ──────
     // This is the same pattern used by the `files` computed below.
     // Without this merge, newly created notes are invisible because
