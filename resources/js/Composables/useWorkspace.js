@@ -268,21 +268,6 @@ function refreshWorkspaceData() {
 		// ═══════════════════════════════════════════════════════════════
 		// Snapshot ENTIRE workspaceData BEFORE fetch
 		// ═══════════════════════════════════════════════════════════════
-		// The GET /api/v1/workspace/{uuid} request goes to the
-		// PRODUCTION server (EXTERNAL) via the RequestRouter.
-		// The production response does NOT include:
-		// - Notes with sync_status = 'pending_create' (still in SQLite)
-		// - Files with sync_status = 'pending_upload' (still uploading)
-		// - Any other local-only data not yet synced
-		//
-		// Without a snapshot, workspaceData.value = res.data would
-		// BLINDLY OVERWRITE all local state, erasing notes, files,
-		// visits, and other data that the user has interacted with
-		// but hasn't synced yet.
-		//
-		// We snapshot the ENTIRE workspaceData (not just notes) and
-		// merge production data into it. Any local-only entries that
-		// the production response doesn't include are preserved.
 		const workspaceSnapshot = workspaceData.value
 			? JSON.parse(JSON.stringify(workspaceData.value))
 			: null;
@@ -291,10 +276,6 @@ function refreshWorkspaceData() {
 			.get(`/api/v1/workspace/${selectedPatientId.value}`)
 			.then((res) => {
 				// ── Merge production data with local snapshot ──────
-				// Start with the production response as the base.
-				// For each entity type (notes, files, visits, shares),
-				// check if the production response includes local-only
-				// entries. If not, prepend them from the snapshot.
 				const merged = { ...res.data };
 				if (workspaceSnapshot) {
 					// Merge notes: production notes first, then local-only notes
@@ -309,14 +290,12 @@ function refreshWorkspaceData() {
 					if (localFiles.length > 0) {
 						merged.files = [...localFiles, ...(merged.files || [])];
 					}
-				// Merge visits: preserve local visits not in production
-				// Deduplicate by uuid (globally unique) instead of id
-				// (auto-increment ids can collide across separate MySQL/SQLite databases)
-				const serverVisitUuids = new Set((merged.visits || []).map(v => v.uuid).filter(Boolean));
-				const localVisits = (workspaceSnapshot.visits || []).filter(v => v.uuid && !serverVisitUuids.has(v.uuid));
-				if (localVisits.length > 0) {
-					merged.visits = [...localVisits, ...(merged.visits || [])];
-				}
+					// Merge visits: preserve local visits not in production
+					const serverVisitUuids = new Set((merged.visits || []).map(v => v.uuid).filter(Boolean));
+					const localVisits = (workspaceSnapshot.visits || []).filter(v => v.uuid && !serverVisitUuids.has(v.uuid));
+					if (localVisits.length > 0) {
+						merged.visits = [...localVisits, ...(merged.visits || [])];
+					}
 					// Preserve categories/shares/stats: production is authoritative
 					// but fall back to snapshot if production response is empty/missing
 					if ((!merged.categories || merged.categories.length === 0) && workspaceSnapshot.categories) {
@@ -330,15 +309,9 @@ function refreshWorkspaceData() {
 			})
 			.catch((e) => {
 				// ── On fetch failure: KEEP the snapshot, don't wipe ──
-				// A network hiccup must never erase local data.
-				// The existing workspaceData is still valid — it was
-				// loaded from production previously or created locally.
-				// If there was no snapshot (first load), keep null (no data).
 				if (!workspaceData.value && workspaceSnapshot) {
-					// First load failed — restore from snapshot as fallback
 					workspaceData.value = workspaceSnapshot;
 				}
-				// If workspaceData already had data, leave it intact.
 				console.error('[refreshWorkspaceData] Fetch failed — keeping existing workspaceData', e.message);
 			})
 			.finally(() => {

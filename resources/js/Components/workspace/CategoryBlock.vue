@@ -422,7 +422,7 @@ const props = defineProps({
   allCategories: { type: Array, default: () => [] },
 })
 
-const { toggleCategory, isCategoryExpanded, canEdit, canDelete, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile, allFiles, allNotes, updateFileLocally, removeFileLocally } = useWorkspace()
+const { toggleCategory, isCategoryExpanded, canEdit, canDelete, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile, allFiles, allNotes, updateFileLocally, removeFileLocally, workspaceData } = useWorkspace()
 const { uploadFile: onlineUploadFile, cancelUpload, pauseUpload, resumeUpload, retryUpload, uploads } = useUploads()
 
 // ── Phase 7: Route file uploads to offline composable when device is offline ──
@@ -537,7 +537,6 @@ const categoryFiles = computed(() => {
 const categoryNotes = computed(() => {
 	const allNotesList = allNotes.value || []
 	const localNotes = allNotesList.filter(n => n.category === props.slug)
-	trace(`[CategoryBlock] categoryNotes recomputed: category=${props.slug} initialLoadDone=${initialLoadDone.value} serverNotes=${serverNotes.value.length} allNotes=${allNotesList.length} localNotes=${localNotes.length}`)
 	if (initialLoadDone.value && serverNotes.value.length > 0) {
     // ── Merge: include new local notes not yet in serverNotes ──────
     // This is the same pattern used by the `files` computed below.
@@ -545,7 +544,8 @@ const categoryNotes = computed(() => {
     // serverNotes is only refreshed on explicit loadCategoryData().
     const serverUuids = new Set(serverNotes.value.map(n => n.uuid))
     const newLocalNotes = localNotes.filter(n => !serverUuids.has(n.uuid))
-    return newLocalNotes.length > 0 ? [...newLocalNotes, ...serverNotes.value] : serverNotes.value
+    const result = newLocalNotes.length > 0 ? [...newLocalNotes, ...serverNotes.value] : serverNotes.value
+    return result
   }
   return localNotes
 })
@@ -666,6 +666,8 @@ watch(() => allFiles.value, (newAllFiles) => {
     }
   }
 }, { deep: false });
+
+
 
 // Paginated file slice — merge any newly uploaded files immediately
 const files = computed(() => {

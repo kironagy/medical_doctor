@@ -9,7 +9,6 @@ use App\Repositories\Api\ApiPatientRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
-
 class NoteController extends Controller
 {
     public function index(Request $request, string $uuid)
@@ -83,11 +82,7 @@ class NoteController extends Controller
             ]);
         }
 
-        // ── FIX: Mark note as pending_create when on embedded Laravel (SQLite) ──
-        // On the embedded Laravel, notes created via /api/v1/mobile/patients/{uuid}/notes
-        // are stored in local SQLite. The sync engine only uploads notes with
-        // sync_status = 'pending_create'. Without this fix, notes stay in local SQLite
-        // with default sync_status = 'synced' and are NEVER uploaded to production.
+        // ── Mark note as synced on production MySQL ───────────────────
         $isLocalSqlite = config('database.default') === 'sqlite';
 
         $note = PatientNote::create([

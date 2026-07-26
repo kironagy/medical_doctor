@@ -39,6 +39,11 @@ class OfflineNoteController extends Controller
         // Use the currently authenticated user (session-based, auto-logged in)
         $user = $request->user();
 
+        // ── SQLite guard: On embedded Laravel, $request->user() is null ──
+        // because _native/api/offline routes have no auth middleware. The
+        // device is single-user so we fall back to the patient's doctors.
+        $isLocalSqlite = config('database.default') === 'sqlite';
+
         if ($user) {
             try {
                 Gate::authorize('update', $patient);
@@ -47,13 +52,16 @@ class OfflineNoteController extends Controller
             }
         }
 
-        $authorId = $user?->id;
+        // ── Author fallback chain (same as MobileNoteController) ───────
+        // On the embedded Laravel (SQLite), $request->user() is null because
+        // _native/api/offline routes have no auth middleware. We fall back to
+        // the patient's primary_doctor_id or created_by_id.
+        $authorId = $user?->id
+            ?? $validated['author_id']
+            ?? $patient->primary_doctor_id
+            ?? $patient->created_by_id;
 
-        // ── No fallback to first user in DB ─────────────────────────────
-        // Previously this code grabbed the first user from the database as
-        // a fallback author, which caused wrong authorship attribution
-        // (OFFLINE-003). Now we require a valid authenticated user.
-        if (!$authorId) {
+        if (!$authorId && !$isLocalSqlite) {
             return response()->json([
                 'success' => false,
                 'message' => 'No authenticated user available. Please login and try again.',
