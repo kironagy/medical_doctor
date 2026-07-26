@@ -193,11 +193,16 @@ async function submit() {
       const token = localStorage.getItem('np_api_token')
       let createdNote
       if (online) {
-        // ── ONLINE: POST directly to PRODUCTION API (EXTERNAL) ──────
-        // The URL /api/v1/patients/{uuid}/notes routes EXTERNAL via the
-        // RequestRouter, hitting the production server's Api\NoteController.
-        // The production server has the patient (created there), so no
-        // local SQLite dependency. The note is created directly in MySQL.
+		// ── ONLINE: POST to embedded Laravel (LOCAL_PHP) ────────────
+		// The URL /api/v1/patients/{uuid}/notes is an API mutation (POST
+		// on /api/ path). The RequestRouter sends ALL ONLINE API mutations
+		// to LOCAL_PHP (embedded Laravel / SQLite). The note is created
+		// locally with sync_status = 'pending_create' and the SyncEngine
+		// uploads it to production in the background.
+		//
+		// Previously used /api/v1/mobile/patients/{uuid}/notes which also
+		// routes LOCAL_PHP (same behavior). The URL was simplified but
+		// the routing outcome is identical: embedded Laravel → SQLite.
         //
         // Previously used /api/v1/mobile/patients/{uuid}/notes which routes
         // LOCAL_PHP — but when the patient was created on production only
@@ -224,21 +229,22 @@ async function submit() {
         createdNote = res.data
       }
       // ── Insert the created note into local workspace data IMMEDIATELY ──
+      // ── Insert note into local workspace data IMMEDIATELY ──────────
+      // This is the ONLY mechanism that makes the note visible in the UI.
+      // refreshWorkspaceData() fetches from the PRODUCTION server (EXTERNAL)
+      // which doesn't have the new note yet. Any call to refreshWorkspaceData()
+      // would ERASE the note from workspaceData.notes.
+      //
+      // We DO NOT emit 'saved' for notes — the @saved handler was removed
+      // from CategoryBlock to prevent the overwrite. For file uploads, the
+      // upload composable handles visibility independently.
       if (createdNote?.uuid) {
-        console.log('DEBUG_NOTE_SHOW addNoteLocally called for uuid:', createdNote.uuid, 'category:', createdNote.category, 'content:', (createdNote.content||'').substring(0,30))
         addNoteLocally(createdNote)
-        // After insertion, verify it's in workspaceData
-        try {
-          const { workspaceData } = useWorkspace()
-          const notesCount = (workspaceData.value?.notes || []).length
-          const matches = (workspaceData.value?.notes || []).filter(n => n.uuid === createdNote.uuid).length
-          console.log('DEBUG_NOTE_SHOW after addNoteLocally - totalNotes:', notesCount, 'ourNoteFound:', matches > 0 ? 'YES' : 'NO')
-        } catch(e) { console.log('DEBUG_NOTE_SHOW verify error:', e.message) }
-      } else {
-        console.log('DEBUG_NOTE_SHOW createdNote missing uuid! Response keys:', Object.keys(createdNote||{}).join(','))
       }
       toast.success('تمت إضافة الملاحظة بنجاح')
-      emit('saved')
+      // ⚠️ DO NOT emit('saved') for notes — it triggers refreshWorkspaceData()
+      // which overwrites workspaceData with stale production data, erasing
+      // the note that addNoteLocally() just inserted.
       emit('update:modelValue', false)
     } catch (e) {
       console.error('Note add failed:', e)

@@ -308,16 +308,6 @@
     </Transition>
   </div>
 
-  <!-- Add Note Modal -->
-  <WorkspaceModal :modelValue="showNoteModal" @update:modelValue="showNoteModal = false" title="Add Note" size="sm">
-    <form @submit.prevent="submitNote" class="space-y-4">
-      <textarea v-model="noteContent" class="input-field w-full" rows="4" placeholder="Enter note content..." required></textarea>
-      <div class="flex justify-end gap-3">
-        <button type="button" @click="showNoteModal = false" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">{{ $t('common.cancel') }}</button>
-        <BaseButton type="submit">{{ $t('workspace.add_note') }}</BaseButton>
-      </div>
-    </form>
-  </WorkspaceModal>
 
   <!-- Add Visit Modal -->
   <WorkspaceModal :modelValue="showVisitModal" @update:modelValue="showVisitModal = false" :title="$t('workspace.add_visit')" size="sm">
@@ -924,11 +914,9 @@ const menuStyle = ref({})
 const activeSheetFile = ref(null)
 const colorOptions = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6', '#6b7280']
 
-const showNoteModal = ref(false)
 const showVisitModal = ref(false)
 const showRenameModal = ref(false)
 const showColorModal = ref(false)
-const noteContent = ref('')
 const visitType = ref('')
 const renameValue = ref('')
 const colorValue = ref('')
@@ -1067,30 +1055,6 @@ function resumeJob(job) { resumeUpload(job.id) }
 function retryJob(job) { retryUpload(job.id) }
 function cancelJob(job) { cancelUpload(job.id) }
 
-async function addNote() {
-  showNoteModal.value = true
-}
-
-async function submitNote() {
-  if (!noteContent.value || !selectedPatient.value?.id) {
-    return
-  }
-  try {
-    const token = localStorage.getItem('np_api_token')
-    await axios.post(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes`, {
-      content: noteContent.value,
-      category: props.slug,
-    }, {
-      headers: token ? { Authorization: 'Bearer ' + token } : {},
-    })
-    showCategoryMenu.value = false
-    showNoteModal.value = false
-    noteContent.value = ''
-    refreshWorkspaceData()
-    toast.success('Note added')
-  } catch (e) { console.error('Add note failed', e) }
-}
-
 async function openAddVisit() {
   showVisitModal.value = true
 }
@@ -1108,10 +1072,6 @@ async function submitVisit() {
     refreshWorkspaceData()
     toast.success('Visit added')
   } catch (e) { console.error('Add visit failed', e) }
-}
-
-function addTimelineEntry() {
-  addNote()
 }
 
 function openRename() {

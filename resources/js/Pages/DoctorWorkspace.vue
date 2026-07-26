@@ -268,44 +268,45 @@ const props = defineProps({
 })
 
 const {
-  selectedPatient,
-  setPatients,
-  selectedPatientId,
-  closePatient,
-  workspaceData,
-  loadingPatient,
-  isMobile,
-  sidebarOpen,
-  mobilePatientListOpen,
-  canShare,
-  canEdit,
-  allFiles,
-  allNotes,
-  visits,
-  shares,
-  stats,
-  categories,
-  isPrimaryDoctor,
-  isReadOnly,
-  isShared,
-  sharedByName,
-  openPreview,
-  refreshWorkspaceData,
-  showAddPatient,
-  showEditPatient,
-  showCategoryManager,
-  showActionMenu,
-  showSettings,
-  closeSettings,
-  expandedCategories,
-  selectPatient,
-  refreshPatientList,
-  toggleSidebar,
-  showArchived,
-  archivedPatients,
-  fetchArchivedPatients,
-  archivePatient,
-  restorePatient,
+selectedPatient,
+setPatients,
+selectedPatientId,
+closePatient,
+workspaceData,
+loadingPatient,
+isMobile,
+sidebarOpen,
+mobilePatientListOpen,
+canShare,
+canEdit,
+allFiles,
+allNotes,
+visits,
+shares,
+stats,
+categories,
+isPrimaryDoctor,
+isReadOnly,
+isShared,
+sharedByName,
+openPreview,
+refreshWorkspaceData,
+showAddPatient,
+showEditPatient,
+showCategoryManager,
+showActionMenu,
+showSettings,
+closeSettings,
+expandedCategories,
+selectPatient,
+refreshPatientList,
+toggleSidebar,
+showArchived,
+archivedPatients,
+fetchArchivedPatients,
+archivePatient,
+restorePatient,
+addNoteLocally,
 } = useWorkspace()
 
 const dialog = useDialog()
@@ -772,53 +773,65 @@ async function deleteNote(note) {
 }
 
 async function submitNoteForm() {
-  if (!noteFormContent.value || !selectedPatient.value?.uuid) return
-  try {
-    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
-    const token = localStorage.getItem('np_api_token')
-    if (editingNote.value) {
-      if (online) {
-        await axios.put(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${editingNote.value.uuid}`, {
-          content: noteFormContent.value,
-        }, {
-          headers: token ? { Authorization: 'Bearer ' + token } : {},
-        })
-      } else {
-        await axios.put(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${editingNote.value.uuid}`, {
-          content: noteFormContent.value,
-        })
-      }
-      toast.success(t('workspace.note_updated'))
-    } else {
-      if (online) {
-        await axios.post(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes`, {
-          content: noteFormContent.value,
-        }, {
-          headers: token ? { Authorization: 'Bearer ' + token } : {},
-        })
-      } else {
-        await axios.post(`/api/v1/patients/${selectedPatient.value.uuid}/notes`, {
-          content: noteFormContent.value,
-        })
-      }
-      toast.success(t('workspace.note_added'))
-    }
-    showNoteModal.value = false
-    editingNote.value = null
-    noteFormContent.value = ''
-    refreshWorkspaceData()
+	if (!noteFormContent.value || !selectedPatient.value?.uuid) return
+	try {
+		const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+		const token = localStorage.getItem('np_api_token')
+		if (editingNote.value) {
+			let updatedNote
+			if (online) {
+				const res = await axios.put(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${editingNote.value.uuid}`, {
+					content: noteFormContent.value,
+				}, {
+					headers: token ? { Authorization: 'Bearer ' + token } : {},
+				})
+				updatedNote = res.data
+			} else {
+				const res = await axios.put(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${editingNote.value.uuid}`, {
+					content: noteFormContent.value,
+				})
+				updatedNote = res.data
+			}
+			if (updatedNote?.uuid) addNoteLocally(updatedNote)
+			toast.success(t('workspace.note_updated'))
+		} else {
+			let createdNote
+			if (online) {
+				const res = await axios.post(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes`, {
+					content: noteFormContent.value,
+				}, {
+					headers: token ? { Authorization: 'Bearer ' + token } : {},
+				})
+				createdNote = res.data
+			} else {
+				const res = await axios.post(`/api/v1/patients/${selectedPatient.value.uuid}/notes`, {
+					content: noteFormContent.value,
+				})
+				createdNote = res.data
+			}
+			// ── Insert note into workspaceData IMMEDIATELY ──────────────
+			// The note is saved in local SQLite with sync_status = 'pending_create'.
+			// refreshWorkspaceData() fetches from the production server which
+			// doesn't have the new note yet. Without addNoteLocally(), the note
+			// would be erased by the production response overwriting workspaceData.
+			if (createdNote?.uuid) addNoteLocally(createdNote)
+			toast.success(t('workspace.note_added'))
+		}
+		showNoteModal.value = false
+		editingNote.value = null
+		noteFormContent.value = ''
+		refreshWorkspaceData()
 
-    // ── Trigger sync engine after note mutation ─────────────────────
-    // The note is saved locally with sync_status = 'pending_create'.
-    // Fire the full sync engine in the background so it gets pushed to
-    // the production server. Don't await — the note is already visible
-    // in the UI via refreshWorkspaceData().
-    axios.post('/_native/api/sync/engine', {}, { timeout: 120000 })
-      .catch(() => {}); // fire-and-forget
-  } catch (e) {
-    console.error('Note save failed', e)
-    toast.error(t('common.error'))
-  }
+		// ── Trigger sync engine after note mutation ─────────────────────
+		// Fire the sync engine in the background to push pending notes to
+		// production. Don't await — the note is already visible locally
+		// via addNoteLocally() above.
+		axios.post('/_native/api/sync/engine', {}, { timeout: 120000 })
+			.catch(() => {}); // fire-and-forget
+	} catch (e) {
+		console.error('Note save failed', e)
+		toast.error(t('common.error'))
+	}
 }
 
 function openAddNote() {
