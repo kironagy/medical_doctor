@@ -43,17 +43,22 @@ class NoteController extends Controller
             } else {
                 $noteData['author_id'] = $validated['author_id'] ?? $patient->primary_doctor_id;
 
-                $isLocalSqlite = config('database.default') === 'sqlite';
-                if ($isLocalSqlite) {
-                    $noteData['sync_status'] = 'pending_create';
-                }
-
                 if (!$noteData['author_id']) {
                     Log::error('[NoteController] Cannot create offline note: no user found', [
                         'patient_uuid' => $patientUuid,
                     ]);
                     return response()->json(['message' => 'Cannot create note offline. Please login and sync first.'], 500);
                 }
+            }
+
+            // ── FIX: On embedded Laravel (SQLite), ALWAYS mark notes as pending sync ──
+            // On the embedded Laravel, notes are saved to LOCAL SQLite only. They must
+            // be synced to the production server when connectivity returns. Without this,
+            // the default sync_status='synced' is applied, and SyncEngineService never
+            // picks them up because it queries WHERE sync_status='pending_create'.
+            $isLocalSqlite = config('database.default') === 'sqlite';
+            if ($isLocalSqlite) {
+                $noteData['sync_status'] = 'pending_create';
             }
 
             $note = $patient->notes()->create($noteData);

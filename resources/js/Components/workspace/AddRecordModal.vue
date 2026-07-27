@@ -194,6 +194,12 @@ async function submit() {
     try {
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true
 
+      // ══ FIX: Send Bearer token so Mobile/NoteController can capture it ══
+      // The sync engine needs this token to authenticate with the production
+      // server. Without it, SyncEngineService::syncAll() skips entirely.
+      const token = localStorage.getItem('np_api_token')
+      const authHeaders = token ? { Authorization: 'Bearer ' + token } : {}
+
         if (online) {
           // ═══════════════════════════════════════════════════════════════
           //  ONLINE: Save locally via mobile route — sync engine will push
@@ -201,7 +207,7 @@ async function submit() {
           const saveRes = await axios.post(apiUrl(`/api/v1/mobile/patients/${props.patient.uuid}/notes`), {
             content: notes.value,
             category: props.categorySlug,
-          })
+          }, { headers: authHeaders })
           const createdNote = saveRes.data
           // Add to local UI immediately without waiting for reload
           if (createdNote?.uuid) {
@@ -211,8 +217,8 @@ async function submit() {
           emit('saved')
           emit('update:modelValue', false)
           
-          // trigger sync explicitly
-          axios.post('/_native/api/sync').catch(() => {})
+          // trigger sync explicitly using the engine endpoint
+          triggerSync()
           
           // Reload the category list AFTER note is confirmed on server
           emit('noteAdded', createdNote)
@@ -220,10 +226,13 @@ async function submit() {
           // ═══════════════════════════════════════════════════════════════
           //  OFFLINE: Save locally — sync engine will push when online
           // ═══════════════════════════════════════════════════════════════
+          // ══ FIX: Send Bearer token so Mobile/NoteController can capture it ══
+          // Same as online branch — the token must be captured even when offline
+          // so that when connectivity returns, the sync engine has it.
           const saveRes = await axios.post(apiUrl(`/api/v1/mobile/patients/${props.patient.uuid}/notes`), {
             content: notes.value,
             category: props.categorySlug,
-          })
+          }, { headers: authHeaders })
           const createdNote = saveRes.data
           if (createdNote?.uuid) {
             addNoteLocally(createdNote)

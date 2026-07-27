@@ -363,8 +363,36 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
     \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
 ])->group(function () {
     // Full sync: patients first, then files (only after patient is synced), then deletes
-    Route::post('/engine', function () {
+    Route::post('/engine', function (\Illuminate\Http\Request $request) {
         try {
+            // ══ FIX: Capture Bearer token from sync request ═══════════════════
+            // The frontend now sends the production API token as a Bearer header
+            // directly in the sync request. This bypasses the broken session-based
+            // token transfer (API routes don't have StartSession middleware, so
+            // session() writes from NoteController never persisted across requests).
+            //
+            // This ensures ApiService has the token REGARDLESS of whether:
+            //   - The session has the token (no StartSession on API routes)
+            //   - The file-based token storage is working (permissions, path issues)
+            //   - The singleton persisted across requests
+            //
+            // ⚠ CRITICAL: Do NOT replace setToken() — it also writes to file for
+            // persistence across app restarts. We call it here to ensure both the
+            // in-memory singleton AND the file backup are populated.
+            if (config('database.default') === 'sqlite') {
+                $bearerToken = $request->bearerToken();
+                if ($bearerToken) {
+                    try {
+                        app(\App\Services\Mobile\ApiService::class)->setToken($bearerToken);
+                        \Illuminate\Support\Facades\Log::info('[SyncEngine] Bearer token captured from sync request and stored in ApiService');
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning('[SyncEngine] Failed to capture Bearer token: ' . $e->getMessage());
+                    }
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('[SyncEngine] No Bearer token in sync request — sync may fail with 401');
+                }
+            }
+
             // ── AUTH INSTRUMENTATION: Log token state before sync ────────
             $apiToken = app(\App\Services\Mobile\ApiService::class)->getToken();
             $sessionToken = session('api_token');

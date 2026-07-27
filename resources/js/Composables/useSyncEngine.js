@@ -258,8 +258,26 @@ async function triggerSync() {
     isSyncing.value = true
     console.log('[SyncEngine] 🚀 POST ' + SYNC_ENDPOINT + ' — Starting full sync cycle...')
 
+    // ══ FIX: Send Bearer token with sync request ═══════════════════════
+    // The sync engine endpoint (/engine) needs the production API token to
+    // authenticate against the remote server. Previously, the token was stored
+    // in the session by NoteController, but API routes don't have StartSession
+    // middleware, so the session data NEVER persisted across requests.
+    //
+    // By sending the token directly as a Bearer header in the sync request,
+    // we bypass the broken session-based token transfer entirely.
+    // The /engine route handler captures this token via $request->bearerToken()
+    // and injects it into ApiService before running the sync cycle.
+    const syncToken = typeof localStorage !== 'undefined'
+        ? localStorage.getItem('np_api_token')
+        : null
+    const syncHeaders = syncToken ? { Authorization: 'Bearer ' + syncToken } : {}
+
     try {
-        const res = await axios.post(SYNC_ENDPOINT, {}, { timeout: 120000 })
+        const res = await axios.post(SYNC_ENDPOINT, {}, {
+            headers: syncHeaders,
+            timeout: 120000,
+        })
         console.log('[SyncEngine] ✅ POST ' + SYNC_ENDPOINT + ' — status=' + res.status + ' success=' + (res.data?.success ?? 'unknown'))
         const data = res.data
 
