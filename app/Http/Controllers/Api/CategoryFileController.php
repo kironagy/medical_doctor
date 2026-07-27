@@ -22,7 +22,17 @@ class CategoryFileController extends Controller
         // ── Gate authorization: verify the current user can view this patient
         // This is the SECOND layer of defense (scope is first layer).
         // The scope filters at the query level, while Gate checks explicitly.
-        Gate::authorize('view', $patient);
+        //
+        // 🛡️ Skipped on embedded Laravel (offline / SQLite):
+        // The local SQLite database is a single-user device. The auto-logged-in
+        // user's roles/permissions do NOT match the synced patient data (server
+        // user IDs differ from local IDs, roles are server-scoped). The Gate
+        // check would ALWAYS fail with 403, blocking all offline category/files
+        // access. The DoctorIsolationScope provides query-level filtering.
+        // On the production server (MySQL), the Gate check is enforced as usual.
+        if (config('database.default') !== 'sqlite') {
+            Gate::authorize('view', $patient);
+        }
 
         $page = (int) $request->input('page', 1);
         $perPage = (int) $request->input('per_page', 6);

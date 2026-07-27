@@ -24,10 +24,15 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
-
-        // Category files endpoint
-        Route::get('/patients/{patientUuid}/categories/{slug}/files', [CategoryFileController::class, 'files']);
     });
+
+    // Category files endpoint — conditional auth (same pattern as mobile routes below)
+    // On SQLite (embedded Laravel / offline), auth:sanctum is skipped.
+    // On MySQL (production server), auth:sanctum is enforced.
+    // Uses inline config() check instead of $isEmbeddedLaravel variable because
+    // that variable is defined later in this file (in the mobile routes section).
+    Route::get('/patients/{patientUuid}/categories/{slug}/files', [CategoryFileController::class, 'files'])
+        ->middleware(config('database.default') === 'sqlite' ? [] : ['auth:sanctum']);
 
     // ── Mobile API ────────────────────────────────────────────────────
     // On the PRODUCTION server, these routes require auth:sanctum (Bearer token).

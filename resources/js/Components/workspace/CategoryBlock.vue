@@ -1102,10 +1102,17 @@ async function openAddVisit() {
 async function submitVisit() {
   if (!visitType.value || !selectedPatient.value?.uuid) return
   try {
-    await axios.post(`/api/v1/patients/${selectedPatient.value.uuid}/visits`, {
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+    const token = localStorage.getItem('np_api_token')
+    await axios.post(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/visits`, {
       visit_type: visitType.value,
       category: props.slug,
+    }, {
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
     })
+    if (online) {
+      axios.post('/_native/api/sync').catch(() => {})
+    }
     showCategoryMenu.value = false
     showVisitModal.value = false
     visitType.value = ''
@@ -1208,14 +1215,12 @@ async function deleteNoteDirectly(note) {
   })
   if (!confirmed) return
   try {
-    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
     const token = localStorage.getItem('np_api_token')
-    if (online) {
-      await axios.delete(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`, {
-        headers: token ? { Authorization: 'Bearer ' + token } : {},
-      })
-    } else {
-      await axios.delete(`/api/v1/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`)
+    await axios.delete(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`, {
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+    })
+    if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
+      axios.post('/_native/api/sync').catch(() => {})
     }
     refreshWorkspaceData()
     toast.success('تم حذف الملاحظة بنجاح')
