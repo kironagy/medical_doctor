@@ -193,40 +193,44 @@ async function submit() {
     try {
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true
 
-      if (online) {
-        // ═══════════════════════════════════════════════════════════════
-        //  ONLINE: Direct push to production API — guaranteed immediate
-        // ═══════════════════════════════════════════════════════════════
-        const saveRes = await axios.post(`/api/v1/patients/${props.patient.uuid}/notes`, {
-          content: notes.value,
-          category: props.categorySlug,
-        })
-        const createdNote = saveRes.data
-        // Add to local UI immediately without waiting for reload
-        if (createdNote?.uuid) {
-          addNoteLocally(createdNote)
+        if (online) {
+          // ═══════════════════════════════════════════════════════════════
+          //  ONLINE: Save locally via mobile route — sync engine will push
+          // ═══════════════════════════════════════════════════════════════
+          const saveRes = await axios.post(`/api/v1/mobile/patients/${props.patient.uuid}/notes`, {
+            content: notes.value,
+            category: props.categorySlug,
+          })
+          const createdNote = saveRes.data
+          // Add to local UI immediately without waiting for reload
+          if (createdNote?.uuid) {
+            addNoteLocally(createdNote)
+          }
+          toast.success('تمت إضافة الملاحظة بنجاح')
+          emit('saved')
+          emit('update:modelValue', false)
+          
+          // trigger sync explicitly
+          axios.post('/_native/api/sync').catch(() => {})
+          
+          // Reload the category list AFTER note is confirmed on server
+          emit('noteAdded', createdNote)
+        } else {
+          // ═══════════════════════════════════════════════════════════════
+          //  OFFLINE: Save locally — sync engine will push when online
+          // ═══════════════════════════════════════════════════════════════
+          const saveRes = await axios.post(`/api/v1/mobile/patients/${props.patient.uuid}/notes`, {
+            content: notes.value,
+            category: props.categorySlug,
+          })
+          const createdNote = saveRes.data
+          if (createdNote?.uuid) {
+            addNoteLocally(createdNote)
+          }
+          toast.success('تمت إضافة الملاحظة (في انتظار الاتصال)')
+          emit('saved')
+          emit('update:modelValue', false)
         }
-        toast.success('تمت إضافة الملاحظة بنجاح')
-        emit('saved')
-        emit('update:modelValue', false)
-        // Reload the category list AFTER note is confirmed on server
-        emit('noteAdded', createdNote)
-      } else {
-        // ═══════════════════════════════════════════════════════════════
-        //  OFFLINE: Save locally — sync engine will push when online
-        // ═══════════════════════════════════════════════════════════════
-        const saveRes = await axios.post(`/api/v1/mobile/patients/${props.patient.uuid}/notes`, {
-          content: notes.value,
-          category: props.categorySlug,
-        })
-        const createdNote = saveRes.data
-        if (createdNote?.uuid) {
-          addNoteLocally(createdNote)
-        }
-        toast.success('تمت إضافة الملاحظة (في انتظار الاتصال)')
-        emit('saved')
-        emit('update:modelValue', false)
-      }
     } catch (e) {
       console.error('Note add failed:', e)
       toast.error('فشل إضافة الملاحظة')

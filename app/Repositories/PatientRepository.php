@@ -385,6 +385,11 @@ class PatientRepository implements PatientRepositoryInterface
         ]);
         $cleanData['sync_status'] = 'synced';
 
+        // ── 🔥 FIX: Prevent SQLite "column not found" exceptions ─────────
+        // Filter $cleanData to only include columns that actually exist in the DB
+        $validColumns = \Illuminate\Support\Facades\Schema::getColumnListing('patients');
+        $cleanData = array_intersect_key($cleanData, array_flip($validColumns));
+
         try {
             \App\Domains\Patients\Models\Patient::unguard();
             \App\Domains\Patients\Models\Patient::updateOrCreate(
