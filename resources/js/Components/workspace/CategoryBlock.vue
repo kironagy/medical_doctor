@@ -1211,10 +1211,7 @@ async function deleteNoteDirectly(note) {
   })
   if (!confirmed) return
   try {
-    const token = localStorage.getItem('np_api_token')
-    await axios.delete(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`), {
-      headers: token ? { Authorization: 'Bearer ' + token } : {},
-    })
+    await axios.delete(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`), getApiConfig())
     if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
       axios.post('/_native/api/sync').catch(() => {})
     }
