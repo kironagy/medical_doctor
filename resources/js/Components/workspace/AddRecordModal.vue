@@ -123,6 +123,7 @@ import { useToast } from '@/Composables/useToast'
 import { useUploads } from '@/Composables/useUploads'
 import { useOfflineUploads } from '@/Composables/useOfflineUploads'
 import { useWorkspace } from '@/Composables/useWorkspace'
+import { useSyncEngine } from '@/Composables/useSyncEngine'
 import axios from 'axios'
 
 const props = defineProps({
@@ -132,12 +133,13 @@ const props = defineProps({
   initialTab: { type: String, default: 'text' },
 })
 
-const emit = defineEmits(['update:modelValue', 'saved'])
+const emit = defineEmits(['update:modelValue', 'saved', 'noteAdded'])
 
 const toast = useToast()
 const { uploadFile: onlineUploadFile } = useUploads()
 const { uploadFile: offlineUploadFile } = useOfflineUploads()
 const { addNoteLocally } = useWorkspace()
+const { triggerSync } = useSyncEngine()
 
 const activeTab = ref('text')
 const notes = ref('')
@@ -180,7 +182,7 @@ function removeFile(idx) {
 
 async function submit() {
   if (saving.value) return
-  if (!props.patient?.id || !props.categorySlug) return
+  if (!props.patient?.uuid || !props.categorySlug) return
 
   if (activeTab.value === 'text') {
     if (!notes.value.trim()) {
@@ -189,42 +191,42 @@ async function submit() {
     }
     saving.value = true
     try {
-      // ═══════════════════════════════════════════════════════════════
-      //  STEP 1: Save note via OFFLINE endpoint (always works)
-      // ═══════════════════════════════════════════════════════════════
-      // The URL /_native/api/offline/notes bypasses the NativePHP
-      // RequestRouter entirely and goes directly to the embedded Laravel.
-      // This ALWAYS works because it's a direct PHP route, not intercepted.
-      // The note is saved in the local SQLite with sync_status='pending_create'.
-      const saveRes = await axios.post('/_native/api/offline/notes', {
-        content: notes.value,
-        category: props.categorySlug,
-        patient_uuid: props.patient.uuid,
-      })
-      const createdNote = saveRes.data
-      
-      // ── Add note to workspaceData immediately for instant visibility ──
-      if (createdNote?.uuid) {
-        addNoteLocally(createdNote)
+      const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+
+      if (online) {
+        // ═══════════════════════════════════════════════════════════════
+        //  ONLINE: Direct push to production API — guaranteed immediate
+        // ═══════════════════════════════════════════════════════════════
+        const saveRes = await axios.post(`/api/v1/patients/${props.patient.uuid}/notes`, {
+          content: notes.value,
+          category: props.categorySlug,
+        })
+        const createdNote = saveRes.data
+        // Add to local UI immediately without waiting for reload
+        if (createdNote?.uuid) {
+          addNoteLocally(createdNote)
+        }
+        toast.success('تمت إضافة الملاحظة بنجاح')
+        emit('saved')
+        emit('update:modelValue', false)
+        // Reload the category list AFTER note is confirmed on server
+        emit('noteAdded', createdNote)
+      } else {
+        // ═══════════════════════════════════════════════════════════════
+        //  OFFLINE: Save locally — sync engine will push when online
+        // ═══════════════════════════════════════════════════════════════
+        const saveRes = await axios.post(`/api/v1/mobile/patients/${props.patient.uuid}/notes`, {
+          content: notes.value,
+          category: props.categorySlug,
+        })
+        const createdNote = saveRes.data
+        if (createdNote?.uuid) {
+          addNoteLocally(createdNote)
+        }
+        toast.success('تمت إضافة الملاحظة (في انتظار الاتصال)')
+        emit('saved')
+        emit('update:modelValue', false)
       }
-      
-      // ═══════════════════════════════════════════════════════════════
-      //  STEP 2: Trigger sync (upload to production)
-      // ═══════════════════════════════════════════════════════════════
-      // This tells the SyncEngine to immediately push pending notes to
-      // the production server. The note we just created has
-      // sync_status='pending_create', so the SyncEngine will pick it up
-      // and POST it to the production API.
-      try {
-        await axios.post('/_native/api/sync/patients', {}, { timeout: 30000 })
-      } catch (syncErr) {
-        // Sync failure is non-fatal — the SyncEngine will retry later
-        console.warn('[AddRecordModal] Sync trigger failed (will retry later):', syncErr.message)
-      }
-      
-      toast.success('تمت إضافة الملاحظة بنجاح')
-      emit('saved')
-      emit('update:modelValue', false)
     } catch (e) {
       console.error('Note add failed:', e)
       toast.error('فشل إضافة الملاحظة')
@@ -244,7 +246,7 @@ async function submit() {
       for (const file of selectedFiles.value) {
         if (online) {
           // Online: use chunked upload composable
-          onlineUploadFile(file, patientId, { 
+          onlineUploadFile(file, patientUuid, { 
             category: props.categorySlug,
             desc: notes.value
           })

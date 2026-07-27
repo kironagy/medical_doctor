@@ -354,7 +354,7 @@
     :patient="selectedPatient"
     :categorySlug="slug"
     :initialTab="addRecordModalTab"
-
+    @noteAdded="loadCategoryData(1)"
   />
 
   <!-- View Note Content Modal -->
@@ -490,11 +490,47 @@ async function loadCategoryData(page = 1) {
     if (timeFilter.value && customTimeFrom.value) params.time_from = customTimeFrom.value
     if (timeFilter.value && customTimeTo.value) params.time_to = customTimeTo.value
 
-    const response = await axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params })
-    serverFiles.value = response.data.data
-    serverNotes.value = response.data.notes
-    serverMeta.value = response.data.meta
-    currentPage.value = response.data.meta.current_page
+    // Fetch server data + local pending notes in parallel
+    const [response, offlineRes] = await Promise.allSettled([
+      axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params }),
+      axios.get('/_native/api/offline/notes', { params: { patient_uuid: selectedPatient.value.uuid }, timeout: 3000 })
+    ])
+
+    if (response.status !== 'fulfilled') throw response.reason
+
+    serverFiles.value = response.value.data.data
+
+    // ── Merge server notes with local pending notes ─────────────────────
+    // Production doesn't have notes created offline (pending_create).
+    // Fetch them directly from local SQLite and merge so they appear immediately.
+    const freshServerNotes = response.value.data.notes || []
+    const freshServerUuids = new Set(freshServerNotes.map(n => n.uuid))
+
+    // Local pending notes from SQLite (offline endpoint)
+    let pendingLocalNotes = []
+    if (offlineRes.status === 'fulfilled') {
+      const allPending = offlineRes.value.data?.data || []
+      pendingLocalNotes = allPending.filter(
+        n => n.category === props.slug && !freshServerUuids.has(n.uuid)
+      )
+    }
+
+    // Also check workspaceData for any notes added via addNoteLocally()
+    const workspaceLocalNotes = (allNotes.value || []).filter(
+      n => n.category === props.slug && !freshServerUuids.has(n.uuid)
+    )
+
+    // Combine: prefer workspaceData notes (richer data), fallback to offline SQLite notes
+    const workspaceUuids = new Set(workspaceLocalNotes.map(n => n.uuid))
+    const extraPendingNotes = pendingLocalNotes.filter(n => !workspaceUuids.has(n.uuid))
+    const localNotes = [...workspaceLocalNotes, ...extraPendingNotes]
+
+    serverNotes.value = localNotes.length > 0
+      ? [...localNotes, ...freshServerNotes]
+      : freshServerNotes
+
+    serverMeta.value = response.value.data.meta
+    currentPage.value = response.value.data.meta.current_page
   } catch (e) {
     console.error('Failed to load category data', e)
     toast.error('Failed to load files')

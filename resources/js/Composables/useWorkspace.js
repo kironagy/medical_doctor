@@ -278,15 +278,25 @@ function refreshWorkspaceData() {
 				// ── Merge production data with local snapshot ──────
 				const merged = { ...res.data };
 				if (workspaceSnapshot) {
-					// Merge notes: production notes first, then local-only notes
+					// Merge notes: only keep local notes that are STILL PENDING.
+					// Once a note is synced to production, it gets a new remote UUID.
+					// Keeping the old local UUID causes duplication. Filter strictly.
 					const serverNoteUuids = new Set((merged.notes || []).map(n => n.uuid));
-					const localNotes = (workspaceSnapshot.notes || []).filter(n => !serverNoteUuids.has(n.uuid));
+					const localNotes = (workspaceSnapshot.notes || []).filter(n =>
+						!serverNoteUuids.has(n.uuid) &&
+						(n.sync_status === 'pending_create' || n.sync_status === 'pending')
+					);
 					if (localNotes.length > 0) {
 						merged.notes = [...localNotes, ...(merged.notes || [])];
 					}
-					// Merge files: production files first, then local-only files
+					// Merge files: only keep local files that are STILL PENDING (uploading/pending).
+					// Synced files will appear in the server response with their final URL.
 					const serverFileUuids = new Set((merged.files || []).map(f => f.uuid));
-					const localFiles = (workspaceSnapshot.files || []).filter(f => !serverFileUuids.has(f.uuid));
+					const localFiles = (workspaceSnapshot.files || []).filter(f =>
+						!serverFileUuids.has(f.uuid) &&
+						(f.sync_status === 'pending_upload' || f.sync_status === 'uploading' ||
+						 f.upload_status === 'pending_upload' || f.upload_status === 'uploading')
+					);
 					if (localFiles.length > 0) {
 						merged.files = [...localFiles, ...(merged.files || [])];
 					}
