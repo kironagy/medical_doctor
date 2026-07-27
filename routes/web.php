@@ -222,71 +222,13 @@ Route::prefix('_native/api/offline')->name('offline.')->withoutMiddleware([
     Route::delete('/uploads/{uuid}', [\App\Http\Controllers\Api\OfflineUploadController::class, 'destroy'])->name('uploads.destroy');
 });
 
-// ── Phase 7 — Sync Pending Operations (OUTSIDE auth middleware) ──────
-// These endpoints let the frontend trigger sync from the phone's local
-// SQLite BEFORE making online API calls. Without this, syncPendingPatients()
-// would only run on the production server (which can't see phone's SQLite).
-// 🚫 CSRF excluded — same reasoning as other _native routes.
-Route::prefix('_native/api/sync')->name('sync.')->withoutMiddleware([
-    \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
-])->group(function () {
-    // Upload pending patients to remote server
-    Route::post('/patients', function (\Illuminate\Http\Request $request) {
-        try {
-            app(\App\Repositories\PatientRepository::class)->syncPending();
-            return response()->json(['success' => true, 'message' => 'Pending patients synced']);
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::info('[Sync] sync/patients failed: ' . $e->getMessage());
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
-        }
-    });
-
-    // Upload pending local files to remote server
-    Route::post('/files', function (\Illuminate\Http\Request $request) {
-        try {
-            $offlineRepo = app(\App\Contracts\Repositories\OfflineFileRepositoryInterface::class);
-            $uploadService = app(\App\Services\OfflineUploadService::class);
-            $api = app(\App\Services\Mobile\ApiService::class);
-            $pendingFiles = $offlineRepo->findPending();
-            $results = ['uploaded' => 0, 'failed' => 0];
-
-            foreach ($pendingFiles as $file) {
-                try {
-                    $absolutePath = $uploadService->absolutePath($file['local_path']);
-                    if (!file_exists($absolutePath)) {
-                        $offlineRepo->markFailed($file['uuid'], 'Local file not found on disk');
-                        $results['failed']++;
-                        continue;
-                    }
-
-                    $offlineRepo->markUploading($file['uuid']);
-                    $response = $api->upload(
-                        "/patients/{$file['patient_uuid']}/files",
-                        ['file' => $absolutePath],
-                        ['title' => $file['original_name']]
-                    );
-
-                    $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
-                    if (!$remoteUuid) {
-                        throw new \RuntimeException('No UUID in server response');
-                    }
-
-                    $offlineRepo->markSynced($file['uuid'], $remoteUuid);
-                    $uploadService->deleteLocal($file['local_path']);
-                    $results['uploaded']++;
-                } catch (\Throwable $fe) {
-                    \Illuminate\Support\Facades\Log::warning('[Sync] File sync failed: ' . $fe->getMessage());
-                    $offlineRepo->incrementRetry($file['uuid']);
-                    $results['failed']++;
-                }
-            }
-
-            return response()->json(['success' => true, 'results' => $results]);
-        } catch (\Throwable $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
-        }
-    });
-});
+// ═══ SYNC-005 FIX: Removed competing sync endpoints ═══════════════════
+// The POST /_native/api/sync/patients and POST /_native/api/sync/files
+// routes have been removed. Sync is now handled exclusively by the
+// SyncEngineService via POST /_native/api/sync/engine. This eliminates
+// race conditions between multiple sync paths.
+//
+// The pending patients query endpoint is kept for frontend rehydration:
 
 // ── Local Pending Patients Query (OUTSIDE auth middleware) ──────────
 // Returns all local patients with sync_status pending (NOT synced).
@@ -303,57 +245,10 @@ Route::get('/_native/api/patients/pending', function () {
     }
 })->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
 
-// ── Sync Pending Operations from frontend (when online) ─────────────
-// The AppLayout calls this when it detects the connection came back,
-// BEFORE refreshing the patient list from the server.
-Route::post('/_native/api/sync/all', function () {
-    try {
-        // 1. Sync pending patients
-        app(\App\Repositories\PatientRepository::class)->syncPending();
-
-        // 2. Sync pending files (uses existing SyncPendingUploads logic)
-        $offlineRepo = app(\App\Contracts\Repositories\OfflineFileRepositoryInterface::class);
-        $uploadService = app(\App\Services\OfflineUploadService::class);
-        $api = app(\App\Services\Mobile\ApiService::class);
-
-        $pendingFiles = $offlineRepo->findPending();
-        $fileResults = ['uploaded' => 0, 'failed' => 0];
-
-        foreach ($pendingFiles as $file) {
-            try {
-                $absolutePath = $uploadService->absolutePath($file['local_path']);
-                if (!file_exists($absolutePath)) {
-                    $offlineRepo->markFailed($file['uuid'], 'Local file not found on disk');
-                    $fileResults['failed']++;
-                    continue;
-                }
-                $offlineRepo->markUploading($file['uuid']);
-                $response = $api->upload(
-                    "/patients/{$file['patient_uuid']}/files",
-                    ['file' => $absolutePath],
-                    ['title' => $file['original_name']]
-                );
-                $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
-                if ($remoteUuid) {
-                    $offlineRepo->markSynced($file['uuid'], $remoteUuid);
-                    $uploadService->deleteLocal($file['local_path']);
-                    $fileResults['uploaded']++;
-                }
-            } catch (\Throwable $fe) {
-                $offlineRepo->incrementRetry($file['uuid']);
-                $fileResults['failed']++;
-            }
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'All pending operations synced',
-            'files' => $fileResults,
-        ]);
-    } catch (\Throwable $e) {
-        return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
-    }
-})->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
+// ═══ SYNC-005 FIX: Removed /sync/all endpoint ════════════════════════
+// This endpoint was a competing sync path that duplicated logic from
+// SyncEngineService. All sync operations now go through the single
+// POST /_native/api/sync/engine endpoint.
 
 // ── Phase 7 — Sync Engine (OUTSIDE auth middleware) ─────────────────
 // Robust ordered synchronization: patients → files → deletes.

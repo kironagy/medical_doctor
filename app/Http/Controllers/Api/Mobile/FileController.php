@@ -159,7 +159,14 @@ class FileController extends Controller
 
     public function destroy(Request $request, string $fileUuid)
     {
-        $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
+        // ═══ SYNC-007 FIX: Bypass DoctorIsolationScope ═══════════════════
+        // On SQLite with no authenticated user, DoctorIsolationScope filters
+        // by primary_doctor_id which is null — causing 404 before our logic runs.
+        $file = PatientFile::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where('uuid', $fileUuid)
+            ->firstOrFail();
         Gate::authorize('update', $file->patient);
 
         // Collect paths to delete
@@ -214,14 +221,27 @@ class FileController extends Controller
             ], 500);
         }
 
-        try {
-            $file->forceDelete();
-        } catch (\Throwable $e) {
-            Log::error('Failed to force delete PatientFile', ['uuid' => $fileUuid, 'exception' => $e]);
-            return response()->json([
-                'message' => 'Failed to delete file record',
-                'errors' => [(string) $e->getMessage()],
-            ], 500);
+        // ═══ SYNC-008 FIX: Mark file as pending_delete on SQLite ═══════════
+        // On the embedded Laravel (SQLite), we must NOT force-delete the file
+        // immediately. Instead, we mark it as pending_delete so the sync engine
+        // can delete it from the production server first.
+        //
+        // On MySQL (production), we use forceDelete as before.
+        if (config('database.default') === 'sqlite') {
+            $file->update([
+                'sync_status' => 'pending_delete',
+                'client_updated_at' => now(),
+            ]);
+        } else {
+            try {
+                $file->forceDelete();
+            } catch (\Throwable $e) {
+                Log::error('Failed to force delete PatientFile', ['uuid' => $fileUuid, 'exception' => $e]);
+                return response()->json([
+                    'message' => 'Failed to delete file record',
+                    'errors' => [(string) $e->getMessage()],
+                ], 500);
+            }
         }
 
         $this->logger->log('file_deleted', 'PatientFile', $file->uuid, [
@@ -246,7 +266,17 @@ class FileController extends Controller
             return response()->json(['message' => 'At least one field must be provided.'], 422);
         }
 
-        $file->update($validated);
+        // ═══ SYNC-008 FIX: Mark file as pending_update on SQLite ═══════════
+        // On the embedded Laravel (SQLite), metadata updates must be marked
+        // as pending_update so the sync engine uploads them to production.
+        if (config('database.default') === 'sqlite') {
+            $file->update(array_merge($validated, [
+                'sync_status' => 'pending_update',
+                'client_updated_at' => now(),
+            ]));
+        } else {
+            $file->update($validated);
+        }
 
         return response()->json(new FileResource($file->fresh()));
     }

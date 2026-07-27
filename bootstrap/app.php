@@ -59,6 +59,10 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule): void {
         $schedule->command('uploads:purge-expired --hours=6')->hourly();
-        $schedule->command('sync:pending-uploads --batch=5')->everyFiveMinutes();
+        // ═══ SYNC-008 FIX: Removed sync:pending-uploads CRON ═══════════════
+        // File uploads are now handled exclusively by SyncEngineService::syncAll()
+        // via the POST /_native/api/sync/engine endpoint. The CRON-based
+        // command competed with the sync engine, causing race conditions
+        // and duplicate uploads.
     })
     ->create();

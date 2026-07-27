@@ -78,6 +78,8 @@ class SyncEngineService
             'files'    => ['uploaded' => 0, 'failed' => 0],
             'notes'    => ['uploaded' => 0, 'deleted' => 0, 'failed' => 0],
             'deletes'  => 0,
+            'file_deletes' => 0,
+            'file_updates' => 0,
         ];
 
         // ── AUTH GUARD: Check API token availability ───────────────────
@@ -131,6 +133,20 @@ class SyncEngineService
             $results['deletes'] = $this->processPendingDeletes();
         } catch (\Throwable $e) {
             Log::error('[SyncEngine] Delete sync failed: ' . $e->getMessage());
+        }
+
+        // ── STEP 5: Process pending file deletes ───────────────────────
+        try {
+            $results['file_deletes'] = $this->processPendingFileDeletes();
+        } catch (\Throwable $e) {
+            Log::error('[SyncEngine] File delete sync failed: ' . $e->getMessage());
+        }
+
+        // ── STEP 6: Process pending file updates ───────────────────────
+        try {
+            $results['file_updates'] = $this->processPendingFileUpdates();
+        } catch (\Throwable $e) {
+            Log::error('[SyncEngine] File update sync failed: ' . $e->getMessage());
         }
 
         Log::info('[SyncEngine] Sync cycle complete', $results);
@@ -738,6 +754,111 @@ class SyncEngineService
     }
 
     /**
+     * Process pending file deletes — delete files from the production server.
+     * Files with sync_status = 'pending_delete' in patient_files table.
+     *
+     * @return int Number of successfully deleted files
+     */
+    public function processPendingFileDeletes(): int
+    {
+        $deletedCount = 0;
+
+        $pendingDeletes = \App\Domains\Media\Models\PatientFile::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where('sync_status', 'pending_delete')
+            ->with('patient')
+            ->get();
+
+        foreach ($pendingDeletes as $file) {
+            try {
+                $patient = $file->patient;
+                if (!$patient) {
+                    // Patient not found — just delete the local record
+                    $file->forceDelete();
+                    $deletedCount++;
+                    continue;
+                }
+
+                // Delete from production server
+                // The production API route is DELETE /api/v1/files/{uuid}
+                // ApiService prepends the base URL (/api/v1/mobile), so we need
+                // to use the correct path that the production server expects.
+                $this->api->delete("/files/{$file->uuid}");
+
+                // Remove from local SQLite
+                $file->forceDelete();
+                $deletedCount++;
+
+                Log::info('[SyncEngine] File deleted remotely', [
+                    'uuid' => $file->uuid,
+                    'patient' => $patient->uuid,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('[SyncEngine] File delete sync failed: ' . $e->getMessage(), [
+                    'file_uuid' => $file->uuid,
+                ]);
+            }
+        }
+
+        return $deletedCount;
+    }
+
+    /**
+     * Process pending file updates — update file metadata on the production server.
+     * Files with sync_status = 'pending_update' in patient_files table.
+     *
+     * @return int Number of successfully updated files
+     */
+    public function processPendingFileUpdates(): int
+    {
+        $updatedCount = 0;
+
+        $pendingUpdates = \App\Domains\Media\Models\PatientFile::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where('sync_status', 'pending_update')
+            ->with('patient')
+            ->get();
+
+        foreach ($pendingUpdates as $file) {
+            try {
+                $patient = $file->patient;
+                if (!$patient || ($patient->sync_status ?? 'synced') !== 'synced') {
+                    continue;
+                }
+
+                // Update metadata on production server
+                $this->api->put("/files/{$file->uuid}", [
+                    'title' => $file->title,
+                    'desc' => $file->desc,
+                    'category' => $file->category,
+                ]);
+
+                // Mark as synced
+                \App\Domains\Media\Models\PatientFile::where('uuid', $file->uuid)
+                    ->update([
+                        'sync_status' => 'synced',
+                        'updated_at' => now(),
+                    ]);
+
+                $updatedCount++;
+
+                Log::info('[SyncEngine] File update synced successfully', [
+                    'uuid' => $file->uuid,
+                    'patient' => $patient->uuid,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('[SyncEngine] File update sync failed: ' . $e->getMessage(), [
+                    'file_uuid' => $file->uuid,
+                ]);
+            }
+        }
+
+        return $updatedCount;
+    }
+
+    /**
      * Check if there are any pending operations that need syncing.
      */
     public function hasPendingOperations(): bool
@@ -754,7 +875,12 @@ class SyncEngineService
             'sync_status', ['pending_create', 'pending_delete']
         )->count();
 
-        return ($pendingPatientCount + $pendingFileCount + $pendingNoteCount) > 0;
+        // ═══ SYNC-008 FIX: Include patient_files in pending check ═══════════
+        $pendingPatientFileCount = \App\Domains\Media\Models\PatientFile::whereIn(
+            'sync_status', ['pending_delete', 'pending_update']
+        )->count();
+
+        return ($pendingPatientCount + $pendingFileCount + $pendingNoteCount + $pendingPatientFileCount) > 0;
     }
 
     /**
@@ -771,12 +897,17 @@ class SyncEngineService
         $filesPending  = DB::table('offline_files')->whereIn('sync_status', ['pending_upload', 'failed'])->count();
         $notesPending  = \App\Domains\Patients\Models\PatientNote::whereIn('sync_status', ['pending_create', 'pending_delete'])->count();
 
+        // ═══ SYNC-008 FIX: Include patient_files in summary ═══════════════
+        $patientFilesPending = \App\Domains\Media\Models\PatientFile::whereIn(
+            'sync_status', ['pending_delete', 'pending_update']
+        )->count();
+
         return [
             'patients' => $patientCreate + $patientUpdate,
             'deletes'  => $patientDelete,
-            'files'    => $filesPending,
+            'files'    => $filesPending + $patientFilesPending,
             'notes'    => $notesPending,
-            'total'    => $patientCreate + $patientUpdate + $patientDelete + $filesPending + $notesPending,
+            'total'    => $patientCreate + $patientUpdate + $patientDelete + $filesPending + $patientFilesPending + $notesPending,
         ];
     }
 }
