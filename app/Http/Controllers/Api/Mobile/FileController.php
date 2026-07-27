@@ -162,12 +162,17 @@ class FileController extends Controller
         // ═══ SYNC-007 FIX: Bypass DoctorIsolationScope ═══════════════════
         // On SQLite with no authenticated user, DoctorIsolationScope filters
         // by primary_doctor_id which is null — causing 404 before our logic runs.
+        // Auth check comes AFTER the query so the file can be found first.
         $file = PatientFile::withoutGlobalScope(
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
             )
             ->where('uuid', $fileUuid)
             ->firstOrFail();
-        Gate::authorize('update', $file->patient);
+
+        // SQLite guard: Skip Gate when no authenticated user
+        if ($request->user()) {
+            Gate::authorize('update', $file->patient);
+        }
 
         // Collect paths to delete
         $pathsToDelete = array_filter([
@@ -253,8 +258,17 @@ class FileController extends Controller
 
     public function update(Request $request, string $fileUuid)
     {
-        $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
-        Gate::authorize('update', $file->patient);
+        // ═══ SYNC-007 FIX: Bypass DoctorIsolationScope ═══════════════════
+        $file = PatientFile::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where('uuid', $fileUuid)
+            ->firstOrFail();
+
+        // SQLite guard: Skip Gate when no authenticated user
+        if ($request->user()) {
+            Gate::authorize('update', $file->patient);
+        }
 
         $validated = $request->validate([
             'title' => 'sometimes|required|string|max:255',

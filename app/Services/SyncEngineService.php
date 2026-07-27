@@ -763,9 +763,15 @@ class SyncEngineService
     {
         $deletedCount = 0;
 
+        // ═══ SYNC-008 FIX: Use withTrashed() ═════════════════════════════
+        // FileController::destroy() calls $file->update(['sync_status' =>
+        // 'pending_delete']) BEFORE calling $file->delete(). So the record
+        // is soft-deleted AND marked pending_delete. We must use withTrashed()
+        // to find these records.
         $pendingDeletes = \App\Domains\Media\Models\PatientFile::withoutGlobalScope(
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
             )
+            ->withTrashed()
             ->where('sync_status', 'pending_delete')
             ->with('patient')
             ->get();
@@ -781,12 +787,9 @@ class SyncEngineService
                 }
 
                 // Delete from production server
-                // The production API route is DELETE /api/v1/files/{uuid}
-                // ApiService prepends the base URL (/api/v1/mobile), so we need
-                // to use the correct path that the production server expects.
                 $this->api->delete("/files/{$file->uuid}");
 
-                // Remove from local SQLite
+                // Remove from local SQLite entirely
                 $file->forceDelete();
                 $deletedCount++;
 
@@ -814,9 +817,12 @@ class SyncEngineService
     {
         $updatedCount = 0;
 
+        // ═══ SYNC-008 FIX: Use withTrashed() ═════════════════════════════
+        // Same as processPendingFileDeletes — records may be soft-deleted.
         $pendingUpdates = \App\Domains\Media\Models\PatientFile::withoutGlobalScope(
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
             )
+            ->withTrashed()
             ->where('sync_status', 'pending_update')
             ->with('patient')
             ->get();
