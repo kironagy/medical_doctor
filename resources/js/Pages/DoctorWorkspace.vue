@@ -260,6 +260,7 @@ import SharePatientModal from '@/Components/workspace/SharePatientModal.vue'
 import WorkspaceModal from '@/Components/workspace/WorkspaceModal.vue'
 import BaseButton from '@/Components/BaseButton.vue'
 import { usePullToRefresh } from '@/Composables/usePullToRefresh'
+import { apiUrl, getApiConfig } from '@/Utils/api'
 
 const props = defineProps({
   patients: Array,
@@ -717,7 +718,7 @@ async function removeShare(share) {
   })
   if (!confirmed) return
   try {
-    await axios.delete(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/shares/${share.id}`)
+    await axios.delete(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/shares/${share.id}`))
     refreshWorkspaceData()
     toast.success(t('patients.access_removed'))
   } catch (e) {
@@ -755,10 +756,7 @@ async function deleteNote(note) {
   })
   if (!confirmed) return
   try {
-    const token = localStorage.getItem('np_api_token')
-    await axios.delete(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`, {
-      headers: token ? { Authorization: 'Bearer ' + token } : {},
-    })
+    await axios.delete(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`), getApiConfig())
     
     if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
       axios.post('/_native/api/sync').catch(() => {})
@@ -774,31 +772,21 @@ async function deleteNote(note) {
 async function submitNoteForm() {
 	if (!noteFormContent.value || !selectedPatient.value?.uuid) return
 	try {
-		const online = typeof navigator !== 'undefined' ? navigator.onLine : true
-		const token = localStorage.getItem('np_api_token')
 		if (editingNote.value) {
-			const res = await axios.put(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${editingNote.value.uuid}`, {
+			const res = await axios.put(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${editingNote.value.uuid}`), {
 				content: noteFormContent.value,
-			}, {
-				headers: token ? { Authorization: 'Bearer ' + token } : {},
-			})
+			}, getApiConfig())
 			let updatedNote = res.data
-			if (online) {
-				axios.post('/_native/api/sync').catch(() => {})
-			}
+			axios.post('/_native/api/sync').catch(() => {})
 			if (updatedNote?.uuid) addNoteLocally(updatedNote)
 			toast.success(t('workspace.note_updated'))
 		} else {
-			const res = await axios.post(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes`, {
+			const res = await axios.post(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes`), {
 				content: noteFormContent.value,
-			}, {
-				headers: token ? { Authorization: 'Bearer ' + token } : {},
-			})
+			}, getApiConfig())
 			let createdNote = res.data
 			
-			if (online) {
-				axios.post('/_native/api/sync').catch(() => {})
-			}
+			axios.post('/_native/api/sync').catch(() => {})
 			// ── Insert note into workspaceData IMMEDIATELY ──────────────
 			// The note is saved in local SQLite with sync_status = 'pending_create'.
 			// refreshWorkspaceData() fetches from the production server which
@@ -857,21 +845,15 @@ async function submitVisitForm() {
       next_visit_date: visitForm.value.next_visit_date || null,
       reason: visitForm.value.reason || '',
     }
-    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
-    const token = localStorage.getItem('np_api_token')
-    const config = { headers: token ? { Authorization: 'Bearer ' + token } : {} }
-
     if (editingVisit.value) {
-      await axios.put(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/visits/${editingVisit.value.uuid}`, payload, config)
+      await axios.put(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/visits/${editingVisit.value.uuid}`), payload, getApiConfig())
       toast.success(t('workspace.visit_added'))
     } else {
-      await axios.post(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/visits`, payload, config)
+      await axios.post(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/visits`), payload, getApiConfig())
       toast.success(t('workspace.visit_added'))
     }
     
-    if (online) {
-      axios.post('/_native/api/sync').catch(() => {})
-    }
+    axios.post('/_native/api/sync').catch(() => {})
     
     closeVisitModal()
     await refreshWorkspaceData()

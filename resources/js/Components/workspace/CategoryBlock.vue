@@ -410,6 +410,7 @@ import axios from 'axios'
 import FileActions from './FileActions.vue'
 import { useNativeBridge } from '@/Composables/useNativeBridge'
 import { useOfflineUploads } from '@/Composables/useOfflineUploads'
+import { apiUrl, getApiConfig } from '@/Utils/api'
 
 const { isCameraAvailable, isFilePickerAvailable, takePhoto, pickFiles } = useNativeBridge()
 const { statusIcon: offlineStatusIcon, statusLabel: offlineStatusLabel, uploadFile: offlineUploadFile } = useOfflineUploads()
@@ -1101,15 +1102,10 @@ async function openAddVisit() {
 
 async function submitVisit() {
   if (!visitType.value || !selectedPatient.value?.uuid) return
-  try {
-    const online = typeof navigator !== 'undefined' ? navigator.onLine : true
-    const token = localStorage.getItem('np_api_token')
-    await axios.post(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/visits`, {
-      visit_type: visitType.value,
-      category: props.slug,
-    }, {
-      headers: token ? { Authorization: 'Bearer ' + token } : {},
-    })
+  try {      await axios.post(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/visits`), {
+        visit_type: visitType.value,
+        category: props.slug,
+      }, getApiConfig())
     if (online) {
       axios.post('/_native/api/sync').catch(() => {})
     }
@@ -1216,7 +1212,7 @@ async function deleteNoteDirectly(note) {
   if (!confirmed) return
   try {
     const token = localStorage.getItem('np_api_token')
-    await axios.delete(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`, {
+    await axios.delete(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`), {
       headers: token ? { Authorization: 'Bearer ' + token } : {},
     })
     if (typeof navigator !== 'undefined' ? navigator.onLine : true) {

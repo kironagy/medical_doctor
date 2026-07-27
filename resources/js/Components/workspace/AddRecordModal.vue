@@ -124,6 +124,7 @@ import { useUploads } from '@/Composables/useUploads'
 import { useOfflineUploads } from '@/Composables/useOfflineUploads'
 import { useWorkspace } from '@/Composables/useWorkspace'
 import { useSyncEngine } from '@/Composables/useSyncEngine'
+import { apiUrl } from '@/Utils/api'
 import axios from 'axios'
 
 const props = defineProps({
@@ -197,7 +198,7 @@ async function submit() {
           // ═══════════════════════════════════════════════════════════════
           //  ONLINE: Save locally via mobile route — sync engine will push
           // ═══════════════════════════════════════════════════════════════
-          const saveRes = await axios.post(`/api/v1/mobile/patients/${props.patient.uuid}/notes`, {
+          const saveRes = await axios.post(apiUrl(`/api/v1/mobile/patients/${props.patient.uuid}/notes`), {
             content: notes.value,
             category: props.categorySlug,
           })
@@ -219,7 +220,7 @@ async function submit() {
           // ═══════════════════════════════════════════════════════════════
           //  OFFLINE: Save locally — sync engine will push when online
           // ═══════════════════════════════════════════════════════════════
-          const saveRes = await axios.post(`/api/v1/mobile/patients/${props.patient.uuid}/notes`, {
+          const saveRes = await axios.post(apiUrl(`/api/v1/mobile/patients/${props.patient.uuid}/notes`), {
             content: notes.value,
             category: props.categorySlug,
           })
