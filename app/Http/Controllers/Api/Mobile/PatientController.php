@@ -234,7 +234,19 @@ class PatientController extends Controller
             'code' => 'nullable|string|max:255',
         ]);
 
-        $patient->update($validated);
+        // ═══ SYNC-004 FIX: Mark patient as pending_update on SQLite ═══════
+        // On the embedded Laravel (SQLite), updates must be marked as
+        // pending_update so the sync engine uploads them to the production
+        // server. Without this, the update stays local and the server
+        // overwrites it on the next sync cycle (data loss).
+        if (config('database.default') === 'sqlite') {
+            $patient->update(array_merge($validated, [
+                'sync_status' => 'pending_update',
+                'client_updated_at' => now(),
+            ]));
+        } else {
+            $patient->update($validated);
+        }
 
         $this->logger->log('patient_updated', 'Patient', $patient->uuid, [
             'patient_name' => $patient->name,
@@ -248,7 +260,27 @@ class PatientController extends Controller
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('delete', $patient);
 
-        $patient->delete();
+        // ═══ SYNC-002 FIX: Mark as pending_delete on SQLite ═══════════════
+        // On the embedded Laravel (SQLite), we must NOT soft-delete the
+        // patient immediately. Instead, we mark it as pending_delete so
+        // the sync engine can:
+        //   1. Upload the delete to the production server
+        //   2. THEN force-delete the local record
+        //
+        // Previously, calling $patient->delete() here set deleted_at but
+        // left sync_status unchanged. The sync engine never picked it up
+        // because it queries by sync_status='pending_delete'.
+        //
+        // On the production MySQL (non-SQLite), we use soft-delete as
+        // before because the website UI uses trashed() queries.
+        if (config('database.default') === 'sqlite') {
+            $patient->update([
+                'sync_status' => 'pending_delete',
+                'client_updated_at' => now(),
+            ]);
+        } else {
+            $patient->delete();
+        }
 
         $this->logger->log('patient_deleted', 'Patient', $patient->uuid, [
             'patient_name' => $patient->name,

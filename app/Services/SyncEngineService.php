@@ -514,16 +514,37 @@ class SyncEngineService
     {
         $deletedCount = 0;
 
+        // ═══ SYNC-002 FIX: Query both soft-deleted AND non-soft-deleted ═══
+        // On SQLite, PatientController::destroy() marks patients as
+        // pending_delete WITHOUT soft-deleting them (because the sync engine
+        // needs to find them to process the delete). On MySQL, patients are
+        // soft-deleted normally. We query BOTH to handle both cases:
+        //   1. Soft-deleted patients (MySQL path) — use withTrashed()
+        //   2. Non-soft-deleted patients with pending_delete (SQLite path)
         $pendingDeletes = \App\Domains\Patients\Models\Patient::withTrashed()
             ->where('sync_status', 'pending_delete')
-            ->get();
+            ->get()
+            ->merge(
+                \App\Domains\Patients\Models\Patient::where('sync_status', 'pending_delete')
+                    ->whereNull('deleted_at')
+                    ->get()
+            )
+            ->unique('uuid');
 
         foreach ($pendingDeletes as $patient) {
             try {
                 $this->patientRepo->deleteOnRemote($patient->uuid);
 
-                // Remove from local SQLite entirely (force delete)
-                $patient->forceDelete();
+                // Remove from local SQLite entirely
+                // On SQLite (non-trashed): use delete() since forceDelete()
+                // is designed for trashed models and may behave unexpectedly
+                // on non-trashed records.
+                // On MySQL (trashed): use forceDelete() as before.
+                if ($patient->trashed()) {
+                    $patient->forceDelete();
+                } else {
+                    $patient->delete();
+                }
 
                 $deletedCount++;
 
@@ -553,8 +574,14 @@ class SyncEngineService
     {
         $results = ['uploaded' => 0, 'deleted' => 0, 'failed' => 0];
 
-        // ── Step 1: Sync pending_create notes ───────────────────────────
-        $pendingNotes = \App\Domains\Patients\Models\PatientNote::where('sync_status', 'pending_create')
+        // ═══ SYNC-007 FIX: Bypass DoctorIsolationScope ═══════════════════
+        // The DoctorIsolationScope filters notes by primary_doctor_id.
+        // Sync engine must see ALL pending notes regardless of doctor.
+        // Same pattern used in EloquentPatientNoteRepository::forPatient().
+        $pendingNotes = \App\Domains\Patients\Models\PatientNote::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where('sync_status', 'pending_create')
             ->with('patient')
             ->orderBy('created_at', 'asc')
             ->take(200)
@@ -608,8 +635,81 @@ class SyncEngineService
             }
         }
 
+        // ═══ SYNC-006 FIX: Add pending_update handling ═══════════════════
+        // Notes with sync_status = 'pending_update' need to be uploaded
+        // to the production server via PUT (not POST like pending_create).
+        $pendingUpdateNotes = \App\Domains\Patients\Models\PatientNote::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where('sync_status', 'pending_update')
+            ->with('patient')
+            ->orderBy('created_at', 'asc')
+            ->take(200)
+            ->get();
+
+        foreach ($pendingUpdateNotes as $note) {
+            $patient = $note->patient;
+            if (!$patient || ($patient->sync_status ?? 'synced') !== 'synced') {
+                continue;
+            }
+
+            try {
+                // If the note has never been synced (no remote_uuid),
+                // we cannot PUT to the production server because the note
+                // doesn't exist there yet. Convert to pending_create instead.
+                if (empty($note->remote_uuid)) {
+                    \App\Domains\Patients\Models\PatientNote::where('uuid', $note->uuid)
+                        ->update([
+                            'sync_status' => 'pending_create',
+                            'updated_at'  => now(),
+                        ]);
+                    Log::info('[SyncEngine] Note has no remote_uuid, converted pending_update to pending_create', [
+                        'note_uuid' => $note->uuid,
+                    ]);
+                    continue;
+                }
+
+                $remoteUuid = $note->remote_uuid;
+                $response = $this->api->put(
+                    "/patients/{$patient->uuid}/notes/{$remoteUuid}",
+                    [
+                        'content' => $note->content,
+                    ]
+                );
+
+                \App\Domains\Patients\Models\PatientNote::where('uuid', $note->uuid)
+                    ->update([
+                        'sync_status' => 'synced',
+                        'updated_at'  => now(),
+                    ]);
+
+                $results['uploaded']++;
+
+                Log::info('[SyncEngine] Note update synced successfully', [
+                    'local_uuid'  => $note->uuid,
+                    'remote_uuid' => $remoteUuid,
+                    'patient'     => $patient->uuid,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('[SyncEngine] Note update sync failed: ' . $e->getMessage(), [
+                    'note_uuid' => $note->uuid,
+                    'patient'   => $patient?->uuid,
+                ]);
+                \App\Domains\Patients\Models\PatientNote::where('uuid', $note->uuid)
+                    ->update([
+                        'error_message' => $e->getMessage(),
+                        'updated_at'    => now(),
+                    ]);
+                $results['failed']++;
+            }
+        }
+
         // ── Step 2: Sync pending_delete notes ───────────────────────────
-        $deleteNotes = \App\Domains\Patients\Models\PatientNote::where('sync_status', 'pending_delete')
+        // ═══ SYNC-007 FIX: Bypass DoctorIsolationScope ═══════════════════
+        $deleteNotes = \App\Domains\Patients\Models\PatientNote::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where('sync_status', 'pending_delete')
             ->with('patient')
             ->orderBy('created_at', 'asc')
             ->take(200)

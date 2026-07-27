@@ -617,20 +617,14 @@ async function refreshPatientList(page = 1) {
         }
 
         // ═══════════════════════════════════════════════════════════════
-        //  STEP 1: Upload pending local patients to server
+        //  STEP 1: REMOVED — Competing sync mechanism eliminated
         // ═══════════════════════════════════════════════════════════════
-        // The phone's embedded Laravel has pending patients in local SQLite
-        // (sync_status = pending_create / pending_update). They must be
-        // uploaded to the production server BEFORE we fetch the patient list.
-        // Without this step, the server doesn't know about them and returns
-        // an incomplete list, causing pending patients to disappear.
-        try {
-            console.log('[INSTRUMENT] refreshPatientList STEP 1: POST /_native/api/sync/patients starting...');
-            const syncRes = await axios.post('/_native/api/sync/patients', {}, { timeout: 15000 });
-            console.log('[INSTRUMENT] refreshPatientList STEP 1 COMPLETE:', syncRes.data);
-        } catch (syncErr) {
-            console.log('[INSTRUMENT] refreshPatientList STEP 1 FAILED:', syncErr.message, syncErr.response?.data || '');
-        }
+        // SYNC-005: The old POST /_native/api/sync/patients endpoint was
+        // a competing sync path that raced with SyncEngineService::syncAll().
+        // Sync is now handled exclusively by the SyncEngineService (via
+        // triggerSync() in useSyncEngine.js). This eliminates race conditions
+        // and ensures a single, ordered sync pipeline (patients → files → notes).
+        console.log('[INSTRUMENT] refreshPatientList STEP 1: Skipped (sync handled by SyncEngineService)');
 
         // ═══════════════════════════════════════════════════════════════
         //  STEP 1b: Refresh category cache from production API

@@ -140,7 +140,19 @@ class NoteController extends Controller
             'content' => 'required|string',
         ]);
 
-        $note->update($validated);
+        // ═══ SYNC-006 FIX: Mark note as pending_update on SQLite ═══════════
+        // Without this, the note update stays local and the sync engine
+        // never uploads it to the production server.
+        // NOTE: patient_notes table does NOT have client_updated_at column,
+        // so we only set sync_status here.
+        if (config('database.default') === 'sqlite') {
+            $note->update(array_merge($validated, [
+                'sync_status' => 'pending_update',
+            ]));
+        } else {
+            $note->update($validated);
+        }
+
         $note->load('author:id,name,email');
 
         return response()->json($note);
@@ -174,7 +186,23 @@ class NoteController extends Controller
             Gate::authorize('update', $note->patient);
         }
 
-        $note->delete();
+        // ═══ SYNC-006 FIX: Mark note as pending_delete on SQLite ═══════════
+        // Without this, the note delete stays local (soft-deleted) and
+        // the sync engine never removes it from the production server.
+        //
+        // On SQLite: Mark as pending_delete but do NOT soft-delete.
+        // The sync engine queries PatientNote::where('sync_status', 'pending_delete')
+        // WITHOUT withTrashed(), so soft-deleted notes would be invisible.
+        // After successful remote delete, the sync engine calls forceDelete().
+        //
+        // On MySQL: Use normal soft-delete as before.
+        if (config('database.default') === 'sqlite') {
+            $note->update([
+                'sync_status' => 'pending_delete',
+            ]);
+        } else {
+            $note->delete();
+        }
 
         return response()->json(['message' => 'Note deleted successfully']);
     }
