@@ -27,34 +27,28 @@ Route::prefix('v1')->group(function () {
     });
 
     // Category files endpoint — conditional auth (same pattern as mobile routes below)
-    // On SQLite (embedded Laravel / offline), auth is skipped entirely.
-    // On MySQL (production server), accept BOTH:
-    //   - Sanctum Bearer token (used by mobile sync engine / ApiService)
-    //   - Web session auth  (used by the website when it calls /mobile/ routes)
-    // Uses inline config() check — more reliable than env('NATIVEPHP_APP_ID').
+    // On SQLite (embedded Laravel / offline), auth:sanctum is skipped.
+    // On MySQL (production server), auth:sanctum is enforced.
+    // Uses inline config() check instead of $isEmbeddedLaravel variable because
+    // that variable is defined later in this file (in the mobile routes section).
     Route::get('/patients/{patientUuid}/categories/{slug}/files', [CategoryFileController::class, 'files'])
-        ->middleware(config('database.default') === 'sqlite' ? [] : ['auth:sanctum,web']);
+        ->middleware(config('database.default') === 'sqlite' ? [] : ['auth:sanctum']);
 
     // ── Mobile API ────────────────────────────────────────────────────
-    // On the PRODUCTION server, these routes require authentication via
-    // EITHER a Sanctum Bearer token (mobile sync engine) OR a web session
-    // cookie (website). The middleware string 'auth:sanctum,web' tries
-    // Sanctum first, then falls back to the web session guard.
+    // On the PRODUCTION server, these routes require auth:sanctum (Bearer token).
+    // On the Embedded Laravel (NativePHP), NO authentication is applied — the
+    // local application is a single-user device that doesn't need token auth.
+    // ApiService manages the production API token for SyncEngine requests.
     //
-    // On the Embedded Laravel (NativePHP / SQLite), NO authentication is
-    // applied — the local application is a single-user device that doesn't
-    // need token or session auth. ApiService manages the production API
-    // token for SyncEngine requests to the production server.
-    //
-    // 🔐 ROBUST DETECTION: We detect embedded Laravel by checking the
+    // 🔐 ROBUST AUTH CHECK: We detect embedded Laravel by checking the
     // database driver. SQLite = embedded (no auth), MySQL = production (auth).
     // This is more reliable than env('NATIVEPHP_APP_ID') which can be
     // accidentally set on the production server (breaking all mobile auth).
+    // When config is cached, config() is used — env() would be null.
     $isEmbeddedLaravel = config('database.default') === 'sqlite';
     $mobileMiddleware = [];
     if (!$isEmbeddedLaravel) {
-        // On production: accept Sanctum token OR web session
-        $mobileMiddleware[] = 'auth:sanctum,web';
+        $mobileMiddleware[] = 'auth:sanctum';
     }
 
     Route::prefix('mobile')->middleware($mobileMiddleware)->group(function () {

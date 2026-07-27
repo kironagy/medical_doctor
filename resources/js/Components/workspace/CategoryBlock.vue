@@ -1107,7 +1107,7 @@ async function submitVisit() {
         category: props.slug,
       }, getApiConfig())
     if (online) {
-      axios.post('/_native/api/sync').catch(() => {})
+      axios.post('/_native/api/sync/engine').catch(() => {})
     }
     showCategoryMenu.value = false
     showVisitModal.value = false
@@ -1213,7 +1213,7 @@ async function deleteNoteDirectly(note) {
   try {
     await axios.delete(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`), getApiConfig())
     if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
-      axios.post('/_native/api/sync').catch(() => {})
+      axios.post('/_native/api/sync/engine').catch(() => {})
     }
     refreshWorkspaceData()
     toast.success('تم حذف الملاحظة بنجاح')

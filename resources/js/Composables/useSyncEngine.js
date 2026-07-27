@@ -227,10 +227,19 @@ async function runHeartbeat() {
         return
     }
 
-    // ── No state change — just update summary ─────────────────────────
+    // ── No state change — update summary and sync if pending ───────────
     isOnline.value = currentState
     if (currentState) {
         await refreshPendingSummary()
+        // ── Self-healing: trigger sync if pending operations exist ──────
+        // This covers the case where a direct sync trigger (e.g. after note
+        // creation) failed or the sync didn't complete. The heartbeat acts
+        // as a retry mechanism every 30 seconds until all pending ops are
+        // processed. onlineSyncGuard prevents concurrent sync triggers.
+        if (pendingSummary.value.total > 0 && !isSyncing.value) {
+            console.log('[SyncEngine] 💓 Heartbeat: pending=' + pendingSummary.value.total + ' — triggering sync')
+            await attemptSync('heartbeat:pending')
+        }
     }
 }
 

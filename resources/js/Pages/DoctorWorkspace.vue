@@ -759,7 +759,7 @@ async function deleteNote(note) {
     await axios.delete(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`), getApiConfig())
     
     if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
-      axios.post('/_native/api/sync').catch(() => {})
+      axios.post('/_native/api/sync/engine').catch(() => {})
     }
     refreshWorkspaceData()
     toast.success(t('common.success'))
@@ -777,7 +777,7 @@ async function submitNoteForm() {
 				content: noteFormContent.value,
 			}, getApiConfig())
 			let updatedNote = res.data
-			axios.post('/_native/api/sync').catch(() => {})
+			axios.post('/_native/api/sync/engine').catch(() => {})
 			if (updatedNote?.uuid) addNoteLocally(updatedNote)
 			toast.success(t('workspace.note_updated'))
 		} else {
@@ -786,7 +786,7 @@ async function submitNoteForm() {
 			}, getApiConfig())
 			let createdNote = res.data
 			
-			axios.post('/_native/api/sync').catch(() => {})
+			axios.post('/_native/api/sync/engine').catch(() => {})
 			// ── Insert note into workspaceData IMMEDIATELY ──────────────
 			// The note is saved in local SQLite with sync_status = 'pending_create'.
 			// refreshWorkspaceData() fetches from the production server which
