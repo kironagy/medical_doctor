@@ -346,7 +346,24 @@ class SyncEngineService
                         ->update(['patient_uuid' => $remoteUuid]);
                 } else {
                     // UUID matches — standard sync
-                    $this->patientRepo->syncSingleToLocal($apiData, force: true);
+                    // ═══ CRITICAL FIX: Mark as synced IMMEDIATELY after API call ═══
+                    // Previously, syncSingleToLocal was the ONLY path to 'synced'.
+                    // If it failed (e.g. DoctorIsolationScope, column mismatch),
+                    // the catch block reverted to 'pending_create', causing an
+                    // infinite loop of duplicate POST requests.
+                    \Illuminate\Support\Facades\DB::table('patients')
+                        ->where('uuid', $localUuid)
+                        ->where('sync_status', 'syncing')
+                        ->update([
+                            'sync_status' => 'synced',
+                            'updated_at'  => now(),
+                        ]);
+                    // Now sync local data (best-effort — status is already synced)
+                    try {
+                        $this->patientRepo->syncSingleToLocal($apiData, force: true);
+                    } catch (\Throwable $e) {
+                        Log::warning('[SyncEngine] syncSingleToLocal failed (non-fatal, status already synced): ' . $e->getMessage());
+                    }
                 }
 
                     $syncedCount++;
@@ -354,7 +371,7 @@ class SyncEngineService
                     Log::info('[SyncEngine] Synced pending patient', [
                         'local_uuid'  => $localUuid,
                         'remote_uuid' => $remoteUuid,
-                        'status'      => $patient->sync_status,
+                        'status'      => 'synced',
                     ]);
                 } catch (\Throwable $e) {
                     // ── Phase 3b: Failure — revert to pending_create ──────

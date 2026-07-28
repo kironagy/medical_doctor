@@ -42,6 +42,9 @@ trait MakesApiRequests
         }
         
         $tokenPrefix = $token ? substr($token, 0, 20) . '...' : 'NONE';
+        $tokenHash = $token ? md5($token) : 'NONE';
+        $sanctumTokenId = $token ? (explode('|', $token, 2)[0] ?? null) : null;
+        $sessionEncryptedToken = session('api_token') ? 'YES' : 'NO';
         
         Log::info('[ApiAuth] Token status for ' . $method . ' ' . $path, [
             'request_id' => $requestId,
@@ -81,23 +84,21 @@ trait MakesApiRequests
             'status' => $response->status(),
             'time_ms' => round($timeMs, 1),
             'token_was_sent' => $token ? 'YES' : 'NO',
-            'token_prefix' => $rawTokenPrefix,
+            'token_prefix' => $tokenPrefix,
             'token_hash' => $tokenHash,
             'response_message' => $responseMessage,
-            'response_body' => $responseBody,
         ]);
 
         if ($response->unauthorized()) {
             Log::warning('[ApiAuth] ❌ 401 UNAUTHORIZED for ' . $method . ' ' . $path, [
                 'request_id' => $requestId,
                 'token_was_sent' => $token ? 'YES' : 'NO',
-                'token_prefix' => $rawTokenPrefix,
+                'token_prefix' => $tokenPrefix,
                 'token_hash' => $tokenHash,
                 'sanctum_token_id' => $sanctumTokenId,
                 'response_body' => $responseBody,
                 'response_status' => $response->status(),
-                'response_headers' => $response->headers(),
-                'session_has_api_token' => $sessionEncryptedToken ? 'YES' : 'NO',
+                'session_has_api_token' => $sessionEncryptedToken,
                 'auth_check' => auth()->check() ? 'YES' : 'NO',
                 'auth_user_id' => auth()->id(),
                 'session_id' => session()->getId(),
