@@ -175,10 +175,16 @@ was replaced → note disappeared.
 - The `select([...])` didn't include `file_path`, `thumbnail_path`, `type`, `upload_status`, `sync_status` — so `url`/`thumbnail_url` appended attributes couldn't be built correctly after workspace refresh.
 - **Fix:** Added the missing columns to the `select` list.
 
+**Bug 6 (Critical Crash): SQLSTATE NOT NULL constraint violation on chunk init**
+- The `UploadsController->resolvePatient()` method was still using `first_name` and `last_name` to create patients, but the `patients` table schema was recently updated to only use a single `name` column.
+- This caused a fatal `SQLSTATE[23000]: Integrity constraint violation: 19 NOT NULL constraint failed: patients.name` when uploading on a fresh mobile install.
+- **Fix:** Updated `resolvePatient` in `UploadsController` to correctly map `first_name` and `last_name` to the new `name` column, exactly as was done previously in the `NoteController`.
+
 ### Files Modified
 - `resources/js/Composables/useUploads.js` — Build local URL instead of using server response URL
 - `app/Domains/Media/Models/PatientFile.php` — SQLite-aware `getUrlAttribute` / `getThumbnailUrlAttribute`
 - `app/Http/Controllers/Api/FileAccessController.php` — `streamCached` streams from disk directly for local files
 - `routes/web.php` — Added missing `_native/cache/files/{uuid}/thumbnail` route
 - `app/Repositories/Eloquent/EloquentPatientFileRepository.php` — Added missing columns to partial select
+- `app/Http/Controllers/Api/UploadsController.php` — Fixed `resolvePatient` column mapping to prevent SQLSTATE crashes
 

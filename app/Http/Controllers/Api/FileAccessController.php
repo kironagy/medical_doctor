@@ -420,14 +420,8 @@ class FileAccessController extends Controller
             // The cache repo only knows about files explicitly downloaded/cached;
             // newly uploaded files live in Storage::disk('local') directly.
             if ($file->file_path && Storage::disk('local')->exists($file->file_path)) {
-                $absolutePath = Storage::disk('local')->path($file->file_path);
-                $headers = $this->commonHeaders($file);
-
-                if ($request->isMethod('HEAD')) {
-                    $headers['Content-Length'] = (string) filesize($absolutePath);
-                    return new StreamedResponse(function () {}, 200, $headers);
-                }
-
+                // File is on local disk (freshly uploaded via chunk) — stream directly.
+                // streamDirect handles both GET and HEAD requests with proper headers.
                 return $this->streamDirect($request, $uuid);
             }
 

@@ -267,9 +267,11 @@ class UploadsController extends Controller
 
             if ($apiPatient) {
                 $clean = collect($apiPatient)->only([
-                    'uuid', 'first_name', 'last_name', 'date_of_birth',
+                    'uuid', 'date_of_birth',
                     'gender', 'phone', 'email', 'address', 'notes',
                 ])->toArray();
+                
+                $clean['name'] = trim(($apiPatient['first_name'] ?? '') . ' ' . ($apiPatient['last_name'] ?? ''));
 
                 Patient::unguard();
                 $patient = Patient::updateOrCreate(['uuid' => $apiPatient['uuid']], $clean);
@@ -292,8 +294,7 @@ class UploadsController extends Controller
             [
                 'uuid' => $patientId,
                 'sync_status' => 'pending_sync',
-                'first_name' => 'Patient',
-                'last_name' => $patientId,
+                'name' => 'Patient ' . $patientId,
             ]
         );
         Patient::reguard();
