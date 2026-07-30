@@ -126,3 +126,59 @@ was replaced → note disappeared.
   - `app/Services/Upload/ChunkMergeService.php`
 - **Problem:** When creating upload sessions offline in the NativePHP Android app, `$request->user()` is `null`. The code passed `0` as fallback `user_id` when creating an `UploadSession` or `PatientFile`. Because `upload_sessions` and `patient_files` have a foreign key constraint `user_id REFERENCES users(id)`, inserting `user_id = 0` (which does not exist in `users`) caused `SQLSTATE[23000]: Integrity constraint violation: 19 FOREIGN KEY constraint failed` on SQLite.
 - **Fix:** Replaced `$request->user()?->id ?? 0` with dynamic resolution: `$request->user()?->id ?? $patient->primary_doctor_id ?? $patient->created_by_id ?? \App\Models\User::value('id') ?? 1`. This ensures `upload_sessions` and `patient_files` always receive a valid foreign key referencing an existing user in the database.
+
+## 2026-07-31 — Workspace File Display & Local File Merge Fix
+
+### FIX: Show Newly Uploaded Photos & Videos Immediately in Workspace Categories
+- **File Modified:** `resources/js/Components/workspace/CategoryBlock.vue`
+- **Problem:** When uploading a photo or video in the app, the upload completed successfully, but the new file was completely hidden and invisible in the patient's category workspace. This occurred because `CategoryBlock.vue`'s computed properties `categoryFiles` and `filteredFilesRaw` returned ONLY `serverFiles.value` whenever `serverFiles.value` was non-empty, completely ignoring local files in `allFiles.value` (added via `addFileLocally`). Furthermore, `loadCategoryData()` did not merge local files into `serverFiles.value`, and `uploadJob` completion watch did not reload the category data.
+- **Fix:**
+  1. Updated `categoryFiles` in `CategoryBlock.vue` to merge local files from `allFiles.value` with `serverFiles.value` so newly uploaded files display instantly without waiting for production sync.
+  2. Updated `loadCategoryData()` to merge `workspaceLocalFiles` into `serverFiles.value` upon load.
+  3. Updated `uploadJob` completion handlers in `handleNativeFileResult` and `handleFiles` to reload category data (`loadCategoryData()`) once upload status becomes `'completed'`.
+  4. Updated `handleFiles` to use `selectedPatient.value?.uuid || selectedPatient.value?.id`.
+
+## 2026-07-31 — Fatal PHP Missing Autoload File on Android Fix
+
+### FIX: Add `symfony/deprecation-contracts` directly to `composer.json` `require` section
+- **File Modified:** `composer.json`
+- **Problem:** Logcat revealed the root cause of all silent PHP 500 failures on Android:
+  ```
+  Fatal error: Uncaught Error: Failed opening required '/data/data/com.medicalplus.app/app_storage/laravel/vendor/composer/../symfony/deprecation-contracts/function.php'
+  ```
+  During NativePHP production bundle creation (`native:build`), `composer install --no-dev` was run, stripping dev packages (like `nunomaduro/collision`). Because `symfony/deprecation-contracts` was only listed as a sub-dependency of `collision` in `require-dev`, `composer --no-dev` removed `vendor/symfony/deprecation-contracts/function.php`. However, `vendor/composer/autoload_files.php` still attempted to `require` it on every boot, causing EVERY local PHP request (`/_native/api/sync/engine`, `/_native/api/sync/pending-summary`, `/api/v1/chunk/init`, etc.) to crash instantly with a Fatal Uncaught Error.
+- **Fix:** Added `"symfony/deprecation-contracts": "^3.0"` directly into the `"require"` section of `composer.json` and ran `composer dump-autoload`. This guarantees `symfony/deprecation-contracts/function.php` is permanently present in `vendor/` during production `--no-dev` packaging.
+
+## 2026-07-31 — Fix: Uploaded files (images + videos) not appearing after upload in Mobile App
+
+### Root Cause Analysis — 5 interconnected bugs
+
+**Bug 1 (Critical): Wrong `url` after chunk upload**
+- In `useUploads.js`, after `POST /api/v1/chunk/complete`, we used `completeRes.data.url` — which was the production URL (`https://prof-hosam-fekry.online/api/v1/files/{uuid}`) returned by `PatientFile::getUrlAttribute()`.
+- The file is stored **locally on the device**, not on production. So the production URL returned 404.
+- **Fix:** Built local streaming URL (`/_native/cache/files/{uuid}`) directly in JS instead of using the server response URL. Applied to both `startUpload()` and `executeRetry()`.
+
+**Bug 2 (Critical): `PatientFile::getUrlAttribute()` always used `app.url` (production)**
+- After workspace refresh, the `url`/`thumbnail_url` for all files came from the `PatientFile` Eloquent `$appends`, which always built production URLs.
+- **Fix:** Added `config('database.default') === 'sqlite'` check in `PatientFile::getUrlAttribute()` and `getThumbnailUrlAttribute()` to return `/_native/cache/files/{uuid}` on mobile and production URLs on web.
+
+**Bug 3 (Critical): `streamCached` routed all PatientFile stream requests through cache table**
+- `/_native/cache/files/{uuid}` called `FileCacheRepository::stream()` which only looks in the local cache SQLite table, not `Storage::disk('local')`.
+- Freshly uploaded files (via chunk) are in `Storage::disk('local')`, not in the cache table → 404.
+- **Fix:** In `FileAccessController::streamCached()`, first check if `file_path` exists on `Storage::disk('local')` and stream directly; only fall through to cache repo if file is not on disk.
+
+**Bug 4: Missing `/_native/cache/files/{uuid}/thumbnail` route**
+- `thumbnail_url` now points to `/_native/cache/files/{uuid}/thumbnail` but this route didn't exist in the `_native/cache` route group.
+- **Fix:** Added `Route::get('/files/{uuid}/thumbnail', ...)` to the `_native/cache` route group in `web.php`.
+
+**Bug 5: `EloquentPatientFileRepository::forPatient()` partial `select` stripped required columns**
+- The `select([...])` didn't include `file_path`, `thumbnail_path`, `type`, `upload_status`, `sync_status` — so `url`/`thumbnail_url` appended attributes couldn't be built correctly after workspace refresh.
+- **Fix:** Added the missing columns to the `select` list.
+
+### Files Modified
+- `resources/js/Composables/useUploads.js` — Build local URL instead of using server response URL
+- `app/Domains/Media/Models/PatientFile.php` — SQLite-aware `getUrlAttribute` / `getThumbnailUrlAttribute`
+- `app/Http/Controllers/Api/FileAccessController.php` — `streamCached` streams from disk directly for local files
+- `routes/web.php` — Added missing `_native/cache/files/{uuid}/thumbnail` route
+- `app/Repositories/Eloquent/EloquentPatientFileRepository.php` — Added missing columns to partial select
+

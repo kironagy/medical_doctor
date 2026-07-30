@@ -335,11 +335,13 @@ Route::prefix('_native/cache')->name('cache.')->withoutMiddleware([
     \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
 ])->group(function () {
     Route::get('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'streamCached'])->name('files.stream');
+    Route::get('/files/{uuid}/thumbnail', [\App\Http\Controllers\Api\FileAccessController::class, 'thumbnailDirect'])->name('files.thumbnail'); // FIX: was missing
     Route::get('/files/{uuid}/status', [\App\Http\Controllers\Api\FileAccessController::class, 'cacheStatus'])->name('files.status');
     Route::post('/files/{uuid}/cache', [\App\Http\Controllers\Api\FileAccessController::class, 'cacheFile'])->name('files.cache');
     Route::delete('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'removeCached'])->name('files.remove');
     Route::delete('/patient/{patientUuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'removePatientCached'])->name('patient.remove');
 });
+
 
 // ── Phase 8 — Offline Notes (OUTSIDE auth middleware) ─────────────
 // Same pattern as offline uploads — controller-level auth.

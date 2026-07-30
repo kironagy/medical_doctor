@@ -28,12 +28,31 @@ class PatientFile extends Model
 
     public function getUrlAttribute()
     {
+        // On embedded Laravel (SQLite / NativePHP Mobile App), files are stored
+        // locally on the device. Use the local streaming endpoint so the mobile
+        // app can access the file without going to the production server.
+        if (config('database.default') === 'sqlite') {
+            return '/_native/cache/files/' . $this->uuid;
+        }
         $baseUrl = rtrim(config('app.url'), '/');
         return $baseUrl . '/api/v1/files/' . $this->uuid;
     }
 
     public function getThumbnailUrlAttribute()
     {
+        // On embedded Laravel (SQLite / NativePHP Mobile App), use local endpoint
+        if (config('database.default') === 'sqlite') {
+            if ($this->thumbnail_path) {
+                return '/_native/cache/files/' . $this->uuid . '/thumbnail';
+            }
+            if ($this->mime_type && str_starts_with($this->mime_type, 'image/')) {
+                return '/_native/cache/files/' . $this->uuid;
+            }
+            if ($this->mime_type && str_starts_with($this->mime_type, 'video/')) {
+                return '/_native/cache/files/' . $this->uuid . '/thumbnail';
+            }
+            return null;
+        }
         $baseUrl = rtrim(config('app.url'), '/');
         if ($this->thumbnail_path) {
             return $baseUrl . '/api/v1/files/' . $this->uuid . '/thumbnail';

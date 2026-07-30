@@ -14,11 +14,14 @@ class EloquentPatientFileRepository implements PatientFileRepositoryInterface
         return $patient->files()
             ->latest()
             ->select([
-                'id', 'uuid', 'patient_id', 'title', 'file_name', 'mime_type', 
-                'size', 'category', 'date', 'created_at', 'updated_at', 'desc', 'notes', 'tags'
+                'id', 'uuid', 'patient_id', 'title', 'file_name', 'mime_type',
+                'size', 'category', 'date', 'created_at', 'updated_at', 'desc',
+                'notes', 'tags',
+                // FIX: Include columns required to compute url/thumbnail_url appended attributes
+                'file_path', 'thumbnail_path', 'type', 'upload_status', 'sync_status',
             ])
             ->get()
-            ->toArray();
+            ->toArray(); // toArray() triggers $appends (url, thumbnail_url, name, extension)
     }
 
     public function find(string $uuid): ?array

@@ -499,26 +499,35 @@ async function loadCategoryData(page = 1) {
 
     if (response.status !== 'fulfilled') throw response.reason
 
-    serverFiles.value = response.value.data.data
+    const freshServerFiles = response.value.data.data || []
+    const freshFileUuids = new Set(freshServerFiles.map(f => f.uuid))
+    const workspaceLocalFiles = (allFiles.value || []).filter(
+      f => f.category === props.slug && !freshFileUuids.has(f.uuid)
+    )
+    serverFiles.value = workspaceLocalFiles.length > 0
+      ? [...workspaceLocalFiles, ...freshServerFiles]
+      : freshServerFiles
+
+    initialLoadDone.value = true
 
     // ── Merge server notes with local pending notes ─────────────────────
     // Production doesn't have notes created offline (pending_create).
     // Fetch them directly from local SQLite and merge so they appear immediately.
     const freshServerNotes = response.value.data.notes || []
-    const freshServerUuids = new Set(freshServerNotes.map(n => n.uuid))
+    const freshNoteUuids = new Set(freshServerNotes.map(n => n.uuid))
 
     // Local pending notes from SQLite (offline endpoint)
     let pendingLocalNotes = []
     if (offlineRes.status === 'fulfilled') {
       const allPending = offlineRes.value.data?.data || []
       pendingLocalNotes = allPending.filter(
-        n => n.category === props.slug && !freshServerUuids.has(n.uuid)
+        n => n.category === props.slug && !freshNoteUuids.has(n.uuid)
       )
     }
 
     // Also check workspaceData for any notes added via addNoteLocally()
     const workspaceLocalNotes = (allNotes.value || []).filter(
-      n => n.category === props.slug && !freshServerUuids.has(n.uuid)
+      n => n.category === props.slug && !freshNoteUuids.has(n.uuid)
     )
 
     // Combine: prefer workspaceData notes (richer data), fallback to offline SQLite notes
@@ -565,11 +574,13 @@ async function loadMoreForPreview(currentPageForPreview) {
 }
 
 const categoryFiles = computed(() => {
-  // Use server-loaded files if available, otherwise fall back to allFiles
+  const localFiles = (allFiles.value || []).filter(f => f.category === props.slug)
   if (initialLoadDone.value && serverFiles.value.length > 0) {
-    return serverFiles.value
+    const serverUuids = new Set(serverFiles.value.map(f => f.uuid))
+    const newLocalFiles = localFiles.filter(f => f && f.uuid && !serverUuids.has(f.uuid))
+    return newLocalFiles.length > 0 ? [...newLocalFiles, ...serverFiles.value] : serverFiles.value
   }
-  return allFiles.value.filter(f => f.category === props.slug)
+  return localFiles
 })
 const categoryNotes = computed(() => {
 	const allNotesList = allNotes.value || []
@@ -588,11 +599,6 @@ const categoryNotes = computed(() => {
 })
 
 const filteredFilesRaw = computed(() => {
-  // If we have server files, we don't need to filter client-side
-  if (initialLoadDone.value && serverFiles.value.length > 0) {
-    return serverFiles.value
-  }
-
   let result = [...categoryFiles.value]
 
   // Search
@@ -1036,13 +1042,16 @@ async function handleNativeFileResult(fileData) {
   }
 
   const uploadJob = uploadFile(file, patientId, { category: props.slug })
-  const unwatch = watch(() => uploadJob.status, (status) => {
-    if (status === 'completed') {
-      unwatch()
-    } else if (status === 'failed' || status === 'cancelled') {
-      unwatch()
-    }
-  })
+  if (uploadJob) {
+    const unwatch = watch(() => uploadJob.status, (status) => {
+      if (status === 'completed') {
+        unwatch()
+        loadCategoryData(currentPage.value)
+      } else if (status === 'failed' || status === 'cancelled') {
+        unwatch()
+      }
+    })
+  }
 }
 
 async function captureCamera() {
@@ -1105,10 +1114,20 @@ function handleDrop(e) {
 }
 
 function handleFiles(selectedFiles) {
-  const patientId = selectedPatient.value?.id
+  const patientId = selectedPatient.value?.uuid || selectedPatient.value?.id
   if (!patientId) return
   for (const file of selectedFiles) {
-    uploadFile(file, patientId, { category: props.slug })
+    const uploadJob = uploadFile(file, patientId, { category: props.slug })
+    if (uploadJob) {
+      const unwatch = watch(() => uploadJob.status, (status) => {
+        if (status === 'completed') {
+          unwatch()
+          loadCategoryData(currentPage.value)
+        } else if (status === 'failed' || status === 'cancelled') {
+          unwatch()
+        }
+      })
+    }
   }
 }
 

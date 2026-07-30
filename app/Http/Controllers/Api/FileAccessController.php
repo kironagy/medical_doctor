@@ -414,6 +414,24 @@ class FileAccessController extends Controller
         $file = PatientFile::where('uuid', $uuid)->first();
         if ($file) {
             Gate::authorize('view', $file->patient);
+
+            // FIX: If the file exists on local disk (e.g. freshly uploaded via chunk),
+            // stream it directly without going through the cache layer.
+            // The cache repo only knows about files explicitly downloaded/cached;
+            // newly uploaded files live in Storage::disk('local') directly.
+            if ($file->file_path && Storage::disk('local')->exists($file->file_path)) {
+                $absolutePath = Storage::disk('local')->path($file->file_path);
+                $headers = $this->commonHeaders($file);
+
+                if ($request->isMethod('HEAD')) {
+                    $headers['Content-Length'] = (string) filesize($absolutePath);
+                    return new StreamedResponse(function () {}, 200, $headers);
+                }
+
+                return $this->streamDirect($request, $uuid);
+            }
+
+            // File not on local disk — fall through to cache repo (downloads from remote)
             return $this->cacheRepo->stream(
                 $uuid,
                 $request->header('Range'),

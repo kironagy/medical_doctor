@@ -382,20 +382,33 @@ export function useUploads() {
                 });
                 d?.onMergeComplete();
                 if (completeRes?.data?.uuid) {
+                    const fileUuid = completeRes.data.uuid;
+                    const mimeType = job.file?.type || "application/octet-stream";
+                    // ── FIX: Build local streaming URL ────────────────────────
+                    // The server returns a URL built with app.url (production),
+                    // but the file is stored locally on the device. Using the
+                    // production URL causes a 404 since the file isn't on the
+                    // remote server yet. Use the local streaming endpoint instead.
+                    const localUrl = `/_native/cache/files/${fileUuid}`;
+                    const localThumbnailUrl = mimeType.startsWith('image/')
+                        ? localUrl
+                        : mimeType.startsWith('video/')
+                            ? `/_native/cache/files/${fileUuid}/thumbnail`
+                            : null;
                     addFileLocally({
-                        uuid:          completeRes.data.uuid,
+                        uuid:          fileUuid,
                         patient_id:    patientId,
                         title:         metadata.title || job.file?.name || "",
                         desc:          metadata.desc || "",
-                        category:      metadata.category || "",
+                        category:      metadata.category || null,
                         file_name:     job.file?.name || "",
-                        mime_type:     job.file?.type || "application/octet-stream",
+                        mime_type:     mimeType,
                         size:          job.file?.size || 0,
                         created_at:    new Date().toISOString(),
                         updated_at:    new Date().toISOString(),
                         upload_status: "ready",
-                        url:           completeRes.data.url,
-                        thumbnail_url: completeRes.data.thumbnail_url,
+                        url:           localUrl,
+                        thumbnail_url: localThumbnailUrl,
                         type:          completeRes.data.type,
                     });
                 }
@@ -671,20 +684,29 @@ export function useUploads() {
             });
             d?.onMergeComplete();
             if (completeRes?.data?.uuid) {
+                const fileUuid = completeRes.data.uuid;
+                const mimeType = job.file?.type || "application/octet-stream";
+                // ── FIX: Build local streaming URL (same fix as startUpload) ─
+                const localUrl = `/_native/cache/files/${fileUuid}`;
+                const localThumbnailUrl = mimeType.startsWith('image/')
+                    ? localUrl
+                    : mimeType.startsWith('video/')
+                        ? `/_native/cache/files/${fileUuid}/thumbnail`
+                        : null;
                 addFileLocally({
-                    uuid:          completeRes.data.uuid,
+                    uuid:          fileUuid,
                     patient_id:    job.patientId,
                     title:         job.metadata?.title || job.file?.name || "",
                     desc:          job.metadata?.desc || "",
-                    category:      job.metadata?.category || "",
+                    category:      job.metadata?.category || null,
                     file_name:     job.file?.name || "",
-                    mime_type:     job.file?.type || "application/octet-stream",
+                    mime_type:     mimeType,
                     size:          job.file?.size || 0,
                     created_at:    new Date().toISOString(),
                     updated_at:    new Date().toISOString(),
                     upload_status: "ready",
-                    url:           completeRes.data.url,
-                    thumbnail_url: completeRes.data.thumbnail_url,
+                    url:           localUrl,
+                    thumbnail_url: localThumbnailUrl,
                     type:          completeRes.data.type,
                 });
             }
