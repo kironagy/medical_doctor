@@ -80,8 +80,8 @@ class UploadsController extends Controller
                 'expires_at' => $session->expires_at->toIso8601String(),
             ])->header('X-Server-Time', round($duration, 2));
         } catch (\Throwable $e) {
-            Log::channel('upload')->error('upload:start_error', [
-                'error' => $e->getMessage(),
+            Log::error('CHUNK INIT ERROR: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
                 'data' => $data,
             ]);
             return response()->json([

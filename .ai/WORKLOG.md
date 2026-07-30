@@ -180,6 +180,11 @@ was replaced → note disappeared.
 - This caused a fatal `SQLSTATE[23000]: Integrity constraint violation: 19 NOT NULL constraint failed: patients.name` when uploading on a fresh mobile install.
 - **Fix:** Updated `resolvePatient` in `UploadsController` to correctly map `first_name` and `last_name` to the new `name` column, exactly as was done previously in the `NoteController`.
 
+**Bug 7 (Sync Failure): Background file sync fails with 422 Unprocessable Entity**
+- The `SyncEngineService` uses `ApiService::upload()` to sync offline files to the server.
+- The server's `FileController::store()` requires a `file` field, but it returned a `422` error.
+- **Fix:** The issue was caused by a hardcoded `'Content-Type' => 'application/json'` header in `ApiService::client()`. This overrode Guzzle's automatic `multipart/form-data` header when attaching files, causing the server to receive a malformed request body and fail validation. Removed the hardcoded header so Guzzle can set it dynamically.
+
 ### Files Modified
 - `resources/js/Composables/useUploads.js` — Build local URL instead of using server response URL
 - `app/Domains/Media/Models/PatientFile.php` — SQLite-aware `getUrlAttribute` / `getThumbnailUrlAttribute`
@@ -187,4 +192,5 @@ was replaced → note disappeared.
 - `routes/web.php` — Added missing `_native/cache/files/{uuid}/thumbnail` route
 - `app/Repositories/Eloquent/EloquentPatientFileRepository.php` — Added missing columns to partial select
 - `app/Http/Controllers/Api/UploadsController.php` — Fixed `resolvePatient` column mapping to prevent SQLSTATE crashes
+- `app/Services/Mobile/ApiService.php` — Removed hardcoded `Content-Type: application/json` to fix multipart file uploads
 

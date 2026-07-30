@@ -194,7 +194,6 @@ class ApiService
         $client = Http::timeout(30)
             ->withHeaders([
                 'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
             ]);
 
         if ($this->token) {
