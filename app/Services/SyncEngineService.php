@@ -691,9 +691,20 @@ class SyncEngineService
                     'uuid' => $patient->uuid,
                 ]);
             } catch (\Throwable $e) {
-                Log::warning('[SyncEngine] Failed to sync delete: ' . $e->getMessage(), [
-                    'uuid' => $patient->uuid,
-                ]);
+                if ($e->getCode() === 404 || str_contains($e->getMessage(), '404') || str_contains($e->getMessage(), 'Not Found')) {
+                    // Already deleted on server, or never existed. Delete locally.
+                    if ($patient->trashed()) {
+                        $patient->forceDelete();
+                    } else {
+                        $patient->delete();
+                    }
+                    $deletedCount++;
+                    Log::info('[SyncEngine] Assumed already deleted remotely (404)', ['uuid' => $patient->uuid]);
+                } else {
+                    Log::warning('[SyncEngine] Failed to sync delete: ' . $e->getMessage(), [
+                        'uuid' => $patient->uuid,
+                    ]);
+                }
             }
         }
 
@@ -767,6 +778,7 @@ class SyncEngineService
                 ]);
                 \App\Domains\Patients\Models\PatientNote::where('uuid', $note->uuid)
                     ->update([
+                        'sync_status'   => 'failed',
                         'error_message' => $e->getMessage(),
                         'updated_at'    => now(),
                     ]);
@@ -836,6 +848,7 @@ class SyncEngineService
                 ]);
                 \App\Domains\Patients\Models\PatientNote::where('uuid', $note->uuid)
                     ->update([
+                        'sync_status'   => 'failed',
                         'error_message' => $e->getMessage(),
                         'updated_at'    => now(),
                     ]);
@@ -866,10 +879,16 @@ class SyncEngineService
                     'uuid' => $note->uuid,
                 ]);
             } catch (\Throwable $e) {
-                Log::warning('[SyncEngine] Note delete sync failed: ' . $e->getMessage(), [
-                    'note_uuid' => $note->uuid,
-                ]);
-                $results['failed']++;
+                if ($e->getCode() === 404 || str_contains($e->getMessage(), '404') || str_contains($e->getMessage(), 'Not Found')) {
+                    $note->forceDelete();
+                    $results['deleted']++;
+                    Log::info('[SyncEngine] Assumed note already deleted remotely (404)', ['uuid' => $note->uuid]);
+                } else {
+                    Log::warning('[SyncEngine] Note delete sync failed: ' . $e->getMessage(), [
+                        'note_uuid' => $note->uuid,
+                    ]);
+                    $results['failed']++;
+                }
             }
         }
 
@@ -921,9 +940,15 @@ class SyncEngineService
                     'patient' => $patient->uuid,
                 ]);
             } catch (\Throwable $e) {
-                Log::warning('[SyncEngine] File delete sync failed: ' . $e->getMessage(), [
-                    'file_uuid' => $file->uuid,
-                ]);
+                if ($e->getCode() === 404 || str_contains($e->getMessage(), '404') || str_contains($e->getMessage(), 'Not Found')) {
+                    $file->forceDelete();
+                    $deletedCount++;
+                    Log::info('[SyncEngine] Assumed file already deleted remotely (404)', ['uuid' => $file->uuid]);
+                } else {
+                    Log::warning('[SyncEngine] File delete sync failed: ' . $e->getMessage(), [
+                        'file_uuid' => $file->uuid,
+                    ]);
+                }
             }
         }
 
@@ -978,6 +1003,10 @@ class SyncEngineService
                     'patient' => $patient->uuid,
                 ]);
             } catch (\Throwable $e) {
+                \App\Domains\Media\Models\PatientFile::where('uuid', $file->uuid)
+                    ->update([
+                        'sync_status' => 'failed',
+                    ]);
                 Log::warning('[SyncEngine] File update sync failed: ' . $e->getMessage(), [
                     'file_uuid' => $file->uuid,
                 ]);

@@ -123,7 +123,7 @@ trait MakesApiRequests
                 throw \Illuminate\Validation\ValidationException::withMessages($errors);
             }
 
-            throw new RuntimeException($message);
+            throw new RuntimeException($message, $response->status());
         }
 
         return $response;
