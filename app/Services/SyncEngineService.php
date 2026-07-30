@@ -9,6 +9,7 @@ use App\Services\Mobile\ApiService;
 use App\Services\OfflineUploadService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * ───────────────────────────────────────────────────────────────────────────
@@ -118,6 +119,15 @@ class SyncEngineService
             $results['files'] = $this->syncPendingFiles();
         } catch (\Throwable $e) {
             Log::error('[SyncEngine] File sync failed: ' . $e->getMessage());
+        }
+
+        // ── STEP 2b: Sync locally-stored patient_files to production ───
+        // Files uploaded via chunk upload are stored in SQLite patient_files
+        // with remote_uuid = null. This step pushes them to the production server.
+        try {
+            $results['local_files'] = $this->syncLocalPatientFiles();
+        } catch (\Throwable $e) {
+            Log::error('[SyncEngine] Local patient_files sync failed: ' . $e->getMessage());
         }
 
         // ── STEP 3: Sync pending notes ───────────────────────────────────
@@ -394,6 +404,102 @@ class SyncEngineService
         }
 
         return $syncedCount;
+    }
+
+    /**
+     * Sync locally-stored patient_files to the production server.
+     *
+     * When a file is uploaded via the chunk system (useUploads.js), it is
+     * stored locally in SQLite (patient_files table) with:
+     *   - upload_status = 'ready'
+     *   - remote_uuid = null  (no production record yet)
+     *
+     * This method finds those files and pushes them to the production API.
+     * On success, remote_uuid is set to the server-assigned UUID.
+     *
+     * Files without remote_uuid and with a valid local file_path are candidates.
+     * We skip files whose patient is not yet synced (patient still pending_create).
+     *
+     * @return array{uploaded: int, failed: int}
+     */
+    public function syncLocalPatientFiles(): array
+    {
+        $results = ['uploaded' => 0, 'failed' => 0];
+
+        $pendingFiles = \App\Domains\Media\Models\PatientFile::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->whereNull('remote_uuid')
+            ->where('upload_status', 'ready')
+            ->where('sync_status', '!=', 'pending_delete')
+            ->with('patient')
+            ->orderBy('created_at', 'asc')
+            ->limit(20) // Process in small batches to avoid memory issues
+            ->get();
+
+        foreach ($pendingFiles as $file) {
+            $patient = $file->patient;
+
+            // Skip if patient not synced to production yet
+            if (!$patient || ($patient->sync_status ?? 'synced') !== 'synced') {
+                continue;
+            }
+
+            $absolutePath = Storage::disk('local')->path($file->file_path);
+            if (!file_exists($absolutePath)) {
+                Log::warning('[SyncEngine] Local patient_file not found on disk', [
+                    'uuid'      => $file->uuid,
+                    'file_path' => $file->file_path,
+                ]);
+                // Mark as synced with self-UUID to prevent infinite retry on missing files
+                \App\Domains\Media\Models\PatientFile::where('uuid', $file->uuid)
+                    ->update(['remote_uuid' => $file->uuid]);
+                continue;
+            }
+
+            try {
+                $response = $this->api->upload(
+                    "/patients/{$patient->uuid}/files",
+                    ['file' => $absolutePath],
+                    [
+                        'title'    => $file->title ?? $file->file_name,
+                        'desc'     => $file->desc ?? null,
+                        'category' => $file->category ?? null,
+                        'date'     => $file->date?->format('Y-m-d') ?? now()->format('Y-m-d'),
+                    ]
+                );
+
+                $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
+                if (!$remoteUuid) {
+                    throw new \RuntimeException('No UUID returned from production server');
+                }
+
+                // Store remote UUID so we skip this file in future cycles
+                \App\Domains\Media\Models\PatientFile::where('uuid', $file->uuid)
+                    ->update([
+                        'remote_uuid' => $remoteUuid,
+                        'sync_status' => 'synced',
+                        'updated_at'  => now(),
+                    ]);
+
+                $results['uploaded']++;
+                Log::info('[SyncEngine] Local file synced to production', [
+                    'local_uuid'  => $file->uuid,
+                    'remote_uuid' => $remoteUuid,
+                    'patient'     => $patient->uuid,
+                    'file_name'   => $file->file_name,
+                ]);
+            } catch (\Throwable $e) {
+                $results['failed']++;
+                Log::warning('[SyncEngine] Local patient_file sync failed', [
+                    'uuid'      => $file->uuid,
+                    'error'     => $e->getMessage(),
+                    'file_name' => $file->file_name,
+                ]);
+            }
+        }
+
+        return $results;
     }
 
     /**
@@ -901,7 +1007,9 @@ class SyncEngineService
         // ═══ SYNC-008 FIX: Include patient_files in pending check ═══════════
         $pendingPatientFileCount = \App\Domains\Media\Models\PatientFile::whereIn(
             'sync_status', ['pending_delete', 'pending_update']
-        )->count();
+        )->orWhere(function ($q) {
+            $q->whereNull('remote_uuid')->where('upload_status', 'ready');
+        })->count();
 
         return ($pendingPatientCount + $pendingFileCount + $pendingNoteCount + $pendingPatientFileCount) > 0;
     }
@@ -923,7 +1031,9 @@ class SyncEngineService
         // ═══ SYNC-008 FIX: Include patient_files in summary ═══════════════
         $patientFilesPending = \App\Domains\Media\Models\PatientFile::whereIn(
             'sync_status', ['pending_delete', 'pending_update']
-        )->count();
+        )->orWhere(function ($q) {
+            $q->whereNull('remote_uuid')->where('upload_status', 'ready');
+        })->count();
 
         return [
             'patients' => $patientCreate + $patientUpdate,

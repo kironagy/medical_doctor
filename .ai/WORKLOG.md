@@ -104,3 +104,25 @@ was replaced → note disappeared.
 - **Fix:** 
   1. Updated `runMigrationsIfNeeded()` in `AppServiceProvider.php` to always run `Artisan::call('migrate', ['--force' => true]);` whenever the database driver is SQLite.
   2. Bumped `NATIVEPHP_APP_VERSION_CODE` from 43 to 44 across `.env` configuration files.
+
+## 2026-07-31 — Background Chunked Media Sync to Remote Server Fix
+
+### FIX: Sync locally chunked patient_files to Production Server in Background
+- **Files Modified:**
+  - `database/migrations/2026_07_31_000001_add_remote_uuid_to_patient_files_table.php` (New migration)
+  - `app/Services/SyncEngineService.php`
+- **Problem:** When uploading photos or videos locally on the phone via the chunk upload system (`useUploads.js`), chunks were merged and stored in the phone's SQLite `patient_files` table. However, because `patient_files` did not track whether the file was pushed to the production server (`https://prof-hosam-fekry.online`), `SyncEngineService` only synced records from `offline_files`. As a result, images and chunked videos uploaded locally were never transmitted to the website. Furthermore, if the user exited the app while uploading, the JS webview chunk worker was paused by OS power management.
+- **Fix:**
+  1. Added `remote_uuid` column to `patient_files` via migration to track production-synced state (`null` = needs sync, string UUID = synced).
+  2. Implemented `syncLocalPatientFiles()` in `SyncEngineService` to automatically detect locally completed chunk uploads (`remote_uuid` IS NULL) and stream them to the production server (`/patients/{uuid}/files`).
+  3. Included `remote_uuid` IS NULL in `hasPendingOperations()` and `getPendingSummary()`, ensuring the background NativePHP sync worker automatically runs in the background even if the app is minimized or closed.
+
+## 2026-07-31 — SQLite Foreign Key Constraint Violation (user_id = 0) Fix
+
+### FIX: Resolve valid user_id in Upload Controllers & Services
+- **Files Modified:**
+  - `app/Http/Controllers/Api/UploadsController.php`
+  - `app/Http/Controllers/Api/ChunkUploadController.php`
+  - `app/Services/Upload/ChunkMergeService.php`
+- **Problem:** When creating upload sessions offline in the NativePHP Android app, `$request->user()` is `null`. The code passed `0` as fallback `user_id` when creating an `UploadSession` or `PatientFile`. Because `upload_sessions` and `patient_files` have a foreign key constraint `user_id REFERENCES users(id)`, inserting `user_id = 0` (which does not exist in `users`) caused `SQLSTATE[23000]: Integrity constraint violation: 19 FOREIGN KEY constraint failed` on SQLite.
+- **Fix:** Replaced `$request->user()?->id ?? 0` with dynamic resolution: `$request->user()?->id ?? $patient->primary_doctor_id ?? $patient->created_by_id ?? \App\Models\User::value('id') ?? 1`. This ensures `upload_sessions` and `patient_files` always receive a valid foreign key referencing an existing user in the database.

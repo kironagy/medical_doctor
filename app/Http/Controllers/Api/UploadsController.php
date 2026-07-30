@@ -57,13 +57,14 @@ class UploadsController extends Controller
         ]);
 
         try {
-            $session = $this->sessionService->create($data, $request->user()?->id ?? 0);
+            $userId = $request->user()?->id ?? $patient->primary_doctor_id ?? $patient->created_by_id ?? \App\Models\User::value('id') ?? 1;
+            $session = $this->sessionService->create($data, $userId);
 
             $duration = (microtime(true) - $start) * 1000;
 
             Log::channel('upload')->info('upload:start', [
                 'session'   => $session->uuid,
-                'user'      => $request->user()?->id,
+                'user'      => $userId,
                 'patient'   => $patient->id,
                 'file'      => $data['file_name'],
                 'size'      => $data['file_size'],
