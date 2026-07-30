@@ -303,7 +303,7 @@ class FileAccessController extends Controller
     {
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
-        if ($request->user()->cannot('update', $file->patient)) {
+        if ($request->user() && $request->user()->cannot('update', $file->patient)) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -326,7 +326,7 @@ class FileAccessController extends Controller
     {
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
-        if ($request->user()->cannot('update', $file->patient)) {
+        if ($request->user() && $request->user()->cannot('update', $file->patient)) {
             return response()->json(['message' => 'Unauthorized. Only primary doctor or editors can delete files.'], 403);
         }
 

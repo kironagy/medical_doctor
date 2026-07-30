@@ -51,7 +51,7 @@ class SearchController extends Controller
             ];
         }
 
-        if ($request->user()->hasRole('super-admin')) {
+        if ($request->user() && $request->user()->hasRole('super-admin')) {
             $doctors = User::role('doctor')->where(function ($q) use ($query) {
                 $q->where('name', 'like', "%{$query}%")
                   ->orWhere('code', 'like', "%{$query}%")

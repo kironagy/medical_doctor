@@ -45,27 +45,15 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
-     * Run database migrations only when the app version changes.
-     * This avoids running migrate on every request in classic mode.
+     * Run database migrations on SQLite (embedded mobile app).
+     * Running migrate --force ensures any new tables/columns (e.g. offline_files, sync_status)
+     * are created immediately. Laravel's migration runner checks the migrations table and
+     * completes in milliseconds if up-to-date.
      */
     protected function runMigrationsIfNeeded(): void
     {
         try {
-            $versionFile = storage_path('app/.mobile_migration_version');
-            $currentVersion = (int) env('NATIVEPHP_APP_VERSION_CODE', 1);
-            $storedVersion = 0;
-
-            if (File::exists($versionFile)) {
-                $content = File::get($versionFile);
-                $storedVersion = (int) trim($content);
-            }
-
-            // If stored version differs from current app version, run migrations
-            if ($storedVersion !== $currentVersion) {
-                Artisan::call('migrate', ['--force' => true]);
-                File::put($versionFile, (string) $currentVersion);
-                logger()->info('Mobile database migrated to version ' . $currentVersion);
-            }
+            Artisan::call('migrate', ['--force' => true]);
         } catch (Throwable $e) {
             logger()->error('Mobile migration failed: ' . $e->getMessage(), ['exception' => $e]);
         }

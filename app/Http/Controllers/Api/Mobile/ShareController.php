@@ -52,7 +52,7 @@ class ShareController extends Controller
                 'doctor_id' => $validated['doctor_id'],
             ],
             [
-                'shared_by_id' => $request->user()->id,
+                'shared_by_id' => $request->user()?->id ?? $patient->primary_doctor_id ?? 1,
                 'access_level' => $validated['access_level'],
                 'expires_at' => $validated['expires_at'] ?? null,
             ]

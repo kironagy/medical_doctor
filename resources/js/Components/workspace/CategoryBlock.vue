@@ -354,7 +354,7 @@
     :patient="selectedPatient"
     :categorySlug="slug"
     :initialTab="addRecordModalTab"
-    @noteAdded="loadCategoryData(1)"
+    @noteAdded="onNoteAdded"
   />
 
   <!-- View Note Content Modal -->
@@ -924,6 +924,27 @@ watch(expanded, (val) => {
     loadCategoryData(1)
   }
 }, { immediate: true })
+
+// FIX-05: Handle new note added from AddRecordModal.
+// Problem: @noteAdded="loadCategoryData(1)" fires immediately but production
+// DB hasn't received the note yet (still pending_create in SQLite).
+// Solution: prepend note to serverNotes immediately (instant UI feedback),
+// then reload from server after 4s to get the production-confirmed version.
+let noteReloadTimer = null
+function onNoteAdded(note) {
+  // Show note immediately in the category list
+  if (note?.uuid && initialLoadDone.value) {
+    const alreadyExists = serverNotes.value.some(n => n.uuid === note.uuid)
+    if (!alreadyExists) {
+      serverNotes.value = [{ ...note, category: props.slug }, ...serverNotes.value]
+    }
+  }
+  // Reload from server after sync has had time to push to production
+  clearTimeout(noteReloadTimer)
+  noteReloadTimer = setTimeout(() => {
+    if (initialLoadDone.value) loadCategoryData(1)
+  }, 4000)
+}
 
 // After upload completes, sync from server in background (file shows instantly via reactive merge)
 const localCompleteCount = ref(0)

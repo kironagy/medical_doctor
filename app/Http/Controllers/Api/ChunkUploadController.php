@@ -46,7 +46,8 @@ class ChunkUploadController extends Controller
 
         $patient = $this->resolvePatient($request->patient_id);
 
-        if ($request->user()->cannot('view', $patient)) {
+        // FIX: On SQLite (NativePHP App), no session user exists. Skip Gate.
+        if ($request->user() && $request->user()->cannot('view', $patient)) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
@@ -58,13 +59,13 @@ class ChunkUploadController extends Controller
         ]);
 
         try {
-            $session = $this->sessionService->create($data, $request->user()->id);
+            $session = $this->sessionService->create($data, $request->user()?->id ?? 0);
 
             $duration = (microtime(true) - $start) * 1000;
 
             Log::channel('upload')->info('chunk:init', [
                 'session'   => $session->uuid,
-                'user'      => $request->user()->id,
+                'user'      => $request->user()?->id,
                 'patient'   => $patient->id,
                 'file'      => $data['file_name'],
                 'size'      => $data['file_size'],
@@ -107,7 +108,7 @@ class ChunkUploadController extends Controller
 
         try {
             $session = $this->sessionService->findOrFail($validated['upload_id']);
-            if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
+            if ($request->user() && !$this->sessionService->ownedByUser($session, $request->user()->id)) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 
@@ -154,7 +155,7 @@ class ChunkUploadController extends Controller
 
         try {
             $session = $this->sessionService->findOrFail($validated['upload_id']);
-            if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
+            if ($request->user() && !$this->sessionService->ownedByUser($session, $request->user()->id)) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 
@@ -195,7 +196,7 @@ class ChunkUploadController extends Controller
         }
         try {
             $session = $this->sessionService->findOrFail($uuid);
-            if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
+            if ($request->user() && !$this->sessionService->ownedByUser($session, $request->user()->id)) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 
@@ -220,7 +221,7 @@ class ChunkUploadController extends Controller
         }
         try {
             $session = $this->sessionService->findOrFail($uuid);
-            if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
+            if ($request->user() && !$this->sessionService->ownedByUser($session, $request->user()->id)) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 

@@ -161,11 +161,11 @@ function setPatients(patientList) {
 
 async function selectPatient(uuid) {
     if (!uuid) return;
-    
+
     if (typeof window !== "undefined" && !selectedPatientId.value) {
         window.history.pushState({ view: "patient", uuid }, "", "#patient");
     }
-    
+
     showSettings.value = false;
     selectedPatientId.value = uuid;
     loadingPatient.value = true;
@@ -278,13 +278,13 @@ function refreshWorkspaceData() {
 				// ── Merge production data with local snapshot ──────
 				const merged = { ...res.data };
 				if (workspaceSnapshot) {
-					// Merge notes: only keep local notes that are STILL PENDING.
-					// Once a note is synced to production, it gets a new remote UUID.
-					// Keeping the old local UUID causes duplication. Filter strictly.
+					// Merge notes: only keep local notes that are STILL PENDING or just synced.
+					// FIX-03: Without 'synced', a race condition causes note loss if sync marks note
+					// as 'synced' locally but production DB hasn't persisted it yet when this runs.
 					const serverNoteUuids = new Set((merged.notes || []).map(n => n.uuid));
 					const localNotes = (workspaceSnapshot.notes || []).filter(n =>
 						!serverNoteUuids.has(n.uuid) &&
-						(n.sync_status === 'pending_create' || n.sync_status === 'pending')
+						(n.sync_status === 'pending_create' || n.sync_status === 'pending' || n.sync_status === 'synced')
 					);
 					if (localNotes.length > 0) {
 						merged.notes = [...localNotes, ...(merged.notes || [])];

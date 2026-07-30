@@ -783,6 +783,10 @@ async function submitNoteForm() {
 		} else {
 			const res = await axios.post(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes`), {
 				content: noteFormContent.value,
+				// FIX-01: category must be sent so the note is stored under
+				// the correct category slug. Without it, NoteController defaults
+				// to 'notes' and CategoryBlock filters never match the note.
+				category: 'notes',
 			}, getApiConfig())
 			let createdNote = res.data
 			
@@ -853,7 +857,9 @@ async function submitVisitForm() {
       toast.success(t('workspace.visit_added'))
     }
     
-    axios.post('/_native/api/sync').catch(() => {})
+    // FIX-02: Previous URL '/_native/api/sync' was removed in SYNC-005.
+    // The correct endpoint is '/_native/api/sync/engine'.
+    axios.post('/_native/api/sync/engine').catch(() => {})
     
     closeVisitModal()
     await refreshWorkspaceData()

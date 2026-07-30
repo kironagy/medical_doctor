@@ -43,7 +43,9 @@ class UploadsController extends Controller
 
         $patient = $this->resolvePatient($request->patient_id);
 
-        if ($request->user()->cannot('view', $patient)) {
+        // FIX: On SQLite (NativePHP App), there is no session-authenticated user.
+        // Skip Gate authorization — the local SQLite DB is trusted.
+        if ($request->user() && $request->user()->cannot('view', $patient)) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
@@ -55,13 +57,13 @@ class UploadsController extends Controller
         ]);
 
         try {
-            $session = $this->sessionService->create($data, $request->user()->id);
+            $session = $this->sessionService->create($data, $request->user()?->id ?? 0);
 
             $duration = (microtime(true) - $start) * 1000;
 
             Log::channel('upload')->info('upload:start', [
                 'session'   => $session->uuid,
-                'user'      => $request->user()->id,
+                'user'      => $request->user()?->id,
                 'patient'   => $patient->id,
                 'file'      => $data['file_name'],
                 'size'      => $data['file_size'],
@@ -101,7 +103,7 @@ class UploadsController extends Controller
 
         try {
             $session = $this->sessionService->findOrFail($validated['upload_id']);
-            if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
+            if ($request->user() && !$this->sessionService->ownedByUser($session, $request->user()->id)) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 
@@ -139,7 +141,7 @@ class UploadsController extends Controller
     {
         try {
             $session = $this->sessionService->findOrFail($id);
-            if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
+            if ($request->user() && !$this->sessionService->ownedByUser($session, $request->user()->id)) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 
@@ -162,7 +164,7 @@ class UploadsController extends Controller
     {
         try {
             $session = $this->sessionService->findOrFail($id);
-            if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
+            if ($request->user() && !$this->sessionService->ownedByUser($session, $request->user()->id)) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
             // Ensure session is in uploading state
@@ -192,7 +194,7 @@ class UploadsController extends Controller
 
         try {
             $session = $this->sessionService->findOrFail($validated['upload_id']);
-            if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
+            if ($request->user() && !$this->sessionService->ownedByUser($session, $request->user()->id)) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 
@@ -230,7 +232,7 @@ class UploadsController extends Controller
     {
         try {
             $session = $this->sessionService->findOrFail($id);
-            if (!$this->sessionService->ownedByUser($session, $request->user()->id)) {
+            if ($request->user() && !$this->sessionService->ownedByUser($session, $request->user()->id)) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 
