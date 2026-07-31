@@ -185,10 +185,35 @@ was replaced → note disappeared.
 - The server's `FileController::store()` requires a `file` field, but it returned a `422` error.
 - **Fix:** The issue was caused by a hardcoded `'Content-Type' => 'application/json'` header in `ApiService::client()`. This overrode Guzzle's automatic `multipart/form-data` header when attaching files, causing the server to receive a malformed request body and fail validation. Removed the hardcoded header so Guzzle can set it dynamically.
 
-**Bug 8 (Sync Loop): Notes and deletes loop infinitely on 404/failure**
-- The `SyncEngineService` did not update `sync_status` to `failed` for Notes when they failed to upload, and did not handle 404 (Not Found) for remote deletions.
-- Because there is no `retry_count` column for patients and notes, they stayed in `pending_create` or `pending_delete` forever, causing the engine to spam the server with thousands of requests.
-- **Fix:** Added `sync_status = 'failed'` for failed Note uploads and handled 404 gracefully for both Note and File remote deletions (treating 404 as successful local deletion). Also changed `apiCall` to throw `RuntimeException` with the HTTP status code so the catch block can identify 404 errors.
+### Bug 8: Infinite Sync Loops & Missing 404 Handling
+
+**Symptoms:**
+- The Android mobile app was constantly hitting `_native/api/sync/engine`, spamming the server and chewing up battery and bandwidth.
+- Nginx logs showed continuous `404` errors for `DELETE` and `422` for `POST /files`.
+- If a patient or file was deleted on the server, the mobile app would retry the delete forever.
+
+**Root Cause:**
+- `ApiService` didn't expose HTTP status codes clearly in its exceptions.
+- `SyncEngineService` treated `404 Not Found` during a deletion as a generic failure, so it retried instead of assuming the record was already deleted remotely.
+- Failing file/note uploads didn't have their status set to `failed` and would get stuck in an infinite retry loop since they stayed as `pending_create`/`pending_update` but encountered persistent API errors.
+
+**Fix:**
+- Updated `MakesApiRequests.php` to include the HTTP status code when throwing `RuntimeException` for failed API calls.
+- Updated `SyncEngineService.php` to handle `404` on deletes by marking them as successfully synced (deleted).
+- Added logic in `SyncEngineService.php` to mark notes and files as `sync_status = 'failed'` (and notes to `error_message`) if the server returns persistent validation or internal errors, stopping the infinite loops.
+
+### Bug 9: 422 Unprocessable Entity on Offline File Uploads
+
+**Symptoms:**
+- The `SyncEngineService` received `422 The file field is required.` from the remote server when attempting to upload a file (`POST /api/v1/mobile/patients/{uuid}/files`).
+
+**Root Cause:**
+- `ApiService::upload` used `PendingRequest::attach()` conditionally based on `$stream = fopen($file, 'rb')`. If `fopen()` failed, `attach()` was skipped, so the request defaulted to `application/json` instead of `multipart/form-data`.
+- Since the payload was sent as JSON without the actual file binary, the server rejected it with `422`.
+
+**Fix:**
+- Updated `ApiService::upload` to explicitly call `->asMultipart()`.
+- Added strict `throw new \RuntimeException` checks if `fopen()` or `file_exists()` fails, ensuring the error is caught by `SyncEngineService` and the sync is properly aborted (or failed) instead of sending a malformed request to the remote server.
 
 ### Files Modified
 - `resources/js/Composables/useUploads.js` — Build local URL instead of using server response URL
