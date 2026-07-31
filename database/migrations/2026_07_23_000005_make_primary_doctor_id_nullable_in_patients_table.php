@@ -16,6 +16,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (\Illuminate\Support\Facades\DB::getDriverName() === 'sqlite') {
+            return;
+        }
+
         Schema::table('patients', function (Blueprint $table) {
             // Drop the existing foreign key (SQLite requires explicit constraint name)
             $table->dropForeign(['primary_doctor_id']);

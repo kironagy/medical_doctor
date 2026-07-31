@@ -62,10 +62,10 @@ case $PLATFORM in
         fi
         
         # Build Android
-        php artisan native:build android $BUILD_TYPE | tee "$BUILD_LOG"
+        php artisan native:build android $BUILD_TYPE --no-tty | tee "$BUILD_LOG"
         ;;
     ios)
-        php artisan native:build ios $BUILD_TYPE | tee "$BUILD_LOG"
+        php artisan native:build ios $BUILD_TYPE --no-tty | tee "$BUILD_LOG"
         ;;
     *)
         echo "❌ Unsupported platform: $PLATFORM"

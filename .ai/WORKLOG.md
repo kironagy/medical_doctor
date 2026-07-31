@@ -280,5 +280,64 @@ Upload failures in the mobile app were only showing `PHPBridge: HTTP/1.1 500 Int
 - Built new Debug APK (`nativephp/android/app/build/outputs/apk/debug/app-debug.apk`)
 - Installed on device `2d04ce2e` via ADB (`Success`).
 
+---
+
+## 2026-07-31 — Fix 'Webpage not available' Error After Login Redirect
+
+### Problem
+After login, when redirected to `http://127.0.0.1/dashboard` or `http://127.0.0.1/workspace`, `RequestRouter.kt` evaluated `isOnline == true` and returned `RouteTarget.EXTERNAL`. Because `shouldInterceptRequest` returned `null` for `EXTERNAL` routes, the WebView attempted a raw TCP connection to `127.0.0.1:80` (where no HTTP server listens on Android), failing with `net::ERR_CONNECTION_REFUSED` / `Webpage not available`.
+
+### Fix
+- Updated `RequestRouter.kt` to check `isLocalHost` (`host == "127.0.0.1" || host == "localhost"`) at the top of `route()`.
+- Explicit `127.0.0.1` and `localhost` URLs are now always routed to `RouteTarget.LOCAL_PHP` (or `STATIC_ASSET`), ensuring embedded Laravel renders the page directly inside the WebView.
+
+### Files Modified
+- `nativephp/android/app/src/main/java/com/nativephp/mobile/network/RequestRouter.kt`
+- `.env.native-debug`
+- `vendor/nativephp/mobile/bootstrap/android/native.php`
+- `.ai/WORKLOG.md`
+
+---
+
+## 2026-07-31 — Fix SQLite Migration Blocking & User Fallback in Chunk Upload
+
+### Problem
+1. **Migration Failure on SQLite**: Migrations `2026_07_23_000005` and `2026_07_25_223012` attempted `$table->dropForeign(...)`, which SQLite does not support. This caused SQLite migrations on startup to fail and block subsequent migrations (`sync_status`, `remote_uuid` columns on `patient_files`).
+2. **Missing User Record**: `ChunkUploadController@init` did not ensure a default `User` record existed on SQLite, causing potential foreign key constraint violations during `upload_sessions` insertion.
+
+### Fix
+1. Bypassed `dropForeign` operations on SQLite driver in `2026_07_23_000005_make_primary_doctor_id_nullable_in_patients_table.php` and `2026_07_25_223012_make_author_id_nullable_in_patient_notes_table.php`.
+2. Added default user resolution & creation logic (`firstOrCreate`) in `ChunkUploadController.php` for SQLite environment.
+
+### Files Modified
+- `database/migrations/2026_07_23_000005_make_primary_doctor_id_nullable_in_patients_table.php`
+- `database/migrations/2026_07_25_223012_make_author_id_nullable_in_patient_notes_table.php`
+- `app/Http/Controllers/Api/ChunkUploadController.php`
+- `.ai/WORKLOG.md`
+
+## 2026-07-31 — Fix SQLite Patient Stub primary_doctor_id NOT NULL Constraint Failure
+
+### Problem
+1. **SQLite NOT NULL Constraint Violation**: The migration `2026_07_23_000005_make_primary_doctor_id_nullable_in_patients_table.php` was skipped for SQLite, leaving `primary_doctor_id` as `NOT NULL`.
+2. **Stub Patient Creation Crash**: During offline chunk upload, `resolvePatient()` falls back to creating a stub patient using `Patient::updateOrCreate()` without a doctor ID, throwing a `QueryException` (integrity constraint violation).
+3. **Unhandled Bubble-up Exception**: The exception was called outside the controller's try-catch block, bubble-up causing an HTTP 500 error.
+
+### Fix
+1. Moved patient resolution and authorization checks inside the `try-catch` block inside `ChunkUploadController@init` and `UploadsController@start`.
+2. Added verbose tracing logs before/after every step (ENTER, validation, patient resolved, user context resolved, session created).
+3. Added fallback inside `resolvePatient()` to look up default doctor/user (ID 1) if offline/SQLite and not authenticated, avoiding NOT NULL constraint violation.
+4. Corrected Kotlin compiler reference error `$method` -> `${request.method}` in `PHPWebViewClient.kt`.
+5. Built new debug APK containing all tracing changes.
+
+### Files Modified
+- `app/Http/Controllers/Api/ChunkUploadController.php`
+- `app/Http/Controllers/Api/UploadsController.php`
+- `nativephp/android/app/src/main/java/com/nativephp/mobile/network/PHPWebViewClient.kt`
+- `native-build-production.sh` (added `--no-tty` support for non-interactive builds)
+- `.ai/WORKLOG.md`
+
+
+
+
 
 

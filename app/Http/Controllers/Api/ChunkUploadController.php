@@ -30,41 +30,77 @@ class ChunkUploadController extends Controller
             $request->session()->save();
         }
         $start = microtime(true);
-
-        $validated = $request->validate([
-            'file_name' => 'required|string|max:255',
-            'file_size' => 'required|integer|min:1|max:5368709120',
-            'mime_type' => 'required|string|max:255',
-            'patient_id' => 'required',
-            'chunk_size' => 'sometimes|integer|min:1048576|max:52428800',
-            'metadata' => 'sometimes|array',
-            'metadata.title' => 'sometimes|nullable|string|max:255',
-            'metadata.desc' => 'sometimes|nullable|string|max:1000',
-            'metadata.category' => 'sometimes|nullable|string|max:100',
-            'metadata.date' => 'sometimes|nullable|date',
-        ]);
-
-        $patient = $this->resolvePatient($request->patient_id);
-
-        // FIX: On SQLite (NativePHP App), no session user exists. Skip Gate.
-        if ($request->user() && $request->user()->cannot('view', $patient)) {
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
-
-        $data = array_merge($request->only(['file_name', 'file_size', 'mime_type']), [
-            'patient_id' => $patient->id,
-            'patient_uuid' => $patient->uuid,
-            'chunk_size' => $request->input('chunk_size', 5 * 1024 * 1024),
-            'metadata' => $request->input('metadata'),
+        Log::channel('upload')->info('chunk:init - ENTER Controller', [
+            'payload' => $request->all()
         ]);
 
         try {
-            $userId = $request->user()?->id ?? $patient->primary_doctor_id ?? $patient->created_by_id ?? \App\Models\User::value('id') ?? 1;
+            $validated = $request->validate([
+                'file_name' => 'required|string|max:255',
+                'file_size' => 'required|integer|min:1|max:5368709120',
+                'mime_type' => 'required|string|max:255',
+                'patient_id' => 'required',
+                'chunk_size' => 'sometimes|integer|min:1048576|max:52428800',
+                'metadata' => 'sometimes|array',
+                'metadata.title' => 'sometimes|nullable|string|max:255',
+                'metadata.desc' => 'sometimes|nullable|string|max:1000',
+                'metadata.category' => 'sometimes|nullable|string|max:100',
+                'metadata.date' => 'sometimes|nullable|date',
+            ]);
+            Log::channel('upload')->info('chunk:init - Validation passed');
+
+            $patient = $this->resolvePatient($request->patient_id);
+            Log::channel('upload')->info('chunk:init - Patient resolved', [
+                'patient_id' => $patient->id,
+                'patient_uuid' => $patient->uuid,
+            ]);
+
+            // FIX: On SQLite (NativePHP App), no session user exists. Skip Gate.
+            if ($request->user() && $request->user()->cannot('view', $patient)) {
+                Log::channel('upload')->warning('chunk:init - Forbidden access to patient', [
+                    'user' => $request->user()->id,
+                    'patient' => $patient->uuid
+                ]);
+                return response()->json(['message' => 'Forbidden'], 403);
+            }
+            Log::channel('upload')->info('chunk:init - Gate check skipped/passed');
+
+            $data = array_merge($request->only(['file_name', 'file_size', 'mime_type']), [
+                'patient_id' => $patient->id,
+                'patient_uuid' => $patient->uuid,
+                'chunk_size' => $request->input('chunk_size', 5 * 1024 * 1024),
+                'metadata' => $request->input('metadata'),
+            ]);
+
+            $user = $request->user();
+            if (!$user && config('database.default') === 'sqlite') {
+                $user = \App\Domains\Users\Models\User::first();
+                if (!$user) {
+                    \App\Domains\Users\Models\User::unguard();
+                    $user = \App\Domains\Users\Models\User::firstOrCreate(
+                        ['id' => 1],
+                        [
+                            'name' => 'Default Doctor',
+                            'email' => 'doctor@local.test',
+                            'password' => bcrypt('password'),
+                        ]
+                    );
+                    \App\Domains\Users\Models\User::reguard();
+                }
+            }
+            $userId = $user?->id ?? $patient->primary_doctor_id ?? $patient->created_by_id ?? 1;
+            Log::channel('upload')->info('chunk:init - Resolved user context', [
+                'user_id' => $userId
+            ]);
+
             $session = $this->sessionService->create($data, $userId);
+            Log::channel('upload')->info('chunk:init - Upload session created', [
+                'session' => $session->uuid
+            ]);
 
             $duration = (microtime(true) - $start) * 1000;
 
-            Log::channel('upload')->info('chunk:init', [
+            Log::channel('upload')->info('chunk:init - Returning response', [
                 'session'   => $session->uuid,
                 'user'      => $userId,
                 'patient'   => $patient->id,
@@ -94,25 +130,35 @@ class ChunkUploadController extends Controller
             }
 
             Log::channel('upload')->error('UPLOAD EXCEPTION (ChunkUploadController@init)', [
-                'exception'    => get_class($e),
-                'message'      => $e->getMessage(),
-                'sqlstate'     => $sqlState,
-                'sqlite_error' => $sqliteError,
-                'file'         => $e->getFile(),
-                'line'         => $e->getLine(),
-                'trace'        => $e->getTraceAsString(),
-                'data'         => $data ?? null,
+                'exception'          => get_class($e),
+                'message'            => $e->getMessage(),
+                'sqlstate'           => $sqlState,
+                'sqlite_error'       => $sqliteError,
+                'file'               => $e->getFile(),
+                'line'               => $e->getLine(),
+                'trace'              => $e->getTraceAsString(),
+                'previous_exception' => $e->getPrevious() ? get_class($e->getPrevious()) . ': ' . $e->getPrevious()->getMessage() : null,
+                'request_payload'    => $request->all(),
+                'authenticated_user' => auth()->id() ?? ($request->user()?->id ?? null),
+                'patient_uuid'       => $request->input('patient_id'),
+                'storage_disk'       => 'local',
+                'filesystem_path'    => isset($session) ? ($session->final_path ?? null) : null,
+                'generated_upload_id'=> isset($session) ? ($session->uuid ?? null) : null,
+                'data'               => $data ?? null,
             ]);
 
             return response()->json([
-                'message'      => 'Failed to initialize upload: ' . $e->getMessage(),
-                'error'        => $e->getMessage(),
-                'exception'    => get_class($e),
-                'sqlstate'     => $sqlState,
-                'sqlite_error' => $sqliteError,
-                'file'         => $e->getFile(),
-                'line'         => $e->getLine(),
-                'trace'        => $e->getTraceAsString(),
+                'message'            => 'Failed to initialize upload: ' . $e->getMessage(),
+                'error'              => $e->getMessage(),
+                'exception'          => get_class($e),
+                'sqlstate'           => $sqlState,
+                'sqlite_error'       => $sqliteError,
+                'file'               => $e->getFile(),
+                'line'               => $e->getLine(),
+                'trace'              => $e->getTraceAsString(),
+                'previous_exception' => $e->getPrevious() ? $e->getPrevious()->getMessage() : null,
+                'patient_uuid'       => $request->input('patient_id'),
+                'generated_upload_id'=> isset($session) ? ($session->uuid ?? null) : null,
             ], 500);
         }
     }
@@ -313,15 +359,19 @@ class ChunkUploadController extends Controller
 
     private function resolvePatient(string|int $patientId): Patient
     {
+        Log::channel('upload')->info('chunk:init - resolvePatient starting', ['patient_id' => $patientId]);
+
         $patient = is_numeric($patientId)
             ? Patient::find((int) $patientId)
             : Patient::where('uuid', $patientId)->first();
 
         if ($patient) {
+            Log::channel('upload')->info('chunk:init - resolvePatient patient found locally');
             return $patient;
         }
 
         try {
+            Log::channel('upload')->info('chunk:init - resolvePatient patient not found locally, trying API fallback');
             $uuid = is_numeric($patientId) ? null : $patientId;
             $apiPatient = app(ApiPatientRepository::class)->find($uuid ?? $patientId);
 
@@ -338,6 +388,7 @@ class ChunkUploadController extends Controller
                 Patient::reguard();
 
                 if ($patient) {
+                    Log::channel('upload')->info('chunk:init - resolvePatient resolved from API successfully');
                     return $patient;
                 }
             }
@@ -348,16 +399,39 @@ class ChunkUploadController extends Controller
             ]);
         }
 
+        Log::channel('upload')->info('chunk:init - resolvePatient API fallback returned null/failed, creating local stub patient');
+
+        // ── SEC-003 & SQLite NOT NULL constraint FIX: When creating a stub patient,
+        // set primary_doctor_id and created_by_id from the authenticated user
+        // or default to the first user/doctor (ID 1) if running on SQLite database.
+        $stubData = [
+            'uuid' => $patientId,
+            'sync_status' => 'pending_sync',
+            'name' => 'Patient ' . $patientId,
+        ];
+
+        $userId = auth()->id();
+        if (!$userId && config('database.default') === 'sqlite') {
+            $userId = \App\Domains\Users\Models\User::first()?->id ?? 1;
+        }
+
+        if ($userId) {
+            $stubData['primary_doctor_id'] = $userId;
+            $stubData['created_by_id'] = $userId;
+        }
+
         Patient::unguard();
         $patient = Patient::updateOrCreate(
             ['uuid' => $patientId],
-            [
-                'uuid' => $patientId,
-                'sync_status' => 'pending_sync',
-                'name' => 'Patient ' . $patientId,
-            ]
+            $stubData
         );
         Patient::reguard();
+
+        Log::channel('upload')->info('chunk:init - resolvePatient local stub patient created', [
+            'patient_id' => $patient->id,
+            'patient_uuid' => $patient->uuid,
+            'primary_doctor_id' => $patient->primary_doctor_id ?? null,
+        ]);
 
         return $patient;
     }
