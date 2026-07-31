@@ -95,14 +95,39 @@ class OfflineUploadController extends Controller
                 'created_at'   => now()->toIso8601String(),
             ], 201);
         } catch (\Throwable $e) {
-            Log::error('[OfflineUpload] Failed to save file locally', [
-                'patient_uuid' => $validated['patient_uuid'],
-                'error'        => $e->getMessage(),
+            $sqlState = null;
+            $sqliteError = null;
+            if ($e instanceof \PDOException) {
+                $sqlState = $e->errorInfo[0] ?? $e->getCode();
+                $sqliteError = $e->errorInfo[2] ?? $e->getMessage();
+            } elseif ($e->getPrevious() instanceof \PDOException) {
+                $pdoEx = $e->getPrevious();
+                $sqlState = $pdoEx->errorInfo[0] ?? $pdoEx->getCode();
+                $sqliteError = $pdoEx->errorInfo[2] ?? $pdoEx->getMessage();
+            }
+
+            Log::error('UPLOAD EXCEPTION (OfflineUpload)', [
+                'url'          => $request->fullUrl(),
+                'method'       => $request->method(),
+                'patient_uuid' => $validated['patient_uuid'] ?? null,
+                'exception'    => get_class($e),
+                'message'      => $e->getMessage(),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ]);
 
             return response()->json([
-                'success' => false,
-                'message' => 'Failed to save file for offline upload: ' . $e->getMessage(),
+                'success'      => false,
+                'message'      => 'Failed to save file for offline upload: ' . $e->getMessage(),
+                'exception'    => get_class($e),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ], 500);
         }
     }

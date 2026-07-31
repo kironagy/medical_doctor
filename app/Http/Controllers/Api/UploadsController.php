@@ -80,13 +80,37 @@ class UploadsController extends Controller
                 'expires_at' => $session->expires_at->toIso8601String(),
             ])->header('X-Server-Time', round($duration, 2));
         } catch (\Throwable $e) {
-            Log::error('CHUNK INIT ERROR: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString(),
-                'data' => $data,
+            $sqlState = null;
+            $sqliteError = null;
+            if ($e instanceof \PDOException) {
+                $sqlState = $e->errorInfo[0] ?? $e->getCode();
+                $sqliteError = $e->errorInfo[2] ?? $e->getMessage();
+            } elseif ($e->getPrevious() instanceof \PDOException) {
+                $pdoEx = $e->getPrevious();
+                $sqlState = $pdoEx->errorInfo[0] ?? $pdoEx->getCode();
+                $sqliteError = $pdoEx->errorInfo[2] ?? $pdoEx->getMessage();
+            }
+
+            Log::error('UPLOAD EXCEPTION (UploadsController@start)', [
+                'exception'    => get_class($e),
+                'message'      => $e->getMessage(),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
+                'data'         => $data ?? null,
             ]);
+
             return response()->json([
-                'message' => 'Failed to start upload',
-                'error' => $e->getMessage(),
+                'message'      => 'Failed to start upload: ' . $e->getMessage(),
+                'error'        => $e->getMessage(),
+                'exception'    => get_class($e),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ], 500);
         }
     }
@@ -125,15 +149,38 @@ class UploadsController extends Controller
             ])->header('X-Server-Time', round((microtime(true) - $start) * 1000, 2))
             ->setStatusCode($e->getStatusCode());
         } catch (\Throwable $e) {
-            Log::channel('upload')->error('upload:chunk_error', [
-                'upload_id' => $validated['upload_id'] ?? null,
-                'chunk' => $validated['chunk_index'] ?? null,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+            $sqlState = null;
+            $sqliteError = null;
+            if ($e instanceof \PDOException) {
+                $sqlState = $e->errorInfo[0] ?? $e->getCode();
+                $sqliteError = $e->errorInfo[2] ?? $e->getMessage();
+            } elseif ($e->getPrevious() instanceof \PDOException) {
+                $pdoEx = $e->getPrevious();
+                $sqlState = $pdoEx->errorInfo[0] ?? $pdoEx->getCode();
+                $sqliteError = $pdoEx->errorInfo[2] ?? $pdoEx->getMessage();
+            }
+
+            Log::channel('upload')->error('UPLOAD EXCEPTION (UploadsController@chunk)', [
+                'upload_id'    => $validated['upload_id'] ?? null,
+                'chunk'        => $validated['chunk_index'] ?? null,
+                'exception'    => get_class($e),
+                'message'      => $e->getMessage(),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ]);
+
             return response()->json([
-                'message' => 'Chunk upload failed',
-                'error' => $e->getMessage(),
+                'message'      => 'Chunk upload failed: ' . $e->getMessage(),
+                'error'        => $e->getMessage(),
+                'exception'    => get_class($e),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ], 500);
         }
     }
@@ -217,14 +264,37 @@ class UploadsController extends Controller
             ])->header('X-Server-Time', round((microtime(true) - $start) * 1000, 2))
             ->setStatusCode($e->getStatusCode());
         } catch (\Throwable $e) {
-            Log::channel('upload')->error('upload:finish_error', [
-                'upload_id' => $validated['upload_id'] ?? null,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+            $sqlState = null;
+            $sqliteError = null;
+            if ($e instanceof \PDOException) {
+                $sqlState = $e->errorInfo[0] ?? $e->getCode();
+                $sqliteError = $e->errorInfo[2] ?? $e->getMessage();
+            } elseif ($e->getPrevious() instanceof \PDOException) {
+                $pdoEx = $e->getPrevious();
+                $sqlState = $pdoEx->errorInfo[0] ?? $pdoEx->getCode();
+                $sqliteError = $pdoEx->errorInfo[2] ?? $pdoEx->getMessage();
+            }
+
+            Log::channel('upload')->error('UPLOAD EXCEPTION (UploadsController@finish)', [
+                'upload_id'    => $validated['upload_id'] ?? null,
+                'exception'    => get_class($e),
+                'message'      => $e->getMessage(),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ]);
+
             return response()->json([
-                'message' => 'Upload completion failed',
-                'error' => $e->getMessage(),
+                'message'      => 'Upload completion failed: ' . $e->getMessage(),
+                'error'        => $e->getMessage(),
+                'exception'    => get_class($e),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ], 500);
         }
     }

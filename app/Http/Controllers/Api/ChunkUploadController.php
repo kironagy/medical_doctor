@@ -82,13 +82,37 @@ class ChunkUploadController extends Controller
                 'expires_at' => $session->expires_at->toIso8601String(),
             ])->header('X-Server-Time', round($duration, 2));
         } catch (\Throwable $e) {
-            Log::channel('upload')->error('chunk:init_error', [
-                'error' => $e->getMessage(),
-                'data' => $data,
+            $sqlState = null;
+            $sqliteError = null;
+            if ($e instanceof \PDOException) {
+                $sqlState = $e->errorInfo[0] ?? $e->getCode();
+                $sqliteError = $e->errorInfo[2] ?? $e->getMessage();
+            } elseif ($e->getPrevious() instanceof \PDOException) {
+                $pdoEx = $e->getPrevious();
+                $sqlState = $pdoEx->errorInfo[0] ?? $pdoEx->getCode();
+                $sqliteError = $pdoEx->errorInfo[2] ?? $pdoEx->getMessage();
+            }
+
+            Log::channel('upload')->error('UPLOAD EXCEPTION (ChunkUploadController@init)', [
+                'exception'    => get_class($e),
+                'message'      => $e->getMessage(),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
+                'data'         => $data ?? null,
             ]);
+
             return response()->json([
-                'message' => 'Failed to initialize upload',
-                'error' => $e->getMessage(),
+                'message'      => 'Failed to initialize upload: ' . $e->getMessage(),
+                'error'        => $e->getMessage(),
+                'exception'    => get_class($e),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ], 500);
         }
     }
@@ -130,15 +154,38 @@ class ChunkUploadController extends Controller
             ])->header('X-Server-Time', round((microtime(true) - $start) * 1000, 2))
             ->setStatusCode($e->getStatusCode());
         } catch (\Throwable $e) {
-            Log::channel('upload')->error('chunk:upload_error', [
-                'upload_id' => $validated['upload_id'] ?? null,
-                'chunk' => $validated['chunk_index'] ?? null,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+            $sqlState = null;
+            $sqliteError = null;
+            if ($e instanceof \PDOException) {
+                $sqlState = $e->errorInfo[0] ?? $e->getCode();
+                $sqliteError = $e->errorInfo[2] ?? $e->getMessage();
+            } elseif ($e->getPrevious() instanceof \PDOException) {
+                $pdoEx = $e->getPrevious();
+                $sqlState = $pdoEx->errorInfo[0] ?? $pdoEx->getCode();
+                $sqliteError = $pdoEx->errorInfo[2] ?? $pdoEx->getMessage();
+            }
+
+            Log::channel('upload')->error('UPLOAD EXCEPTION (ChunkUploadController@chunk)', [
+                'upload_id'    => $validated['upload_id'] ?? null,
+                'chunk'        => $validated['chunk_index'] ?? null,
+                'exception'    => get_class($e),
+                'message'      => $e->getMessage(),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ]);
+
             return response()->json([
-                'message' => 'Chunk upload failed',
-                'error' => $e->getMessage(),
+                'message'      => 'Chunk upload failed: ' . $e->getMessage(),
+                'error'        => $e->getMessage(),
+                'exception'    => get_class($e),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ], 500);
         }
     }
@@ -178,14 +225,37 @@ class ChunkUploadController extends Controller
             ])->header('X-Server-Time', round((microtime(true) - $start) * 1000, 2))
             ->setStatusCode($e->getStatusCode());
         } catch (\Throwable $e) {
-            Log::channel('upload')->error('chunk:complete_error', [
-                'upload_id' => $validated['upload_id'] ?? null,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+            $sqlState = null;
+            $sqliteError = null;
+            if ($e instanceof \PDOException) {
+                $sqlState = $e->errorInfo[0] ?? $e->getCode();
+                $sqliteError = $e->errorInfo[2] ?? $e->getMessage();
+            } elseif ($e->getPrevious() instanceof \PDOException) {
+                $pdoEx = $e->getPrevious();
+                $sqlState = $pdoEx->errorInfo[0] ?? $pdoEx->getCode();
+                $sqliteError = $pdoEx->errorInfo[2] ?? $pdoEx->getMessage();
+            }
+
+            Log::channel('upload')->error('UPLOAD EXCEPTION (ChunkUploadController@complete)', [
+                'upload_id'    => $validated['upload_id'] ?? null,
+                'exception'    => get_class($e),
+                'message'      => $e->getMessage(),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ]);
+
             return response()->json([
-                'message' => 'Upload completion failed',
-                'error' => $e->getMessage(),
+                'message'      => 'Upload completion failed: ' . $e->getMessage(),
+                'error'        => $e->getMessage(),
+                'exception'    => get_class($e),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ], 500);
         }
     }
@@ -257,9 +327,11 @@ class ChunkUploadController extends Controller
 
             if ($apiPatient) {
                 $clean = collect($apiPatient)->only([
-                    'uuid', 'first_name', 'last_name', 'date_of_birth',
+                    'uuid', 'date_of_birth',
                     'gender', 'phone', 'email', 'address', 'notes',
                 ])->toArray();
+
+                $clean['name'] = trim(($apiPatient['first_name'] ?? '') . ' ' . ($apiPatient['last_name'] ?? ''));
 
                 Patient::unguard();
                 $patient = Patient::updateOrCreate(['uuid' => $apiPatient['uuid']], $clean);
@@ -282,8 +354,7 @@ class ChunkUploadController extends Controller
             [
                 'uuid' => $patientId,
                 'sync_status' => 'pending_sync',
-                'first_name' => 'Patient',
-                'last_name' => $patientId,
+                'name' => 'Patient ' . $patientId,
             ]
         );
         Patient::reguard();

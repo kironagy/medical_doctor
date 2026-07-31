@@ -41,6 +41,8 @@ return Application::configure(basePath: dirname(__DIR__))
             '/api/session/restore',
             '/api/v1/*',
             '/_native/*',
+            '/chunk/*',
+            '/uploads/*',
         ]);
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,
@@ -53,9 +55,82 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->report(function (\Throwable $e) {
+            $sqlState = null;
+            $sqliteError = null;
+            if ($e instanceof \PDOException) {
+                $sqlState = $e->errorInfo[0] ?? $e->getCode();
+                $sqliteError = $e->errorInfo[2] ?? $e->getMessage();
+            } elseif ($e->getPrevious() instanceof \PDOException) {
+                $pdoEx = $e->getPrevious();
+                $sqlState = $pdoEx->errorInfo[0] ?? $pdoEx->getCode();
+                $sqliteError = $pdoEx->errorInfo[2] ?? $pdoEx->getMessage();
+            }
+
+            \Illuminate\Support\Facades\Log::error('LARAVEL EXCEPTION CAUGHT', [
+                'exception'    => get_class($e),
+                'message'      => $e->getMessage(),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
+            ]);
+        });
+
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*'),
+            fn (Request $request) => $request->is('api/*') ||
+                $request->is('_native/*') ||
+                $request->is('chunk/*') ||
+                $request->is('uploads/*') ||
+                $request->is('patients/*') ||
+                $request->expectsJson() ||
+                $request->wantsJson()
         );
+
+        $exceptions->render(function (\Throwable $e, Request $request) {
+            $isUploadOrApi = $request->is('*upload*', '*chunk*', 'patients/*/files', '_native/*', 'api/*') ||
+                $request->expectsJson() ||
+                $request->wantsJson() ||
+                env('APP_DEBUG', false);
+
+            if ($isUploadOrApi) {
+                $sqlState = null;
+                $sqliteError = null;
+                if ($e instanceof \PDOException) {
+                    $sqlState = $e->errorInfo[0] ?? $e->getCode();
+                    $sqliteError = $e->errorInfo[2] ?? $e->getMessage();
+                } elseif ($e->getPrevious() instanceof \PDOException) {
+                    $pdoEx = $e->getPrevious();
+                    $sqlState = $pdoEx->errorInfo[0] ?? $pdoEx->getCode();
+                    $sqliteError = $pdoEx->errorInfo[2] ?? $pdoEx->getMessage();
+                }
+
+                \Illuminate\Support\Facades\Log::error('UPLOAD/API EXCEPTION RESPONSE', [
+                    'url'          => $request->fullUrl(),
+                    'method'       => $request->method(),
+                    'headers'      => $request->headers->all(),
+                    'exception'    => get_class($e),
+                    'message'      => $e->getMessage(),
+                    'sqlstate'     => $sqlState,
+                    'sqlite_error' => $sqliteError,
+                    'file'         => $e->getFile(),
+                    'line'         => $e->getLine(),
+                    'trace'        => $e->getTraceAsString(),
+                ]);
+
+                return response()->json([
+                    'error'        => true,
+                    'exception'    => get_class($e),
+                    'message'      => $e->getMessage(),
+                    'sqlstate'     => $sqlState,
+                    'sqlite_error' => $sqliteError,
+                    'file'         => $e->getFile(),
+                    'line'         => $e->getLine(),
+                    'trace'        => $e->getTraceAsString(),
+                ], 500);
+            }
+        });
     })
     ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule): void {
         $schedule->command('uploads:purge-expired --hours=6')->hourly();

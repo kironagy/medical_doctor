@@ -47,17 +47,41 @@ class UploadController extends Controller
                 'file' => new FileResource($patientFile),
             ], 201);
 
-        } catch (Exception $e) {
-            Log::error('File upload failed', [
-                'patient_id' => $patient->id,
-                'error' => $e->getMessage(),
-                'user_id' => auth()->id(),
+        } catch (\Throwable $e) {
+            $sqlState = null;
+            $sqliteError = null;
+            if ($e instanceof \PDOException) {
+                $sqlState = $e->errorInfo[0] ?? $e->getCode();
+                $sqliteError = $e->errorInfo[2] ?? $e->getMessage();
+            } elseif ($e->getPrevious() instanceof \PDOException) {
+                $pdoEx = $e->getPrevious();
+                $sqlState = $pdoEx->errorInfo[0] ?? $pdoEx->getCode();
+                $sqliteError = $pdoEx->errorInfo[2] ?? $pdoEx->getMessage();
+            }
+
+            Log::error('UPLOAD EXCEPTION (UploadController@store)', [
+                'patient_id'   => $patient->id ?? null,
+                'patient_uuid' => $patientUuid,
+                'user_id'      => auth()->id(),
+                'exception'    => get_class($e),
+                'message'      => $e->getMessage(),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
             ]);
 
             return response()->json([
-                'success' => false,
-                'message' => 'Upload failed: ' . $e->getMessage(),
-            ], 422);
+                'success'      => false,
+                'message'      => 'Upload failed: ' . $e->getMessage(),
+                'exception'    => get_class($e),
+                'sqlstate'     => $sqlState,
+                'sqlite_error' => $sqliteError,
+                'file'         => $e->getFile(),
+                'line'         => $e->getLine(),
+                'trace'        => $e->getTraceAsString(),
+            ], 500);
         }
     }
 

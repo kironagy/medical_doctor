@@ -224,3 +224,61 @@ was replaced → note disappeared.
 - `app/Http/Controllers/Api/UploadsController.php` — Fixed `resolvePatient` column mapping to prevent SQLSTATE crashes
 - `app/Services/Mobile/ApiService.php` — Removed hardcoded `Content-Type: application/json` to fix multipart file uploads
 
+---
+
+## 2026-07-31 — Debug Exception Capture & Response Logging Implementation
+
+### Full Laravel Exception Capture & Untruncated Response Logging
+
+**Problem:**
+Upload failures in the mobile app were only showing `PHPBridge: HTTP/1.1 500 Internal Server Error` or `Response first 200 bytes: HTTP/1.1 500 Internal Server Error` in Android ADB logcat, masking the actual underlying Laravel exception details and database errors.
+
+**Changes Made:**
+1. **`PHPBridge.kt`**:
+   - Removed 200-byte response truncation (`response.copyOfRange(0, 200)`).
+   - Changed response logging to print the complete, untruncated HTTP response body (`Log.e(TAG, "HTTP Response Body:\n$fullResponseString")`).
+
+2. **`PHPWebViewClient.kt`**:
+   - Enabled verbose logging for upload requests and responses (logging URL, HTTP method, headers, request body, response status, response headers, and complete untruncated response body).
+
+3. **`bootstrap/app.php`**:
+   - Configured `$exceptions->report()` to extract Exception Class, Message, SQLSTATE, SQLite Error message, File, Line, and Stack Trace, logging them via `Log::error('LARAVEL EXCEPTION CAUGHT', [...])`.
+   - Updated `$exceptions->shouldRenderJsonWhen()` to cover `api/*`, `_native/*`, `chunk/*`, `uploads/*`, `patients/*`, `expectsJson()`, and `wantsJson()`.
+   - Configured `$exceptions->render()` to output structured JSON containing complete exception details (Class, Message, SQLSTATE, SQLite Error, File, Line, Trace) for API/upload/`_native` requests and when `APP_DEBUG=true`.
+
+4. **Upload Controllers** (`UploadsController.php`, `ChunkUploadController.php`, `OfflineUploadController.php`, `UploadController.php`):
+   - Updated all `catch (\Throwable $e)` blocks in `init`, `start`, `chunk`, `complete`, `finish`, and `store` methods to capture `PDOException` SQLSTATE and SQLite error details, log full exception traces using `Log::error(...)`, and return structured JSON responses containing full exception context.
+
+### Files Modified:
+- `nativephp/android/app/src/main/java/com/nativephp/mobile/bridge/PHPBridge.kt`
+- `nativephp/android/app/src/main/java/com/nativephp/mobile/network/PHPWebViewClient.kt`
+- `bootstrap/app.php`
+- `app/Http/Controllers/Api/UploadsController.php`
+- `app/Http/Controllers/Api/ChunkUploadController.php`
+- `app/Http/Controllers/Api/OfflineUploadController.php`
+- `app/Http/Controllers/Api/UploadController.php`
+- `.ai/WORKLOG.md`
+
+---
+
+## 2026-07-31 — Fix Chunk Upload 500 Error Root Causes
+
+### Root Cause Analysis & Fixes
+
+1. **Root Cause 1: Missing Routes in `routes/api.php`**
+   - **Problem:** Frontend `useUploads.js` posted chunk requests to `/api/v1/chunk/init`, `/api/v1/chunk/chunk`, and `/api/v1/chunk/complete`. `routes/api.php` lacked these routes under `v1`, causing Laravel routing lookup failures.
+   - **Fix:** Added `/chunk/init`, `/chunk/chunk`, `/chunk/complete`, `/chunk/{uuid}/cancel`, `/chunk/{uuid}/status` under `Route::prefix('v1')` in `routes/api.php`.
+
+2. **Root Cause 2: Column Name Mismatch in `ChunkUploadController.php`**
+   - **Problem:** `resolvePatient()` in `ChunkUploadController.php` attempted to write `first_name` and `last_name` into the `patients` table. The SQLite schema only contains the `name` column, throwing `SQLSTATE[HY000]: General error: 1 table patients has no column named first_name`.
+   - **Fix:** Updated `resolvePatient()` to combine `first_name` and `last_name` into `name` before calling `Patient::updateOrCreate()`.
+
+3. **Root Cause 3: CSRF Exemption for Chunk Endpoints**
+   - **Fix:** Added `/chunk/*` and `/uploads/*` to `validateCsrfTokens(except: [...])` in `bootstrap/app.php`.
+
+### Build & Installation
+- Built new Debug APK (`nativephp/android/app/build/outputs/apk/debug/app-debug.apk`)
+- Installed on device `2d04ce2e` via ADB (`Success`).
+
+
+
