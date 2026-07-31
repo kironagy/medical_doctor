@@ -26,7 +26,8 @@ fi
 # Backup current environment
 if [ -f ".env" ]; then
     echo "🔄 Backing up current environment to $ENV_BACKUP"
-    cp ".env" "$ENV_BACKUP"i
+    cp ".env" "$ENV_BACKUP"
+fi
 
 # Switch to production environment
 PROD_ENV=".env.native-$BUILD_TYPE"
@@ -36,18 +37,16 @@ if [ ! -f "$PROD_ENV" ]; then
     exit 1
 fi
 
-echo "🔧 Switching to $BUILD_TYPE environment...
+echo "🔧 Switching to $BUILD_TYPE environment..."
 cp "$PROD_ENV" ".env"
 
 # Production preview hook
 if [ -f ".nativephp/production-preload.php" ]; then
-    echo "📦 Running production preload...
+    echo "📦 Running production preload..."
     php .nativephp/production-preload.php
 fi
 
-# Force clean build for production
-echo "🗑️  Performing clean build for production stability..."
-php artisan native:clean
+
 
 # Build NativePHP application
 BUILD_LOG="nativephp/build-$PLATFORM-$DATE.log"
@@ -63,10 +62,10 @@ case $PLATFORM in
         fi
         
         # Build Android
-        php artisan native:build android --force $BUILD_TYPE | tee "$BUILD_LOG"
+        php artisan native:build android $BUILD_TYPE | tee "$BUILD_LOG"
         ;;
     ios)
-        php artisan native:build ios --force $BUILD_TYPE | tee "$BUILD_LOG"
+        php artisan native:build ios $BUILD_TYPE | tee "$BUILD_LOG"
         ;;
     *)
         echo "❌ Unsupported platform: $PLATFORM"

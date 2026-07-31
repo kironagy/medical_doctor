@@ -231,7 +231,7 @@ class ApiService
     public function upload(string $path, array $files, array $data = []): array
     {
         $url = $this->baseUrl() . $path;
-        $request = $this->client();
+        $request = $this->client()->asMultipart();
         $requestId = substr(uniqid('upl', true), -8);
 
         Log::info('[DIAG.ApiService] upload — starting', [
@@ -253,12 +253,22 @@ class ApiService
                 $stream = fopen($file->getRealPath(), 'rb');
                 if ($stream) {
                     $request->attach($key, $stream, $file->getClientOriginalName());
+                } else {
+                    throw new \RuntimeException("Failed to open UploadedFile stream: " . $file->getRealPath());
                 }
-            } elseif (is_string($file) && file_exists($file)) {
+            } elseif (is_string($file)) {
+                if (!file_exists($file)) {
+                    throw new \RuntimeException("File does not exist before attach: " . $file);
+                }
                 $stream = fopen($file, 'rb');
                 if ($stream) {
                     $request->attach($key, $stream, basename($file));
+                } else {
+                    $error = error_get_last();
+                    throw new \RuntimeException("Failed to open file stream: " . $file . " - " . ($error['message'] ?? 'Unknown error'));
                 }
+            } else {
+                throw new \RuntimeException("Unsupported file type provided to upload.");
             }
         }
 

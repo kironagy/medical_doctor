@@ -185,6 +185,11 @@ was replaced → note disappeared.
 - The server's `FileController::store()` requires a `file` field, but it returned a `422` error.
 - **Fix:** The issue was caused by a hardcoded `'Content-Type' => 'application/json'` header in `ApiService::client()`. This overrode Guzzle's automatic `multipart/form-data` header when attaching files, causing the server to receive a malformed request body and fail validation. Removed the hardcoded header so Guzzle can set it dynamically.
 
+**Bug 8 (Sync Loop): Notes and deletes loop infinitely on 404/failure**
+- The `SyncEngineService` did not update `sync_status` to `failed` for Notes when they failed to upload, and did not handle 404 (Not Found) for remote deletions.
+- Because there is no `retry_count` column for patients and notes, they stayed in `pending_create` or `pending_delete` forever, causing the engine to spam the server with thousands of requests.
+- **Fix:** Added `sync_status = 'failed'` for failed Note uploads and handled 404 gracefully for both Note and File remote deletions (treating 404 as successful local deletion). Also changed `apiCall` to throw `RuntimeException` with the HTTP status code so the catch block can identify 404 errors.
+
 ### Files Modified
 - `resources/js/Composables/useUploads.js` — Build local URL instead of using server response URL
 - `app/Domains/Media/Models/PatientFile.php` — SQLite-aware `getUrlAttribute` / `getThumbnailUrlAttribute`
