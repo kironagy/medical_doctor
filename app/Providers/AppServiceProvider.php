@@ -16,6 +16,21 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Ensure storage directories exist (Android APKs strip empty folders and dotfiles)
+        if (config('database.default') === 'sqlite') {
+            $paths = [
+                storage_path('framework/views'),
+                storage_path('framework/cache/data'),
+                storage_path('framework/sessions'),
+                storage_path('app/uploads/pending'),
+            ];
+            foreach ($paths as $path) {
+                if (!is_dir($path)) {
+                    @mkdir($path, 0755, true);
+                }
+            }
+        }
+
         // ── Singleton: ApiService ──────────────────────────────────────
         // ApiService manages the production API token. It must be a singleton
         // so that all consumers (SyncEngineService, MakesApiRequests, etc.)
