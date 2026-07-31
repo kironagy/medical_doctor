@@ -412,7 +412,20 @@ class ChunkUploadController extends Controller
 
         $userId = auth()->id();
         if (!$userId && config('database.default') === 'sqlite') {
-            $userId = \App\Domains\Users\Models\User::first()?->id ?? 1;
+            $user = \App\Domains\Users\Models\User::first();
+            if (!$user) {
+                \App\Domains\Users\Models\User::unguard();
+                $user = \App\Domains\Users\Models\User::firstOrCreate(
+                    ['id' => 1],
+                    [
+                        'name' => 'Default Doctor',
+                        'email' => 'doctor@local.test',
+                        'password' => bcrypt('password'),
+                    ]
+                );
+                \App\Domains\Users\Models\User::reguard();
+            }
+            $userId = $user->id;
         }
 
         if ($userId) {

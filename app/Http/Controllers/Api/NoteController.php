@@ -151,9 +151,27 @@ class NoteController extends Controller
             'sync_status' => 'pending_sync',
             'name' => 'Patient (' . $uuid . ')',
         ];
-        if (auth()->check()) {
-            $stubData['primary_doctor_id'] = auth()->id();
-            $stubData['created_by_id'] = auth()->id();
+        $userId = auth()->id();
+        if (!$userId && config('database.default') === 'sqlite') {
+            $user = \App\Domains\Users\Models\User::first();
+            if (!$user) {
+                \App\Domains\Users\Models\User::unguard();
+                $user = \App\Domains\Users\Models\User::firstOrCreate(
+                    ['id' => 1],
+                    [
+                        'name' => 'Default Doctor',
+                        'email' => 'doctor@local.test',
+                        'password' => bcrypt('password'),
+                    ]
+                );
+                \App\Domains\Users\Models\User::reguard();
+            }
+            $userId = $user->id;
+        }
+
+        if ($userId) {
+            $stubData['primary_doctor_id'] = $userId;
+            $stubData['created_by_id'] = $userId;
         }
 
         $patient = Patient::updateOrCreate(
