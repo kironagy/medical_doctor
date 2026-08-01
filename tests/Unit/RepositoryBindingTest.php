@@ -12,7 +12,7 @@ class RepositoryBindingTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_patient_repository_binding(): void
+    public function test_patient_repository_binding()
     {
         $provider = new RepositoryServiceProvider($this->app);
         $provider->register();
@@ -22,7 +22,7 @@ class RepositoryBindingTest extends TestCase
         $this->assertInstanceOf(PatientRepository::class, $repository);
     }
 
-    public function test_file_cache_repository_binding(): void
+    public function test_file_cache_repository_binding()
     {
         $provider = new RepositoryServiceProvider($this->app);
         $provider->register();

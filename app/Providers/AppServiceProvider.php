@@ -55,7 +55,13 @@ class AppServiceProvider extends ServiceProvider
         // instead of env('NATIVEPHP_APP_ID') which can be accidentally set
         // on the production server (breaking all mobile auth).
         if (config('database.default') === 'sqlite') {
-            $this->runMigrationsIfNeeded();
+            config(['app.url' => 'http://127.0.0.1']);
+            config(['app.asset_url' => '']);
+            \Illuminate\Support\Facades\URL::forceRootUrl('http://127.0.0.1');
+
+            if (!app()->environment('testing')) {
+                $this->runMigrationsIfNeeded();
+            }
         }
     }
 

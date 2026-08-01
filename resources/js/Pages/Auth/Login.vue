@@ -68,17 +68,17 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useForm, usePage } from '@inertiajs/vue3';
+import { useForm, usePage, router } from '@inertiajs/vue3';
 import BaseCard from '@/Components/BaseCard.vue';
 import BaseInput from '@/Components/BaseInput.vue';
 import BaseButton from '@/Components/BaseButton.vue';
 
 const page = usePage()
 
-// If user is already authenticated (session survived restart), redirect to home
+// If user is already authenticated, navigate smoothly to dashboard (SPA)
 const user = computed(() => page.props.auth?.user)
-if (user.value && typeof window !== 'undefined') {
-  window.location.replace('/')
+if (user.value && typeof window !== 'undefined' && window.location.pathname === '/login') {
+  router.visit('/dashboard', { replace: true });
 }
 
 const form = useForm({
@@ -90,23 +90,14 @@ const form = useForm({
 const submit = () => {
   form.post('/login', {
     replace: true,
-    onSuccess: () => {
+    onSuccess: (page) => {
       try {
-        // ── Persistent auth for NativePHP app restart survival ──
-        // The session_remember_token is generated on login and shared
-        // via Inertia props. We store it in localStorage so that on
-        // app restart, if the WebView lost the session cookie, we can
-        // restore the session via /api/session/restore.
         const token = page.props.session_remember_token;
         if (token) {
           localStorage.setItem('np_auth_token', token);
           localStorage.setItem('np_persist_login', '1');
         }
 
-        // ── Persist production API token for session restore survival ──
-        // The api_token authenticates with the production server for sync.
-        // It is lost on app restart because the embedded Laravel session is
-        // regenerated. Persisting it here lets us restore it later.
         const apiToken = page.props.api_token;
         if (apiToken) {
           localStorage.setItem('np_api_token', apiToken);

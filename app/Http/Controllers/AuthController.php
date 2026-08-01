@@ -13,7 +13,7 @@ class AuthController extends Controller
     public function showLogin(Request $request)
     {
         if (Auth::check()) {
-            return redirect('/');
+            return redirect('/dashboard');
         }
         return Inertia::render('Auth/Login');
     }

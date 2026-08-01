@@ -6,6 +6,13 @@
          <span class="text-[11px] font-medium">{{ $t('nav.patients') }}</span>
       </button>
 
+      <button @click="$emit('open-sync')" class="flex flex-col items-center justify-center w-full h-full text-teal-600 dark:text-teal-400 active:text-teal-700 transition-colors">
+        <svg class="w-5 h-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        <span class="text-[11px] font-bold">المزامنة</span>
+      </button>
+
       <button v-if="selectedPatient" @click="$emit('scroll-to', 'summary')" class="flex flex-col items-center justify-center w-full h-full text-slate-500 dark:text-slate-400 active:text-primary-600 dark:active:text-primary-400 transition-colors">
         <svg class="w-5 h-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
          <span class="text-[11px] font-medium">{{ $t('summary') }}</span>
@@ -32,7 +39,7 @@
 <script setup>
 import { useWorkspace } from '@/Composables/useWorkspace'
 
-defineEmits(['toggle-patients', 'scroll-to'])
+defineEmits(['toggle-patients', 'scroll-to', 'open-sync'])
 
 const { selectedPatient } = useWorkspace()
 </script>

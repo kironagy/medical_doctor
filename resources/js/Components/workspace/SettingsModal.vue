@@ -20,6 +20,21 @@
 
           <!-- Action Buttons Stack -->
           <div class="w-full space-y-3.5 mb-6">
+            <!-- 0. Sync Data (مزامنة البيانات) -->
+            <button
+              type="button"
+              @click="openSyncDataCenter"
+              class="w-full flex items-center justify-between px-5 py-3 border border-teal-500/40 dark:border-teal-500/30 text-teal-700 dark:text-teal-300 bg-teal-50/20 dark:bg-teal-950/30 hover:bg-teal-50/40 rounded-xl text-sm font-bold transition-all active:scale-[0.98] shadow-sm"
+            >
+              <span class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-teal-600 dark:text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                مزامنة البيانات
+              </span>
+              <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/60 text-teal-700 dark:text-teal-300">Sync Data</span>
+            </button>
+
             <!-- 1. Change Appearance (تغيير المظهر) -->
             <button
               type="button"
@@ -112,6 +127,27 @@
     
     <!-- Category Manager Modal (Admin only) -->
     <CategoryManagerModal v-model="showCategoryManager" />
+
+    <!-- Sync Data Center Modal Overlay -->
+    <Transition name="fade">
+      <div v-if="showSyncDataCenter" class="fixed inset-0 z-[160] flex items-center justify-center p-4 overflow-y-auto">
+        <div class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm" @click="showSyncDataCenter = false"></div>
+        <div class="relative bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 md:p-8 border border-slate-200 dark:border-slate-800 z-10">
+          <div class="flex items-center justify-between mb-4 border-b pb-3 border-slate-200 dark:border-slate-800">
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <svg class="w-5 h-5 text-teal-600 dark:text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              مركز مزامنة البيانات
+            </h3>
+            <button @click="showSyncDataCenter = false" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-800 text-sm font-bold">
+              إغلاق
+            </button>
+          </div>
+          <SyncDataCenter />
+        </div>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -123,6 +159,7 @@ import { useLocale } from '@/Composables/useLocale'
 import { useToast } from '@/Composables/useToast'
 import axios from 'axios'
 import CategoryManagerModal from '@/Components/workspace/CategoryManagerModal.vue'
+import SyncDataCenter from '@/Pages/Settings/Partials/SyncDataCenter.vue'
 
 defineProps({
   modelValue: Boolean
@@ -139,6 +176,14 @@ const downloadUrl = ref('')
 const downloadingApp = ref(false)
 
 const showCategoryManager = ref(false)
+const showSyncDataCenter = ref(false)
+
+function openSyncDataCenter() {
+  emit('update:modelValue', false) // close settings modal
+  setTimeout(() => {
+    showSyncDataCenter.value = true
+  }, 200)
+}
 
 function openCategoryManager() {
   emit('update:modelValue', false) // close settings modal

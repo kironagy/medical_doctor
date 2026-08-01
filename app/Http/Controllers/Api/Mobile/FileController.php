@@ -12,7 +12,6 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-use App\Repositories\Api\ApiPatientRepository;
 
 class FileController extends Controller
 {
@@ -52,9 +51,13 @@ class FileController extends Controller
         return response()->json(new FileResource($file));
     }
 
-    public function store(Request $request, string $uuid)
+    public function store(Request $request, ?string $uuid = null)
     {
-        $patient = $this->resolvePatient($uuid);
+        $patientUuid = $uuid ?: $request->input('patient_uuid');
+        if (!$patientUuid) {
+            return response()->json(['message' => 'patient_uuid is required'], 422);
+        }
+        $patient = $this->resolvePatient($patientUuid);
         if ($request->user()) {
             Gate::authorize('update', $patient);
         }
@@ -319,50 +322,17 @@ class FileController extends Controller
             return $patient;
         }
 
-        try {
-            $apiPatient = app(ApiPatientRepository::class)->find($uuid);
-            if ($apiPatient) {
-                $cleanData = \Illuminate\Support\Arr::except($apiPatient, [
-                    'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes',
-                ]);
-                $cleanData['sync_status'] = 'synced';
-
-                Patient::unguard();
-                $patient = Patient::updateOrCreate(['uuid' => $uuid], $cleanData);
-                Patient::reguard();
-
-                if ($patient) {
-                    return $patient;
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('resolvePatient API fallback failed', [
-                'uuid' => $uuid,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
         $stubData = [
             'uuid' => $uuid,
-            'sync_status' => 'pending_sync',
-            'name' => 'Patient (' . $uuid . ')',
+            'sync_status' => 'pending_create',
+            'name' => 'Patient (' . substr($uuid, 0, 8) . ')',
         ];
         $userId = auth()->id();
         if (!$userId && config('database.default') === 'sqlite') {
             $user = \App\Domains\Users\Models\User::first();
-            if (!$user) {
-                \App\Domains\Users\Models\User::unguard();
-                $user = \App\Domains\Users\Models\User::firstOrCreate(
-                    ['id' => 1],
-                    [
-                        'name' => 'Default Doctor',
-                        'email' => 'doctor@local.test',
-                        'password' => bcrypt('password'),
-                    ]
-                );
-                \App\Domains\Users\Models\User::reguard();
+            if ($user) {
+                $userId = $user->id;
             }
-            $userId = $user->id;
         }
 
         if ($userId) {
@@ -370,11 +340,6 @@ class FileController extends Controller
             $stubData['created_by_id'] = $userId;
         }
 
-        $patient = Patient::updateOrCreate(
-            ['uuid' => $uuid],
-            $stubData
-        );
-
-        return $patient;
+        return Patient::create($stubData);
     }
 }

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Repositories\Api\ApiPatientRepository;
 use App\Services\Upload\UploadSessionService;
 use App\Services\Upload\ChunkUploadService;
 use App\Services\Upload\ChunkMergeService;
@@ -364,82 +363,14 @@ class UploadsController extends Controller
             return $patient;
         }
 
-        try {
-            Log::channel('upload')->info('upload:start - resolvePatient patient not found locally, trying API fallback');
-            $uuid = is_numeric($patientId) ? null : $patientId;
-            $apiPatient = app(ApiPatientRepository::class)->find($uuid ?? $patientId);
-
-            if ($apiPatient) {
-                $clean = collect($apiPatient)->only([
-                    'uuid', 'date_of_birth',
-                    'gender', 'phone', 'email', 'address', 'notes',
-                ])->toArray();
-                
-                $clean['name'] = trim(($apiPatient['first_name'] ?? '') . ' ' . ($apiPatient['last_name'] ?? ''));
-
-                Patient::unguard();
-                $patient = Patient::updateOrCreate(['uuid' => $apiPatient['uuid']], $clean);
-                Patient::reguard();
-
-                if ($patient) {
-                    Log::channel('upload')->info('upload:start - resolvePatient resolved from API successfully');
-                    return $patient;
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::channel('upload')->warning('resolvePatient API fallback failed', [
-                'patient_id' => $patientId,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        Log::channel('upload')->info('upload:start - resolvePatient API fallback returned null/failed, creating local stub patient');
-
-        // ── SEC-003 & SQLite NOT NULL constraint FIX: When creating a stub patient,
-        // set primary_doctor_id and created_by_id from the authenticated user
-        // or default to the first user/doctor (ID 1) if running on SQLite database.
+        Log::channel('upload')->info('upload:start - resolvePatient creating stub for local patient');
+        $uuid = is_numeric($patientId) ? (string) \Illuminate\Support\Str::uuid() : $patientId;
         $stubData = [
-            'uuid' => $patientId,
-            'sync_status' => 'pending_sync',
-            'name' => 'Patient ' . $patientId,
+            'uuid' => $uuid,
+            'name' => 'Patient (' . substr($uuid, 0, 8) . ')',
+            'sync_status' => 'pending_create',
+            'primary_doctor_id' => auth()->id() ?? 1,
         ];
-
-        $userId = auth()->id();
-        if (!$userId && config('database.default') === 'sqlite') {
-            $user = \App\Domains\Users\Models\User::first();
-            if (!$user) {
-                \App\Domains\Users\Models\User::unguard();
-                $user = \App\Domains\Users\Models\User::firstOrCreate(
-                    ['id' => 1],
-                    [
-                        'name' => 'Default Doctor',
-                        'email' => 'doctor@local.test',
-                        'password' => bcrypt('password'),
-                    ]
-                );
-                \App\Domains\Users\Models\User::reguard();
-            }
-            $userId = $user->id;
-        }
-
-        if ($userId) {
-            $stubData['primary_doctor_id'] = $userId;
-            $stubData['created_by_id'] = $userId;
-        }
-
-        Patient::unguard();
-        $patient = Patient::updateOrCreate(
-            ['uuid' => $patientId],
-            $stubData
-        );
-        Patient::reguard();
-
-        Log::channel('upload')->info('upload:start - resolvePatient local stub patient created', [
-            'patient_id' => $patient->id,
-            'patient_uuid' => $patient->uuid,
-            'primary_doctor_id' => $patient->primary_doctor_id ?? null,
-        ]);
-
-        return $patient;
+        return Patient::create($stubData);
     }
 }

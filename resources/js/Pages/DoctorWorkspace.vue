@@ -180,7 +180,11 @@
       v-if="!isMobile || !selectedPatient"
       @toggle-patients="mobilePatientListOpen = !mobilePatientListOpen"
       @scroll-to="scrollToSection"
+      @open-sync="showMobileSyncCenter = true"
     />
+
+    <!-- Mobile Sync Center Modal -->
+    <SyncCenterModal :show="showMobileSyncCenter" @close="showMobileSyncCenter = false" />
 
     <!-- Inline Preview -->
     <InlineFilePreview />
@@ -256,7 +260,10 @@ import AddPatientModal from '@/Components/workspace/AddPatientModal.vue'
 import EditPatientModal from '@/Components/workspace/EditPatientModal.vue'
 import CategoryManagerModal from '@/Components/workspace/CategoryManagerModal.vue'
 import SettingsModal from '@/Components/workspace/SettingsModal.vue'
+import SyncCenterModal from '@/Components/workspace/SyncCenterModal.vue'
 import SharePatientModal from '@/Components/workspace/SharePatientModal.vue'
+
+const showMobileSyncCenter = ref(false)
 import WorkspaceModal from '@/Components/workspace/WorkspaceModal.vue'
 import BaseButton from '@/Components/BaseButton.vue'
 import { usePullToRefresh } from '@/Composables/usePullToRefresh'

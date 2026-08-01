@@ -1,7 +1,7 @@
 <template>
-  <div class="max-w-4xl mx-auto px-4 py-6">
+  <div class="max-w-5xl mx-auto px-4 py-6">
     <div class="mb-6">
-      <h1 class="text-2xl font-bold font-heading text-slate-900 dark:text-white">{{ $t('settings.title') }}</h1>
+      <h1 class="text-2xl font-bold font-heading text-slate-900 dark:text-white">{{ $t('settings.title') || 'Settings' }}</h1>
     </div>
 
     <div class="flex flex-col md:flex-row gap-6">
@@ -40,18 +40,19 @@
             ]"
           >
             <component :is="tab.icon" class="w-5 h-5 me-3" />
-            {{ $t(tab.name) }}
+            {{ $t(tab.name) || tab.fallback }}
           </button>
         </nav>
       </div>
 
       <!-- Settings Content -->
       <div class="flex-1">
-        <ProfileForm v-if="activeTab === 'profile'" />
-        <PasswordForm v-if="activeTab === 'password'" />
-        <PreferencesForm v-if="activeTab === 'preferences'" />
-        <CategoryForm v-if="activeTab === 'categories'" />
-        <DownloadAppForm v-if="activeTab === 'download'" />
+        <SyncDataCenter v-if="activeTab === 'sync'" />
+        <ProfileForm v-else-if="activeTab === 'profile'" />
+        <PasswordForm v-else-if="activeTab === 'password'" />
+        <PreferencesForm v-else-if="activeTab === 'preferences'" />
+        <CategoryForm v-else-if="activeTab === 'categories'" />
+        <DownloadAppForm v-else-if="activeTab === 'download'" />
       </div>
     </div>
   </div>
@@ -59,12 +60,14 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import SyncDataCenter from '@/Pages/Settings/Partials/SyncDataCenter.vue'
 import ProfileForm from '@/Pages/Settings/Partials/ProfileForm.vue'
 import PasswordForm from '@/Pages/Settings/Partials/PasswordForm.vue'
 import PreferencesForm from '@/Pages/Settings/Partials/PreferencesForm.vue'
 import CategoryForm from '@/Pages/Settings/Partials/CategoryForm.vue'
 import DownloadAppForm from '@/Pages/Settings/Partials/DownloadAppForm.vue'
 import {
+  CloudArrowUpIcon,
   UserIcon,
   KeyIcon,
   CogIcon,
@@ -73,15 +76,16 @@ import {
   ChevronDownIcon
 } from '@heroicons/vue/24/outline'
 
-const activeTab = ref('profile')
+const activeTab = ref('sync')
 const isMobileMenuOpen = ref(false)
 
 const tabs = [
-  { id: 'profile', name: 'settings.profile', icon: UserIcon },
-  { id: 'password', name: 'settings.password', icon: KeyIcon },
-  { id: 'preferences', name: 'settings.preferences', icon: CogIcon },
-  { id: 'categories', name: 'settings.categories', icon: TagIcon },
-  { id: 'download', name: 'settings.download', icon: ArrowDownTrayIcon },
+  { id: 'sync', name: 'settings.sync_data', fallback: 'Sync Data / مزامنة البيانات', icon: CloudArrowUpIcon },
+  { id: 'profile', name: 'settings.profile', fallback: 'Profile', icon: UserIcon },
+  { id: 'password', name: 'settings.password', fallback: 'Password', icon: KeyIcon },
+  { id: 'preferences', name: 'settings.preferences', fallback: 'Preferences', icon: CogIcon },
+  { id: 'categories', name: 'settings.categories', fallback: 'Categories', icon: TagIcon },
+  { id: 'download', name: 'settings.download', fallback: 'Download App', icon: ArrowDownTrayIcon },
 ]
 
 const activeTabObj = computed(() => tabs.find(t => t.id === activeTab.value))

@@ -217,16 +217,13 @@ Route::prefix('api/v1')->withoutMiddleware([
 Route::prefix('_native/api/offline')->name('offline.')->withoutMiddleware([
     \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
 ])->group(function () {
-    // ── Offline file uploads ──────────────────────────────────────────
-    Route::post('/uploads', [\App\Http\Controllers\Api\OfflineUploadController::class, 'store'])->name('uploads.store');
-    Route::get('/uploads', [\App\Http\Controllers\Api\OfflineUploadController::class, 'index'])->name('uploads.index');
-    Route::get('/uploads/{uuid}/status', [\App\Http\Controllers\Api\OfflineUploadController::class, 'status'])->name('uploads.status');
-    Route::post('/uploads/{uuid}/retry', [\App\Http\Controllers\Api\OfflineUploadController::class, 'retry'])->name('uploads.retry');
-    Route::delete('/uploads/{uuid}', [\App\Http\Controllers\Api\OfflineUploadController::class, 'destroy'])->name('uploads.destroy');
-    // ── Offline notes ─────────────────────────────────────────────────
-    Route::post('/notes', [\App\Http\Controllers\Api\OfflineNoteController::class, 'store'])->name('notes.store');
-    Route::get('/notes', [\App\Http\Controllers\Api\OfflineNoteController::class, 'index'])->name('notes.index');
-    Route::delete('/notes/{uuid}', [\App\Http\Controllers\Api\OfflineNoteController::class, 'destroy'])->name('notes.destroy');
+    // File upload endpoints (consolidated into Mobile FileController)
+    Route::post('/uploads', [\App\Http\Controllers\Api\Mobile\FileController::class, 'store'])->name('uploads.store');
+    Route::delete('/uploads/{fileUuid}', [\App\Http\Controllers\Api\Mobile\FileController::class, 'destroy'])->name('uploads.destroy');
+
+    // Note creation endpoints (consolidated into Mobile NoteController)
+    Route::post('/notes', [\App\Http\Controllers\Api\Mobile\NoteController::class, 'store'])->name('notes.store');
+    Route::delete('/notes/{noteUuid}', [\App\Http\Controllers\Api\Mobile\NoteController::class, 'destroy'])->name('notes.destroy');
 });
 
 // ═══ SYNC-005 FIX: Removed competing sync endpoints ═══════════════════
@@ -257,80 +254,104 @@ Route::get('/_native/api/patients/pending', function () {
 // SyncEngineService. All sync operations now go through the single
 // POST /_native/api/sync/engine endpoint.
 
-// ── Phase 7 — Sync Engine (OUTSIDE auth middleware) ─────────────────
-// Robust ordered synchronization: patients → files → deletes.
-// Used by useSyncEngine composable for connectivity-based auto-sync.
+// ── Manual Sync Engine (OUTSIDE auth middleware) ──────────────────────
+// Consolidated 11-step offline-first manual sync service.
+// Triggered strictly when user presses "Sync Now".
 // 🚫 CSRF excluded — same reasoning as other _native routes.
 Route::prefix('_native/api/sync')->withoutMiddleware([
     \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
 ])->group(function () {
-    // Full sync: patients first, then files (only after patient is synced), then deletes
-    Route::post('/engine', function (\Illuminate\Http\Request $request) {
+    // Sync Dashboard Stats Endpoint
+    Route::get('/dashboard', function () {
+        $manualSync = app(\App\Services\ManualSyncService::class);
+        return response()->json([
+            'success' => true,
+            'stats'   => $manualSync->getSyncDashboardStats(),
+        ]);
+    });
+
+    // Control Endpoints: Pause, Resume, Cancel
+    Route::post('/pause', function () {
+        app(\App\Services\ManualSyncService::class)->pause();
+        return response()->json(['success' => true, 'message' => 'Sync paused']);
+    });
+
+    Route::post('/resume', function () {
+        app(\App\Services\ManualSyncService::class)->resume();
+        return response()->json(['success' => true, 'message' => 'Sync resumed']);
+    });
+
+    Route::post('/cancel', function () {
+        app(\App\Services\ManualSyncService::class)->cancel();
+        return response()->json(['success' => true, 'message' => 'Sync cancelled']);
+    });
+
+    // Manual sync pipeline endpoint
+    Route::post('/manual', function (\Illuminate\Http\Request $request) {
         try {
-            // ══ FIX: Capture Bearer token from sync request ═══════════════════
-            // The frontend now sends the production API token as a Bearer header
-            // directly in the sync request. This bypasses the broken session-based
-            // token transfer (API routes don't have StartSession middleware, so
-            // session() writes from NoteController never persisted across requests).
-            //
-            // This ensures ApiService has the token REGARDLESS of whether:
-            //   - The session has the token (no StartSession on API routes)
-            //   - The file-based token storage is working (permissions, path issues)
-            //   - The singleton persisted across requests
-            //
-            // ⚠ CRITICAL: Do NOT replace setToken() — it also writes to file for
-            // persistence across app restarts. We call it here to ensure both the
-            // in-memory singleton AND the file backup are populated.
             if (config('database.default') === 'sqlite') {
                 $bearerToken = $request->bearerToken();
                 if ($bearerToken) {
                     try {
                         app(\App\Services\Mobile\ApiService::class)->setToken($bearerToken);
-                        \Illuminate\Support\Facades\Log::info('[SyncEngine] Bearer token captured from sync request and stored in ApiService');
                     } catch (\Throwable $e) {
-                        \Illuminate\Support\Facades\Log::warning('[SyncEngine] Failed to capture Bearer token: ' . $e->getMessage());
+                        \Illuminate\Support\Facades\Log::warning('[ManualSync] Failed to capture Bearer token: ' . $e->getMessage());
                     }
-                } else {
-                    \Illuminate\Support\Facades\Log::warning('[SyncEngine] No Bearer token in sync request — sync may fail with 401');
                 }
             }
 
-            // ── AUTH INSTRUMENTATION: Log token state before sync ────────
-            $apiToken = app(\App\Services\Mobile\ApiService::class)->getToken();
-            $sessionToken = session('api_token');
-            $apiTokenId = $apiToken ? (explode('|', $apiToken, 2)[0] ?? 'unknown') : 'NONE';
-            \Illuminate\Support\Facades\Log::info('[SyncEngine] Pre-sync auth state', [
-                'api_service_token_present' => $apiToken ? 'YES' : 'NO',
-                'api_service_token_prefix' => $apiToken ? substr($apiToken, 0, 20) . '...' : 'NONE',
-                'api_service_token_hash' => $apiToken ? md5($apiToken) : 'NONE',
-                'api_service_sanctum_id' => $apiTokenId,
-                'session_api_token_present' => $sessionToken ? 'YES' : 'NO',
-                'session_id' => session()->getId(),
-                'auth_user_id' => auth()->id(),
-                'auth_check' => auth()->check() ? 'YES' : 'NO',
-            ]);
-
-            $engine = app(\App\Services\SyncEngineService::class);
-            $results = $engine->syncAll();
-            return response()->json([
-                'success' => true,
-                'message' => 'Sync cycle completed',
-                'results' => $results,
-            ]);
+            $manualSync = app(\App\Services\ManualSyncService::class);
+            $results = $manualSync->syncAll();
+            return response()->json($results);
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('[Sync] engine failed: ' . $e->getMessage());
+            \Illuminate\Support\Facades\Log::error('[ManualSync] Failed: ' . $e->getMessage());
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     });
 
-    // Get pending operations summary (patients + files waiting to sync)
+    // Compatibility endpoint alias pointing to ManualSyncService
+    Route::post('/engine', function (\Illuminate\Http\Request $request) {
+        if (config('database.default') === 'sqlite') {
+            $bearerToken = $request->bearerToken();
+            if ($bearerToken) {
+                try {
+                    app(\App\Services\Mobile\ApiService::class)->setToken($bearerToken);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('[SyncEngine] Failed to capture Bearer token: ' . $e->getMessage());
+                }
+            }
+        }
+
+        $manualSync = app(\App\Services\ManualSyncService::class);
+        $results = $manualSync->syncAll();
+        return response()->json([
+            'success' => $results['success'] ?? true,
+            'message' => $results['message'] ?? 'Manual sync completed',
+            'results' => $results['stats'] ?? [],
+        ]);
+    });
+
+    // Get pending operations summary
     Route::get('/pending-summary', function () {
         try {
-            $engine = app(\App\Services\SyncEngineService::class);
-            return response()->json($engine->getPendingSummary());
+            $patientCreate = \App\Domains\Patients\Models\Patient::where('sync_status', 'pending_create')->count();
+            $patientUpdate = \App\Domains\Patients\Models\Patient::where('sync_status', 'pending_update')->count();
+            $patientDelete = \App\Domains\Patients\Models\Patient::where('sync_status', 'pending_delete')->count();
+            $filesPending  = \Illuminate\Support\Facades\DB::table('offline_files')->whereIn('sync_status', ['pending_upload', 'failed'])->count();
+            $notesPending  = \App\Domains\Patients\Models\PatientNote::whereIn('sync_status', ['pending_create', 'pending_delete'])->count();
+            $patientFilesPending = \App\Domains\Media\Models\PatientFile::whereNull('remote_uuid')->where('upload_status', 'ready')->count();
+
+            $total = $patientCreate + $patientUpdate + $patientDelete + $filesPending + $patientFilesPending + $notesPending;
+
+            return response()->json([
+                'patients' => $patientCreate + $patientUpdate,
+                'deletes'  => $patientDelete,
+                'files'    => $filesPending + $patientFilesPending,
+                'notes'    => $notesPending,
+                'total'    => $total,
+            ]);
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('[Sync] pending-summary query failed: ' . $e->getMessage());
-            return response()->json(['patients' => 0, 'files' => 0, 'deletes' => 0, 'total' => 0]);
+            return response()->json(['patients' => 0, 'files' => 0, 'deletes' => 0, 'notes' => 0, 'total' => 0]);
         }
     });
 });

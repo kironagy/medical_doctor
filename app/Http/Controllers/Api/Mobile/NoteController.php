@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api\Mobile;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
-use App\Repositories\Api\ApiPatientRepository;
+use App\Contracts\Repositories\PatientRepositoryInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
@@ -31,35 +31,13 @@ class NoteController extends Controller
         return response()->json($notes);
     }
 
-    public function store(Request $request, string $uuid)
+    public function store(Request $request, ?string $uuid = null)
     {
-        Log::info('[MobileNote::store] ENTERED uuid=' . $uuid . ' user=' . ($request->user()?->id ?? 'null'));
-
-        // ═══════════════════════════════════════════════════════════════
-        //  CAPTURE BEARER TOKEN FROM FRONTEND
-        // ═══════════════════════════════════════════════════════════════
-        // The frontend sends the production API token in the Authorization
-        // header. We capture it here and store in ApiService so that the
-        // sync engine can use it to authenticate against the production
-        // server when uploading this note.
-        // Without this, the sync engine calls ApiService::getToken() which
-        // returns null, resulting in a 401 from the production server,
-        // and the note is NEVER created on production.
-        if (config('database.default') === 'sqlite') {
-            $bearerToken = $request->bearerToken();
-            if ($bearerToken) {
-                try {
-                    app(\App\Services\Mobile\ApiService::class)->setToken($bearerToken);
-                    Log::info('[MobileNote] Bearer token captured and stored in ApiService');
-                } catch (\Throwable $e) {
-                    Log::warning('[MobileNote] Failed to capture Bearer token: ' . $e->getMessage());
-                }
-            } else {
-                Log::warning('[MobileNote] No Bearer token in request — sync will fail with 401');
-            }
+        $patientUuid = $uuid ?: $request->input('patient_uuid');
+        if (!$patientUuid) {
+            return response()->json(['message' => 'patient_uuid is required'], 422);
         }
-
-        $patient = $this->resolvePatient($uuid);
+        $patient = $this->resolvePatient($patientUuid);
         // ── SQLite guard: Skip Gate when no authenticated user ──────────
         // On the embedded Laravel (SQLite), API routes have NO auth middleware.
         // Gate::authorize('update', $patient) with null user throws 403.
@@ -214,51 +192,17 @@ class NoteController extends Controller
             return $patient;
         }
 
-        try {
-            $apiPatient = app(ApiPatientRepository::class)->find($uuid);
-            if ($apiPatient) {
-                $cleanData = \Illuminate\Support\Arr::except($apiPatient, [
-                    'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes',
-                ]);
-                $cleanData['sync_status'] = 'synced';
-
-                Patient::unguard();
-                $patient = Patient::updateOrCreate(['uuid' => $uuid], $cleanData);
-                Patient::reguard();
-
-                if ($patient) {
-                    return $patient;
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('resolvePatient API fallback failed', [
-                'uuid' => $uuid,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        // ── SEC-003 FIX: Set primary_doctor_id on stub patients
         $stubData = [
             'uuid' => $uuid,
-            'sync_status' => 'pending_sync',
-            'name' => 'Patient (' . $uuid . ')',
+            'sync_status' => 'pending_create',
+            'name' => 'Patient (' . substr($uuid, 0, 8) . ')',
         ];
         $userId = auth()->id();
         if (!$userId && config('database.default') === 'sqlite') {
             $user = \App\Domains\Users\Models\User::first();
-            if (!$user) {
-                \App\Domains\Users\Models\User::unguard();
-                $user = \App\Domains\Users\Models\User::firstOrCreate(
-                    ['id' => 1],
-                    [
-                        'name' => 'Default Doctor',
-                        'email' => 'doctor@local.test',
-                        'password' => bcrypt('password'),
-                    ]
-                );
-                \App\Domains\Users\Models\User::reguard();
+            if ($user) {
+                $userId = $user->id;
             }
-            $userId = $user->id;
         }
 
         if ($userId) {
@@ -266,11 +210,6 @@ class NoteController extends Controller
             $stubData['created_by_id'] = $userId;
         }
 
-        $patient = Patient::updateOrCreate(
-            ['uuid' => $uuid],
-            $stubData
-        );
-
-        return $patient;
+        return Patient::create($stubData);
     }
 }

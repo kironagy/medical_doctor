@@ -16,13 +16,12 @@
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
+        <base href="/">
+
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-        <link rel="dns-prefetch" href="{{ url('/') }}">
-        <link rel="preconnect" href="{{ url('/') }}">
 
         <script>
           (function() {
@@ -53,9 +52,9 @@
                   body: JSON.stringify({ api_token: apiToken || '' }),
                 })
                 .then(function(res) {
-                  if (res.ok) {
-                    // Session restored successfully — reload to get authenticated state
-                    window.location.href = '/dashboard';
+                  if (res.ok && window.location.pathname === '/login') {
+                    // Session restored successfully — navigate to dashboard
+                    window.location.replace('/dashboard');
                   } else if (res.status === 401) {
                     // Token expired or invalid — clean up
                     localStorage.removeItem('np_auth_token');

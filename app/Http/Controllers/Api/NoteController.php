@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
 use App\Http\Controllers\Controller;
-use App\Repositories\Api\ApiPatientRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
@@ -119,66 +118,17 @@ class NoteController extends Controller
             return $patient;
         }
 
-        try {
-            $apiPatient = app(ApiPatientRepository::class)->find($uuid);
-            if ($apiPatient) {
-                $cleanData = \Illuminate\Support\Arr::except($apiPatient, [
-                    'id', 'primary_doctor', 'visits', 'shares', 'files', 'notes',
-                ]);
-                $cleanData['sync_status'] = 'synced';
-
-                Patient::unguard();
-                $patient = Patient::updateOrCreate(['uuid' => $uuid], $cleanData);
-                Patient::reguard();
-
-                if ($patient) {
-                    return $patient;
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('resolvePatient API fallback failed', [
-                'uuid' => $uuid,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        // ── SEC-003 FIX: When creating a stub patient, set primary_doctor_id
-        // from the current authenticated user if available. Previously this
-        // created patients with NULL primary_doctor_id, which made them
-        // visible to ALL doctors. Now only the authenticated user sees them.
         $stubData = [
             'uuid' => $uuid,
-            'sync_status' => 'pending_sync',
-            'name' => 'Patient (' . $uuid . ')',
+            'sync_status' => 'pending_create',
+            'name' => 'Patient (' . substr($uuid, 0, 8) . ')',
         ];
         $userId = auth()->id();
-        if (!$userId && config('database.default') === 'sqlite') {
-            $user = \App\Domains\Users\Models\User::first();
-            if (!$user) {
-                \App\Domains\Users\Models\User::unguard();
-                $user = \App\Domains\Users\Models\User::firstOrCreate(
-                    ['id' => 1],
-                    [
-                        'name' => 'Default Doctor',
-                        'email' => 'doctor@local.test',
-                        'password' => bcrypt('password'),
-                    ]
-                );
-                \App\Domains\Users\Models\User::reguard();
-            }
-            $userId = $user->id;
-        }
-
         if ($userId) {
             $stubData['primary_doctor_id'] = $userId;
             $stubData['created_by_id'] = $userId;
         }
 
-        $patient = Patient::updateOrCreate(
-            ['uuid' => $uuid],
-            $stubData
-        );
-
-        return $patient;
+        return Patient::create($stubData);
     }
 }
