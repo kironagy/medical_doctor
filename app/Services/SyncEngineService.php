@@ -345,10 +345,10 @@ class SyncEngineService
                         ['id', 'primary_doctor', 'visits', 'shares', 'files', 'notes']
                     );
                     $cleanData['sync_status'] = 'synced';
-                    
+
                     $validColumns = \Illuminate\Support\Facades\Schema::getColumnListing('patients');
                     $cleanData = array_intersect_key($cleanData, array_flip($validColumns));
-                    
+
                     \App\Domains\Patients\Models\Patient::unguard();
                     \App\Domains\Patients\Models\Patient::where('uuid', $remoteUuid)->update($cleanData);
                     \App\Domains\Patients\Models\Patient::reguard();
@@ -645,8 +645,10 @@ class SyncEngineService
      *
      * @throws \Throwable
      */
+
     private function uploadSingleFile(array $file): array
     {
+
         $absolutePath = $this->offlineUploadService->absolutePath($file['local_path']);
 
         if (!file_exists($absolutePath)) {
