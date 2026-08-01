@@ -657,13 +657,21 @@ class SyncEngineService
         // file status to 'uploading' before calling this method. We do NOT
         // call markUploading() again here to avoid a redundant DB write.
 
+        $extraParams = [
+            'title' => $file['title'] ?? $file['original_name'],
+            'desc'  => $file['desc'] ?? '',
+        ];
+        if (!empty($file['category'])) {
+            $extraParams['category'] = $file['category'];
+        }
+        if (!empty($file['date'])) {
+            $extraParams['date'] = $file['date'];
+        }
+
         $response = $this->api->upload(
             "/patients/{$file['patient_uuid']}/files",
             ['file' => $absolutePath],
-            [
-                'title' => $file['original_name'],
-                'desc'  => 'Uploaded from offline sync',
-            ]
+            $extraParams
         );
 
         $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;

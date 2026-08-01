@@ -29,7 +29,7 @@ class OfflineUploadService
      * @param  string        $patientUuid  The patient UUID this file belongs to
      * @return array  Metadata for the persisted file
      */
-    public function saveLocally(UploadedFile $file, string $patientUuid): array
+    public function saveLocally(UploadedFile $file, string $patientUuid, array $extraData = []): array
     {
         $uuid = (string) Str::uuid();
         $extension = $file->getClientOriginalExtension() ?: 'bin';
@@ -76,6 +76,10 @@ class OfflineUploadService
             'patient_uuid'  => $patientUuid,
             'local_path'    => $relativePath,
             'original_name' => $originalName,
+            'title'         => $extraData['title'] ?? $originalName,
+            'desc'          => $extraData['desc'] ?? '',
+            'category'      => $extraData['category'] ?? null,
+            'date'          => $extraData['date'] ?? null,
             'mime_type'     => $mimeType,
             'extension'     => $extension,
             'size'          => $size,

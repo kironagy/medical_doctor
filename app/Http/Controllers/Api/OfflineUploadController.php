@@ -85,7 +85,13 @@ class OfflineUploadController extends Controller
         try {
             $metadata = $this->offlineUploadService->saveLocally(
                 $request->file('file'),
-                $validated['patient_uuid']
+                $validated['patient_uuid'],
+                [
+                    'title'    => $validated['title'] ?? null,
+                    'desc'     => $validated['desc'] ?? null,
+                    'category' => $validated['category'] ?? null,
+                    'date'     => $validated['date'] ?? null,
+                ]
             );
 
             $record = $this->offlineRepo->create($metadata);
@@ -273,7 +279,32 @@ class OfflineUploadController extends Controller
             $query->where('sync_status', $status);
         }
 
-        $files = $query->orderBy('created_at', 'desc')->get()->map(fn ($f) => (array) $f)->toArray();
+        $files = $query->orderBy('created_at', 'desc')->get()->map(function ($f) {
+            $array = (array) $f;
+            $url = "/_native/cache/files/{$f->uuid}";
+            $mime = $f->mime_type ?? 'application/octet-stream';
+            $thumbnailUrl = str_starts_with($mime, 'image/')
+                ? $url
+                : (str_starts_with($mime, 'video/')
+                    ? "/_native/cache/files/{$f->uuid}/thumbnail"
+                    : null);
+
+            return array_merge($array, [
+                'title'         => $f->title ?? $f->original_name ?? '',
+                'desc'          => $f->desc ?? '',
+                'category'      => $f->category ?? null,
+                'date'          => $f->date ?? null,
+                'url'           => $url,
+                'thumbnail_url' => $thumbnailUrl,
+                'type'          => match (true) {
+                    str_starts_with($mime, 'image/') => 'image',
+                    str_starts_with($mime, 'video/') => 'video',
+                    str_starts_with($mime, 'audio/') => 'audio',
+                    str_starts_with($mime, 'application/pdf') => 'pdf',
+                    default => 'document',
+                },
+            ]);
+        })->toArray();
 
         // On SQLite (mobile), also return unsynced patient_files created via chunk uploads
         if (config('database.default') === 'sqlite') {
