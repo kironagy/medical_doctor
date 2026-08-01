@@ -273,10 +273,43 @@ class OfflineUploadController extends Controller
             $query->where('sync_status', $status);
         }
 
-        $files = $query->orderBy('created_at', 'desc')->get();
+        $files = $query->orderBy('created_at', 'desc')->get()->map(fn ($f) => (array) $f)->toArray();
+
+        // On SQLite (mobile), also return unsynced patient_files created via chunk uploads
+        if (config('database.default') === 'sqlite') {
+            $unsynced = \Illuminate\Support\Facades\DB::table('patient_files')
+                ->whereNull('remote_uuid')
+                ->when($patientUuid, function ($q) use ($patientUuid) {
+                    $q->whereIn('patient_id', function ($sub) use ($patientUuid) {
+                        $sub->select('id')->from('patients')->where('uuid', $patientUuid);
+                    });
+                })
+                ->get()
+                ->map(function ($pf) {
+                    $pUuid = \Illuminate\Support\Facades\DB::table('patients')->where('id', $pf->patient_id)->value('uuid');
+                    return [
+                        'uuid' => $pf->uuid,
+                        'patient_uuid' => $pUuid,
+                        'original_name' => $pf->file_name ?? $pf->title ?? '',
+                        'title' => $pf->title ?? $pf->file_name ?? '',
+                        'mime_type' => $pf->mime_type ?? 'application/octet-stream',
+                        'size' => $pf->size ?? 0,
+                        'category' => $pf->category ?? null,
+                        'sync_status' => $pf->sync_status ?? 'pending_sync',
+                        'upload_status' => $pf->upload_status ?? 'ready',
+                        'url' => "/_native/cache/files/{$pf->uuid}",
+                        'thumbnail_url' => "/_native/cache/files/{$pf->uuid}/thumbnail",
+                        'created_at' => $pf->created_at,
+                        'type' => $pf->type ?? 'document',
+                    ];
+                })
+                ->toArray();
+
+            $files = array_merge($files, $unsynced);
+        }
 
         return response()->json([
-            'data' => $files->map(fn ($f) => (array) $f),
+            'data' => $files,
         ]);
     }
 }

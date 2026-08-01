@@ -577,8 +577,8 @@ async function loadMoreForPreview(currentPageForPreview) {
 
 const categoryFiles = computed(() => {
   const localFiles = (allFiles.value || []).filter(f => f.category === props.slug)
-  if (initialLoadDone.value && serverFiles.value.length > 0) {
-    const serverUuids = new Set(serverFiles.value.map(f => f.uuid))
+  if (initialLoadDone.value) {
+    const serverUuids = new Set((serverFiles.value || []).map(f => f.uuid))
     const newLocalFiles = localFiles.filter(f => f && f.uuid && !serverUuids.has(f.uuid))
     return newLocalFiles.length > 0 ? [...newLocalFiles, ...serverFiles.value] : serverFiles.value
   }
@@ -715,12 +715,8 @@ watch(() => allFiles.value, (newAllFiles) => {
 
 
 // Paginated file slice — merge any newly uploaded files immediately
+// Paginated file slice — always paginate from filteredFilesRaw which merges new local uploads
 const files = computed(() => {
-  if (initialLoadDone.value && serverFiles.value.length > 0) {
-    const serverUuids = new Set(serverFiles.value.map(f => f.uuid))
-    const newFiles = allFiles.value.filter(f => f.category === props.slug && !serverUuids.has(f.uuid))
-    return newFiles.length > 0 ? [...newFiles, ...serverFiles.value] : serverFiles.value
-  }
   const start = (currentPage.value - 1) * perPage
   return filteredFilesRaw.value.slice(start, start + perPage)
 })
@@ -964,9 +960,12 @@ watch(uploads, (list) => {
   }
   if (c > localCompleteCount.value) {
     localCompleteCount.value = c
-    if (initialLoadDone.value) {
-      loadCategoryData(currentPage.value)
+    if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
+      axios.post('/_native/api/sync/engine').catch(() => {})
     }
+    setTimeout(() => {
+      if (initialLoadDone.value) loadCategoryData(currentPage.value)
+    }, 5000)
     toast.success('Upload complete')
   }
 }, { flush: 'post' })
@@ -1048,7 +1047,12 @@ async function handleNativeFileResult(fileData) {
     const unwatch = watch(() => uploadJob.status, (status) => {
       if (status === 'completed') {
         unwatch()
-        loadCategoryData(currentPage.value)
+        if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
+          axios.post('/_native/api/sync/engine').catch(() => {})
+        }
+        setTimeout(() => {
+          if (initialLoadDone.value) loadCategoryData(currentPage.value)
+        }, 5000)
       } else if (status === 'failed' || status === 'cancelled') {
         unwatch()
       }
@@ -1124,7 +1128,12 @@ function handleFiles(selectedFiles) {
       const unwatch = watch(() => uploadJob.status, (status) => {
         if (status === 'completed') {
           unwatch()
-          loadCategoryData(currentPage.value)
+          if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
+            axios.post('/_native/api/sync/engine').catch(() => {})
+          }
+          setTimeout(() => {
+            if (initialLoadDone.value) loadCategoryData(currentPage.value)
+          }, 5000)
         } else if (status === 'failed' || status === 'cancelled') {
           unwatch()
         }

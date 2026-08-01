@@ -25,7 +25,7 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import axios from 'axios'
-import { ref, computed } from 'vue'
+import { ref, computed, reactive } from 'vue'
 import { useNativeBridge } from './useNativeBridge'
 import { useWorkspace } from './useWorkspace'
 import { useSyncEngine } from './useSyncEngine'  // BUG-015: reliable network state

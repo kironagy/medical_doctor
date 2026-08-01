@@ -208,15 +208,18 @@ async function selectPatient(uuid) {
                 addFileLocally({
                     uuid:          entry.uuid,
                     patient_id:    entry.patient_uuid || uuid,
-                    title:         entry.original_name || '',
-                    file_name:     entry.original_name || '',
+                    title:         entry.title || entry.original_name || '',
+                    file_name:     entry.file_name || entry.original_name || '',
                     mime_type:     entry.mime_type || null,
                     extension:     entry.extension || null,
                     size:          parseInt(entry.size) || 0,
                     type:          type,
-                    sync_status:   entry.sync_status || 'pending_upload',
+                    category:      entry.category || null,
+                    sync_status:   entry.sync_status || 'pending_sync',
                     local_path:    entry.local_path || null,
-                    upload_status: entry.sync_status || 'pending_upload',
+                    upload_status: entry.upload_status || entry.sync_status || 'ready',
+                    url:           entry.url || null,
+                    thumbnail_url: entry.thumbnail_url || null,
                     created_at:    entry.created_at || new Date().toISOString(),
                     updated_at:    entry.updated_at || new Date().toISOString(),
                 });
@@ -289,13 +292,13 @@ function refreshWorkspaceData() {
 					if (localNotes.length > 0) {
 						merged.notes = [...localNotes, ...(merged.notes || [])];
 					}
-					// Merge files: only keep local files that are STILL PENDING (uploading/pending).
+					// Merge files: keep any local files that are not yet on the production server.
 					// Synced files will appear in the server response with their final URL.
 					const serverFileUuids = new Set((merged.files || []).map(f => f.uuid));
 					const localFiles = (workspaceSnapshot.files || []).filter(f =>
 						!serverFileUuids.has(f.uuid) &&
-						(f.sync_status === 'pending_upload' || f.sync_status === 'uploading' ||
-						 f.upload_status === 'pending_upload' || f.upload_status === 'uploading')
+						f.sync_status !== 'synced' &&
+						f.upload_status !== 'deleted'
 					);
 					if (localFiles.length > 0) {
 						merged.files = [...localFiles, ...(merged.files || [])];
