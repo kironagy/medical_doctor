@@ -138,6 +138,7 @@
 <script setup>
 import { ref, watch, computed, watchEffect } from 'vue'
 import { useWorkspace } from '@/Composables/useWorkspace'
+import { useNativeBridge } from '@/Composables/useNativeBridge'
 import VideoPlayer from '@/Components/VideoPlayer.vue'
 import { useDialog } from '@/Composables/useDialog'
 import { useToast } from '@/Composables/useToast'
@@ -146,6 +147,7 @@ import axios from 'axios'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
+const { detectNative } = useNativeBridge()
 
 const {
   showPreview: show,
@@ -212,10 +214,16 @@ const signedUrl = ref('')
 const signedThumbnailUrl = ref('')
 
 const fileUrl = computed(() => {
+  if (detectNative() && file.value?.uuid) {
+    return `/_native/cache/files/${file.value.uuid}`
+  }
   return signedUrl.value || file.value?.url || ''
 })
 
 const thumbnailPostUrl = computed(() => {
+  if (detectNative() && file.value?.uuid) {
+    return `/_native/cache/files/${file.value.uuid}/thumbnail`
+  }
   return signedThumbnailUrl.value || file.value?.thumbnail_url || ''
 })
 
@@ -255,7 +263,7 @@ watchEffect(() => {
 //  Signed URL
 // ---------------------------------------------------------------
 const fetchSignedUrls = async () => {
-  if (!file.value?.uuid) return
+  if (!file.value?.uuid || detectNative()) return
   try {
     const res = await axios.get(`/api/v1/files/${file.value.uuid}/signed-url`)
     signedUrl.value = res.data.url

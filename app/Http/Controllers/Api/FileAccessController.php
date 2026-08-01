@@ -462,6 +462,12 @@ class FileAccessController extends Controller
         $rangeHeader = $request->header('Range');
 
         if (!$rangeHeader) {
+            @ini_set('output_handler', '');
+            @ini_set('zlib.output_compression', 0);
+            while (ob_get_level() > 0) {
+                @ob_end_clean();
+            }
+
             $headers['Content-Length'] = (string) $fileSize;
             $fp = fopen($absolutePath, 'rb');
             $this->logStream($uuid, 'GET', null, 200, $fileSize);

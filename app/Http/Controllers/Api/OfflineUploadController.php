@@ -98,6 +98,13 @@ class OfflineUploadController extends Controller
                 'size'         => $metadata['size'],
             ]);
 
+            $url = '/_native/cache/files/' . $metadata['uuid'];
+            $thumbnailUrl = str_starts_with($metadata['mime_type'], 'image/')
+                ? $url
+                : (str_starts_with($metadata['mime_type'], 'video/')
+                    ? '/_native/cache/files/' . $metadata['uuid'] . '/thumbnail'
+                    : null);
+
             return response()->json([
                 'success'       => true,
                 'uuid'          => $metadata['uuid'],
@@ -109,6 +116,8 @@ class OfflineUploadController extends Controller
                 'sync_status'   => 'pending_upload',
                 'type'          => $metadata['type'] ?? 'document',
                 'local_path'    => $metadata['local_path'],
+                'url'           => $url,
+                'thumbnail_url' => $thumbnailUrl,
                 'created_at'    => now()->toIso8601String(),
             ], 201);
         } catch (\Throwable $e) {

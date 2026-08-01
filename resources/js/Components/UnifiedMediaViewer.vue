@@ -104,12 +104,15 @@
 import { computed, ref, watch, nextTick } from 'vue';
 import axios from 'axios';
 import VideoPlayer from '@/Components/VideoPlayer.vue';
+import { useNativeBridge } from '@/Composables/useNativeBridge';
 
 import { component as Viewer } from 'v-viewer';
 import 'viewerjs/dist/viewer.css';
 
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
+
+const { detectNative } = useNativeBridge();
 
 const props = defineProps({
   show: Boolean,
@@ -148,6 +151,9 @@ const loadingSignedUrl = ref(false);
 
 const fileUrl = computed(() => {
   if (!props.file) return '';
+  if (detectNative()) {
+    return `/_native/cache/files/${props.file.uuid}`;
+  }
   // For text files we use axios (which sends cookies), so direct URL is fine.
   // For everything else we use a signed URL fetched below.
   return signedUrl.value || `/api/v1/files/${props.file.uuid}`;
@@ -155,6 +161,9 @@ const fileUrl = computed(() => {
 
 const posterUrl = computed(() => {
   if (!props.file) return '';
+  if (detectNative()) {
+    return `/_native/cache/files/${props.file.uuid}/thumbnail`;
+  }
   return props.file.thumbnail_url || `/api/v1/files/${props.file.uuid}/thumbnail`;
 });
 
@@ -191,7 +200,7 @@ const textLanguage = computed(() => {
  * cookie on the media request itself.
  */
 const fetchSignedUrl = async () => {
-  if (!props.file) return;
+  if (!props.file || detectNative()) return;
   loadingSignedUrl.value = true;
   try {
     const res = await axios.get(`/api/v1/files/${props.file.uuid}/signed-url`);

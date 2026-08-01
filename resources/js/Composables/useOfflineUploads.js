@@ -155,6 +155,12 @@ export function useOfflineUploads() {
 
       // Add to workspace immediately so the user sees it
       const { addFileLocally } = useWorkspace()
+      const fallbackUrl = `/_native/cache/files/${res.data.uuid}`
+      const fallbackThumb = res.data.mime_type?.startsWith('image/')
+        ? fallbackUrl
+        : (res.data.mime_type?.startsWith('video/')
+            ? `/_native/cache/files/${res.data.uuid}/thumbnail`
+            : null)
       addFileLocally({
         uuid:          res.data.uuid,
         patient_id:    patientUuid,
@@ -171,6 +177,8 @@ export function useOfflineUploads() {
         updated_at:    res.data.created_at,
         local_path:    res.data.local_path,
         upload_status: 'pending_upload',
+        url:           res.data.url || fallbackUrl,
+        thumbnail_url: res.data.thumbnail_url || fallbackThumb,
       })
 
       return job

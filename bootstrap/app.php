@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->prepend(\App\Http\Middleware\ParseMobileMultipartMiddleware::class);
         if (env('APP_DEBUG', false)) {
             $middleware->append(\App\Http\Middleware\NativePHPProfilerMiddleware::class);
         }

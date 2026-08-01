@@ -1,5 +1,27 @@
 # WORKLOG
 
+## 2026-08-01
+
+### Fix: End-to-End Online and Offline File Uploads & Preview in Mobile App
+1. **Bug: Preview blank / 404 after Online upload finishes (`InlineFilePreview.vue` & `UnifiedMediaViewer.vue`)**
+   - **Root Cause:** When an upload completes on native Android (`detectNative()`), the file resides in the local embedded server storage (`storage/app/...`) and local SQLite database until synced to remote MySQL. However, the preview components were calling `axios.get('/api/v1/files/${uuid}/signed-url')`, which hit the remote production server (`https://prof-hosam-fekry.online`) and returned 404 Not Found.
+   - **Fix:** On native Android (`detectNative()`), preview components skip fetching remote signed URLs and always load images/videos from the local embedded streaming endpoints (`/_native/cache/files/${uuid}` and `/_native/cache/files/${uuid}/thumbnail`).
+2. **Bug: Offline Upload failed completely with "فشل الرفع"**
+   - **Root Cause:**
+     - `CategoryBlock.vue` checked `navigator.onLine` instead of SyncEngine's `isOnline.value`.
+     - `JSBridge.logPostData()` in `WebViewManager.kt` only stored POST data under `requestId` without url/path fallback, causing empty bodies if `X-NativePHP-Req-Id` header lookup failed.
+     - `OfflineUploadController::store()` did not include `url` and `thumbnail_url` in its response JSON, causing UI preview to fail.
+     - `FileAccessController::streamCached()` lacked buffer cleanup (`@ob_end_clean()`) before streaming offline files, which could corrupt file streams with stale buffer output.
+   - **Fix:**
+     - Updated `CategoryBlock.vue` to use `useSyncEngine().isOnline.value` for offline/online upload routing.
+     - Updated `JSBridge.logPostData()` in `WebViewManager.kt` to store fallback POST data under `url` and `path`, and made header lookup case-insensitive.
+     - Added `url` and `thumbnail_url` properties to `OfflineUploadController::store()` JSON response and `addFileLocally()` in `useOfflineUploads.js`.
+     - Added `@ob_end_clean()` loop before returning `StreamedResponse` in `FileAccessController::streamCached()`.
+3. **Android Permissions:**
+   - Added `READ_MEDIA_AUDIO` and `READ_MEDIA_VISUAL_USER_SELECTED` to `AndroidManifest.xml` alongside existing `READ_MEDIA_IMAGES` and `READ_MEDIA_VIDEO` to ensure Android 13/14 permissions are fully declared.
+4. **Build & Deploy:**
+   - Rebuilt and installed debug APK onto device (`./gradlew installDebug`).
+
 ## 2026-07-25
 
 ### Fix: Note creation 500 error - column name and category fixes
@@ -371,5 +393,19 @@ After login, when redirected to `http://127.0.0.1/dashboard` or `http://127.0.0.
 - `resources/js/Components/workspace/AddRecordModal.vue`
 - `routes/web.php`
 
+### Fix: Android WebView FormData Payload Corruption (BUG-011/BUG-012)
 
+**Root Cause:**
+When `axios` uploaded file chunks via `POST /api/v1/chunk/chunk`, the injected JavaScript in `WebViewManager.kt` called `String(data)` on `FormData` objects. In JavaScript, `String(FormData)` evaluates to `"[object FormData]"` (17 characters). This string was sent as the POST body to embedded PHP, resulting in empty input data and causing Laravel's `$request->validate()` in `ChunkUploadController::chunk()` to fail with:
+`The upload id field is required. (and 2 more errors)`.
 
+**Fix:**
+1. **`WebViewManager.kt` (JS Injection):** Added `serializePostData()` helper to properly iterate `FormData` entries, read `Blob` / `File` contents via `FileReader.readAsBinaryString()`, construct standard `multipart/form-data` with a boundary, and pass the boundary to Kotlin `JSBridge.logPostData(bodyStr, url, boundary, reqId)`.
+2. **`PHPBridge.kt`:** Added `storeBoundary()` and `consumeBoundary()` methods to store and look up custom boundaries per request ID.
+3. **`PHPWebViewClient.kt`:** Updated `handlePHPRequest` to retrieve the custom boundary for the request and set `headers["Content-Type"] = "multipart/form-data; boundary=$customBoundary"`.
+
+### Files Modified
+- `nativephp/android/app/src/main/java/com/nativephp/mobile/network/WebViewManager.kt`
+- `nativephp/android/app/src/main/java/com/nativephp/mobile/bridge/PHPBridge.kt`
+- `nativephp/android/app/src/main/java/com/nativephp/mobile/network/PHPWebViewClient.kt`
+- `.ai/WORKLOG.md`

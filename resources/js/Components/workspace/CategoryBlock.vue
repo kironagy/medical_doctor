@@ -410,10 +410,12 @@ import axios from 'axios'
 import FileActions from './FileActions.vue'
 import { useNativeBridge } from '@/Composables/useNativeBridge'
 import { useOfflineUploads } from '@/Composables/useOfflineUploads'
+import { useSyncEngine } from '@/Composables/useSyncEngine'
 import { apiUrl, getApiConfig } from '@/Utils/api'
 
 const { isCameraAvailable, isFilePickerAvailable, takePhoto, pickFiles } = useNativeBridge()
 const { statusIcon: offlineStatusIcon, statusLabel: offlineStatusLabel, uploadFile: offlineUploadFile } = useOfflineUploads()
+const { isOnline: syncOnline } = useSyncEngine()
 
 const props = defineProps({
   slug: String,
@@ -427,12 +429,12 @@ const { toggleCategory, isCategoryExpanded, canEdit, canDelete, selectedPatient,
 const { uploadFile: onlineUploadFile, cancelUpload, pauseUpload, resumeUpload, retryUpload, uploads } = useUploads()
 
 // ── Phase 7: Route file uploads to offline composable when device is offline ──
-// When navigator.onLine is false, upload the file locally via useOfflineUploads
+// When syncOnline is false, upload the file locally via useOfflineUploads
 // (saves to storage/app/uploads/pending/ and records in offline_files table).
 // When online, use the existing chunked upload composable (useUploads).
 const uploadFile = (file, patientId, options) => {
-  trace('[TRACE_F1] CategoryBlock.uploadFile() ENTERED - fileName: ' + file?.name + ' patientId: ' + patientId + ' isOnline: ' + (typeof navigator !== 'undefined' ? navigator.onLine : 'unknown'))
-  const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+  const isOnline = syncOnline.value;
+  trace('[TRACE_F1] CategoryBlock.uploadFile() ENTERED - fileName: ' + file?.name + ' patientId: ' + patientId + ' isOnline: ' + isOnline)
   if (!isOnline && typeof offlineUploadFile === 'function') {
     trace('[TRACE_F2] OFFLINE - calling offlineUploadFile() from useOfflineUploads')
     const patientUuid = selectedPatient.value?.uuid || patientId
