@@ -284,9 +284,14 @@ class SyncEngineService
                     }
 
                     $localUuid = $patient->uuid;
+                    // ── Capture the ORIGINAL status BEFORE it was changed to 'syncing'. ──
+                    // $patient still holds the pre-update in-memory value (Eloquent model
+                    // was loaded before the atomic DB UPDATE above), so this is reliable.
+                    // We save it here to use in the failure-revert path (Phase 3b).
+                    $originalStatus = $patient->sync_status; // 'pending_create' or 'pending_update'
 
                     // ── Phase 2: Make the API call ───────────────────────
-                    if ($patient->sync_status === 'pending_create') {
+                    if ($originalStatus === 'pending_create') {
                         try {
                             $apiData = $this->patientRepo->createOnRemote($data);
                         } catch (\Illuminate\Auth\AuthenticationException $authE) {
@@ -384,19 +389,25 @@ class SyncEngineService
                         'status'      => 'synced',
                     ]);
                 } catch (\Throwable $e) {
-                    // ── Phase 3b: Failure — revert to pending_create ──────
-                    // The API call failed. Revert the status so the patient
-                    // can be retried on the next sync cycle.
+                    // ── Phase 3b: Failure — revert to ORIGINAL status ─────
+                    // The API call failed. Revert the status back to what it
+                    // was BEFORE this sync attempt so it can be retried on the
+                    // next sync cycle.
+                    //
+                    // BUG FIX: Previously ALWAYS reverted to 'pending_create',
+                    // which corrupted 'pending_update' patients — they would be
+                    // re-created on the next sync instead of updated.
+                    $revertStatus = $originalStatus ?? 'pending_create';
                     \App\Domains\Patients\Models\Patient::where('uuid', $patient->uuid)
                         ->where('sync_status', 'syncing')
                         ->update([
-                            'sync_status' => 'pending_create',
+                            'sync_status' => $revertStatus,
                             'updated_at'  => now(),
                         ]);
 
-                    Log::warning('[SyncEngine] Failed to sync patient, reverted: ' . $e->getMessage(), [
-                        'uuid'   => $patient->uuid,
-                        'status' => $patient->sync_status,
+                    Log::warning('[SyncEngine] Failed to sync patient, reverted to ' . $revertStatus . ': ' . $e->getMessage(), [
+                        'uuid'            => $patient->uuid,
+                        'original_status' => $revertStatus,
                     ]);
                     // Continue to next patient — don't break the batch
                 }
@@ -432,18 +443,34 @@ class SyncEngineService
             ->whereNull('remote_uuid')
             ->where('upload_status', 'ready')
             ->where('sync_status', '!=', 'pending_delete')
-            ->with('patient')
             ->orderBy('created_at', 'asc')
             ->limit(20) // Process in small batches to avoid memory issues
             ->get();
 
+        Log::info('[SyncEngine] syncLocalPatientFiles — found ' . $pendingFiles->count() . ' pending files to sync');
+
         foreach ($pendingFiles as $file) {
-            $patient = $file->patient;
+            // ── BUG FIX: Re-query patient directly from DB to avoid stale Eloquent
+            // relationship cache. When syncPendingPatients() runs in the same cycle,
+            // the patient's sync_status changes from 'pending_create' → 'synced' in
+            // the DB but $file->patient uses the cached Eloquent model which still
+            // holds the old status. A fresh DB::table query bypasses that cache.
+            $patientRecord = \Illuminate\Support\Facades\DB::table('patients')
+                ->where('id', $file->patient_id)
+                ->first();
 
             // Skip if patient not synced to production yet
-            if (!$patient || ($patient->sync_status ?? 'synced') !== 'synced') {
+            if (!$patientRecord || ($patientRecord->sync_status ?? 'synced') !== 'synced') {
+                Log::debug('[SyncEngine] Skipping file — patient not synced yet', [
+                    'file_uuid'      => $file->uuid,
+                    'patient_id'     => $file->patient_id,
+                    'patient_status' => $patientRecord ? ($patientRecord->sync_status ?? 'null') : 'NOT_FOUND',
+                ]);
                 continue;
             }
+
+            // Use the patient UUID from the fresh DB record (may differ after sync)
+            $patientUuid = $patientRecord->uuid;
 
             $absolutePath = Storage::disk('local')->path($file->file_path);
             if (!file_exists($absolutePath)) {
@@ -453,19 +480,19 @@ class SyncEngineService
                 ]);
                 // Mark as synced with self-UUID to prevent infinite retry on missing files
                 \App\Domains\Media\Models\PatientFile::where('uuid', $file->uuid)
-                    ->update(['remote_uuid' => $file->uuid]);
+                    ->update(['remote_uuid' => $file->uuid, 'sync_status' => 'synced']);
                 continue;
             }
 
             try {
                 $response = $this->api->upload(
-                    "/patients/{$patient->uuid}/files",
+                    "/patients/{$patientUuid}/files",
                     ['file' => $absolutePath],
                     [
                         'title'    => $file->title ?? $file->file_name,
                         'desc'     => $file->desc ?? null,
                         'category' => $file->category ?? null,
-                        'date'     => $file->date?->format('Y-m-d') ?? now()->format('Y-m-d'),
+                        'date'     => ($file->date ? \Carbon\Carbon::parse($file->date)->format('Y-m-d') : now()->format('Y-m-d')),
                     ]
                 );
 
@@ -486,15 +513,16 @@ class SyncEngineService
                 Log::info('[SyncEngine] Local file synced to production', [
                     'local_uuid'  => $file->uuid,
                     'remote_uuid' => $remoteUuid,
-                    'patient'     => $patient->uuid,
+                    'patient'     => $patientUuid,
                     'file_name'   => $file->file_name,
                 ]);
             } catch (\Throwable $e) {
                 $results['failed']++;
                 Log::warning('[SyncEngine] Local patient_file sync failed', [
-                    'uuid'      => $file->uuid,
-                    'error'     => $e->getMessage(),
-                    'file_name' => $file->file_name,
+                    'uuid'        => $file->uuid,
+                    'error'       => $e->getMessage(),
+                    'file_name'   => $file->file_name,
+                    'patient_uuid' => $patientUuid,
                 ]);
             }
         }

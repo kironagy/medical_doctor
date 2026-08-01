@@ -36,7 +36,10 @@ class UploadService
         $disk = Storage::disk('local');
         $disk->putFileAs("patients/{$patientUuid}", $file, $fileName);
 
-        $patientFile = PatientFile::create([
+        // Build payload — only include sync_status on SQLite (embedded app).
+        // On MySQL (production) the column defaults to 'synced'; passing null would
+        // override that default and store NULL, breaking sync_status-based queries.
+        $createPayload = [
             'uuid' => $fileUuid,
             'patient_id' => $patientId,
             'uploaded_by_id' => $uploaderId,
@@ -50,7 +53,11 @@ class UploadService
             'file_name' => $originalName,
             'file_path' => $relPath,
             'upload_status' => 'ready',
-        ]);
+        ];
+        if (config('database.default') === 'sqlite') {
+            $createPayload['sync_status'] = 'pending_sync';
+        }
+        $patientFile = PatientFile::create($createPayload);
 
         if ($type === 'video') {
             GenerateThumbnailJob::dispatch($patientFile->id);

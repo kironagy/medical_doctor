@@ -413,7 +413,12 @@ class FileAccessController extends Controller
         // Phase 6: Try server PatientFile first
         $file = PatientFile::where('uuid', $uuid)->first();
         if ($file) {
-            Gate::authorize('view', $file->patient);
+            // On embedded SQLite (NativePHP mobile), there is no authenticated user.
+            // The device is single-user, so Gate checks are not applicable.
+            // On production MySQL, enforce the Gate as usual.
+            if (config('database.default') !== 'sqlite') {
+                Gate::authorize('view', $file->patient);
+            }
 
             // FIX: If the file exists on local disk (e.g. freshly uploaded via chunk),
             // stream it directly without going through the cache layer.

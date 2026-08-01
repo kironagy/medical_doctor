@@ -86,7 +86,13 @@ class FileController extends Controller
             'local'
         );
 
-        $file = PatientFile::create([
+        // ── Issue 2 FIX: Build create payload without sync_status on MySQL ──────
+        // The sync_status column has a DB default of 'synced'. On MySQL (production),
+        // we must NOT pass sync_status at all — passing explicit null would override
+        // the DB default and store NULL, breaking sync_status-based queries on the
+        // production server.
+        // On SQLite (embedded app), set 'pending_sync' so SyncEngine finds this file.
+        $createPayload = [
             'uuid'           => $fileUuid,
             'patient_id'     => $patient->id,
             'uploaded_by_id' => $request->user()?->id ?? $patient->primary_doctor_id ?? 1,
@@ -100,9 +106,11 @@ class FileController extends Controller
             'mime_type'      => $mimeType,
             'size'           => $size,
             'upload_status'  => 'ready',
-            // ── BUG-020 FIX: Mark pending_sync on SQLite so SyncEngine finds it ──
-            'sync_status'    => config('database.default') === 'sqlite' ? 'pending_sync' : null,
-        ]);
+        ];
+        if (config('database.default') === 'sqlite') {
+            $createPayload['sync_status'] = 'pending_sync';
+        }
+        $file = PatientFile::create($createPayload);
 
         $this->logger->log('file_uploaded', 'PatientFile', $file->uuid, [
             'patient_uuid' => $uuid,

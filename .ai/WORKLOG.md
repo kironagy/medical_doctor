@@ -2,6 +2,81 @@
 
 ## 2026-08-01
 
+### Fix: Android/SQLite Local Media Stream and Patient Creation Idempotency Crashes
+
+#### Issue 1 — SQLite local database path alignment
+- **Root Cause:** The `.env` database configuration had `DB_DATABASE=/data/data/com.medicalplus.app/files/storage/data/medical_plus.sqlite`. This directory did not exist on the device, causing Laravel to fallback/create a new empty SQLite file. Meanwhile, NativePHP mobile bridge sets `DB_DATABASE` at runtime to point to `app_storage/persisted_data/database/database.sqlite` (using `database.sqlite` instead of `medical_plus.sqlite`). Because of this mismatch, Laravel operated on empty tables, preventing local media files from being retrieved or synced.
+- **Fix:** Changed the `.env` database setting to `/data/data/com.medicalplus.app/app_storage/persisted_data/database/database.sqlite`. Pre-migrated the existing local SQLite file `medical_plus.sqlite` to `database.sqlite` on the test device to preserve user data.
+
+#### Issue 2 — Local image/media streaming authorization crash on SQLite
+- **Root Cause:** In `FileAccessController::streamCached()`, the code was calling `Gate::authorize('view', $file->patient)` to enforce permission check. On SQLite (embedded single-user NativePHP app), the auth middleware is disabled and there is no authenticated user context, causing `Gate::authorize` to always throw an `AuthorizationException` (and return HTTP 403 / blank image with alt text only).
+- **Fix:** Bypassed the Gate check in `streamCached()` when the database driver is `sqlite` (since single-user mobile access control is handled at the OS/device level).
+
+#### Issue 3 — Patient creation crash with Undefined array key "uuid"
+- **Root Cause:** When creating a patient via the mobile app, the client doesn't send a UUID or doctor IDs. Since auth is bypassed on SQLite, the store method ended up attempting to create a patient with `primary_doctor_id` as NULL. SQLite threw a `NOT NULL constraint failed` query exception. The exception handler then attempted to perform an idempotency search using `$validated['uuid']` which was undefined in the request data, throwing a secondary PHP ErrorException.
+- **Fix:**
+  - Ensured `uuid` is always generated and populated in `$validated` at the start of `PatientController::store()` to prevent undefined key errors.
+  - Added a doctor ID fallback on SQLite where `primary_doctor_id` defaults to the first available user/doctor record in the local database.
+
+---
+
+## 2026-08-01
+
+### Fix: Verified Sync Pipeline Issues — Patient Lifecycle & PatientFile sync_status
+
+#### Issue 1 — Patient sync lifecycle: upstream sync_status mismatch blocks file uploads
+
+**Root Cause (a):** `SyncEngineService::syncPendingPatients()` on sync failure always reverted
+the patient `sync_status` back to `'pending_create'` regardless of the original status. A patient
+that started as `'pending_update'` was incorrectly reverted to `'pending_create'`, causing it to
+be re-created (via POST) on the next sync cycle instead of being updated (via PUT), producing
+duplicate patient entries on the production server.
+
+**Root Cause (b):** `SyncEngineService::syncLocalPatientFiles()` loaded the patient via the
+Eloquent relationship `$file->patient`. When `syncPendingPatients()` ran in the **same sync
+cycle** and updated a patient from `pending_create` → `synced` in the DB, the Eloquent
+relationship cache still held the stale model with the old status. `syncLocalPatientFiles()`
+then skipped those files (patient not `'synced'`), blocking the entire upload pipeline.
+
+**Fix (a) — `SyncEngineService::syncPendingPatients()`:**
+- Capture `$originalStatus = $patient->sync_status` before the atomic `syncing` transition.
+- On failure (Phase 3b), revert to `$originalStatus` instead of always `'pending_create'`.
+
+**Fix (b) — `SyncEngineService::syncLocalPatientFiles()`:**
+- Replace `$file->patient` Eloquent relationship (cached) with a fresh `DB::table('patients')`
+  query on each iteration, ensuring the post-sync `'synced'` status is visible.
+- Remove the now-unnecessary `->with('patient')` eager load from the pending files query.
+- Use `$patientRecord->uuid` (from fresh query) instead of `$file->patient->uuid` for the
+  upload URL — ensures the correct remote UUID is used if it changed during patient sync.
+
+---
+
+#### Issue 2 — PatientFile::create() passes explicit null for sync_status on MySQL
+
+**Root Cause:** `FileController::store()` used:
+```php
+'sync_status' => config('database.default') === 'sqlite' ? 'pending_sync' : null,
+```
+The `null` value is **explicitly included** in the SQL `INSERT` statement, which **overrides**
+the MySQL column default of `'synced'`. Production records end up with `sync_status = NULL`
+instead of `'synced'`, which breaks any query comparing `sync_status` (e.g. filtering
+`sync_status != 'pending_delete'` or `whereIn('sync_status', [...])`).
+
+**Fix — `FileController::store()` and `UploadService::uploadFile()`:**
+- Build the `$createPayload` array without a `sync_status` key.
+- Only add `'sync_status' => 'pending_sync'` when on SQLite (embedded app).
+- On MySQL (production), omit the key entirely so the DB default `'synced'` applies.
+- Same pattern applied to `UploadService::uploadFile()` (a third PatientFile create path).
+
+---
+
+**Files Modified:**
+- `app/Services/SyncEngineService.php`
+- `app/Http/Controllers/Api/Mobile/FileController.php`
+- `app/Domains/Media/Services/UploadService.php`
+
+**Build:** `./gradlew installDebug` → `BUILD SUCCESSFUL` (9s), installed on device.
+
 ### Forensic System Investigation & Technical Blueprint
 - **Task:** Perform full reverse-engineering forensic analysis of NativePHP Mobile & Laravel codebase.
 - **Created Document:** `docs/system-audit/nativephp-forensic-investigation.md`
