@@ -3,15 +3,15 @@
     <!-- Header & Sync Control Toolbar -->
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
       <div class="flex items-center space-x-4 rtl:space-x-reverse">
-        <div class="p-3 bg-primary-50 dark:bg-primary-950/50 text-primary-600 dark:text-primary-400 rounded-xl">
+        <div class="p-3 bg-teal-50 dark:bg-teal-950/50 text-teal-600 dark:text-teal-400 rounded-xl">
           <CloudArrowUpIcon class="w-8 h-8" />
         </div>
         <div>
           <h2 class="text-xl font-bold text-slate-900 dark:text-white">
-            {{ $t('settings.sync_data') || 'Sync Data' }} / مزامنة البيانات
+            مزامنة البيانات / Sync Data
           </h2>
           <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            {{ $t('settings.sync_subtitle') || 'Manual Offline-First Sync & Storage Center' }}
+            مركز المزامنة اليدوية والتخزين المحلي (Offline-First Sync Center)
           </p>
         </div>
       </div>
@@ -19,148 +19,118 @@
       <!-- Main Action Controls -->
       <div class="flex items-center space-x-2 rtl:space-x-reverse">
         <button
-          v-if="engineState === 'idle' || engineState === 'cancelled'"
+          v-if="!isSyncing"
           @click="startSync"
-          class="inline-flex items-center px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 active:bg-primary-800 transition-all shadow-md shadow-primary-500/20 space-x-2 rtl:space-x-reverse"
+          class="inline-flex items-center px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 active:bg-teal-800 transition-all shadow-md space-x-2 rtl:space-x-reverse"
         >
           <ArrowPathIcon class="w-4 h-4" />
-          <span>{{ $t('sync.sync_now') || 'Sync Now' }}</span>
+          <span>مزامنة الآن / Sync Now</span>
         </button>
 
         <button
-          v-if="engineState === 'running'"
-          @click="pauseSync"
-          class="inline-flex items-center px-4 py-2 rounded-xl text-sm font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 border border-amber-200 dark:border-amber-800 transition-all space-x-2 rtl:space-x-reverse"
+          v-else
+          disabled
+          class="inline-flex items-center px-5 py-2.5 rounded-xl text-sm font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-x-2 rtl:space-x-reverse opacity-80"
         >
-          <PauseIcon class="w-4 h-4" />
-          <span>{{ $t('sync.pause') || 'Pause Sync' }}</span>
-        </button>
-
-        <button
-          v-if="engineState === 'paused'"
-          @click="resumeSync"
-          class="inline-flex items-center px-4 py-2 rounded-xl text-sm font-medium text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 border border-blue-200 dark:border-blue-800 transition-all space-x-2 rtl:space-x-reverse"
-        >
-          <PlayIcon class="w-4 h-4" />
-          <span>{{ $t('sync.resume') || 'Resume Sync' }}</span>
-        </button>
-
-        <button
-          v-if="engineState === 'running' || engineState === 'paused'"
-          @click="cancelSync"
-          class="inline-flex items-center px-4 py-2 rounded-xl text-sm font-medium text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 border border-rose-200 dark:border-rose-800 transition-all space-x-2 rtl:space-x-reverse"
-        >
-          <XMarkIcon class="w-4 h-4" />
-          <span>{{ $t('sync.cancel') || 'Cancel Sync' }}</span>
+          <ArrowPathIcon class="w-4 h-4 animate-spin text-teal-500" />
+          <span>جاري المزامنة...</span>
         </button>
       </div>
     </div>
 
-    <!-- Live Status Overview Cards (iCloud / Drive style) -->
+    <!-- Live Status Overview Cards -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
       <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
         <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">
-          <span>{{ $t('sync.status') || 'Sync Status' }}</span>
-          <component :is="stateBadge.icon" :class="['w-4 h-4', stateBadge.color]" />
+          <span>حالة الاتصال والشبكة</span>
+          <span class="w-2.5 h-2.5 rounded-full" :class="isOnline ? 'bg-emerald-500' : 'bg-rose-500'"></span>
         </div>
-        <div class="text-base font-bold text-slate-900 dark:text-white capitalize">
-          {{ stats.engine_state || 'Idle' }}
+        <div class="text-base font-bold" :class="isOnline ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
+          {{ isOnline ? 'متصل بالإنترنت' : 'وضع بدون اتصال' }}
         </div>
         <div class="text-[10px] text-slate-400 mt-1">
-          Auth: <span class="text-emerald-500 font-semibold">{{ stats.auth_status || 'Authenticated' }}</span>
+          الجلسة: <span class="text-slate-600 dark:text-slate-300 font-semibold">{{ stats.auth_status || 'محلياً (Offline)' }}</span>
         </div>
       </div>
 
       <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
         <div class="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">
-          {{ $t('sync.pending_queue') || 'Pending Queue' }}
+          العناصر المعلقة بالانتظار
         </div>
         <div class="text-base font-bold text-slate-900 dark:text-white">
-          {{ stats.pending || 0 }} <span class="text-xs font-normal text-slate-400">items</span>
+          {{ pendingSummary.total || 0 }} <span class="text-xs font-normal text-slate-400">عنصر</span>
         </div>
         <div class="text-[10px] text-slate-400 mt-1">
-          Total Queue: {{ stats.total_queue || 0 }}
+          إجمالي طابور التزامن: {{ stats.total_queue || pendingSummary.total || 0 }}
         </div>
       </div>
 
       <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
         <div class="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">
-          {{ $t('sync.sqlite_db_size') || 'SQLite DB Size' }}
+          حجم قاعدة بيانات SQLite
         </div>
         <div class="text-base font-bold text-slate-900 dark:text-white">
-          {{ stats.sqlite_size_mb || 0 }} <span class="text-xs font-normal text-slate-400">MB</span>
+          {{ stats.sqlite_size_mb || 0.5 }} <span class="text-xs font-normal text-slate-400">ميجابايت</span>
         </div>
         <div class="text-[10px] text-slate-400 mt-1">
-          Cache: {{ stats.local_cache_size_mb || 0 }} MB
+          تخزين محلي مباشر
         </div>
       </div>
 
       <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
         <div class="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">
-          {{ $t('sync.last_synced') || 'Last Synced' }}
+          آخر مزامنة مكتملة
         </div>
         <div class="text-xs font-bold text-slate-900 dark:text-white truncate">
-          {{ formatDate(stats.last_successful_sync) }}
+          {{ formatDate(lastSyncResult?.timestamp || stats.last_successful_sync) }}
         </div>
         <div class="text-[10px] text-slate-400 mt-1 truncate">
-          Failed: {{ stats.failed || 0 }} | Conflicts: {{ stats.conflict || 0 }}
+          المكتمل: {{ stats.synced || 0 }} | الأخطاء: {{ stats.failed || 0 }}
         </div>
       </div>
     </div>
 
-    <!-- Active Overall Progress Panel -->
-    <div v-if="engineState === 'running' || progressPercent > 0" class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+    <!-- Active Progress Bar during Sync -->
+    <div v-if="isSyncing" class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-teal-500/30 shadow-sm space-y-4">
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-2 rtl:space-x-reverse">
-          <ArrowPathIcon class="w-5 h-5 text-primary-600 dark:text-primary-400 animate-spin" />
+          <ArrowPathIcon class="w-5 h-5 text-teal-600 dark:text-teal-400 animate-spin" />
           <span class="font-bold text-slate-900 dark:text-white text-sm">
-            {{ $t('sync.syncing_data') || 'Syncing Data...' }}
+            جاري نقل ومزامنة البيانات محلياً إلى السيرفر...
           </span>
         </div>
-        <span class="text-sm font-extrabold text-primary-600 dark:text-primary-400">
-          {{ progressPercent }}%
+        <span class="text-sm font-extrabold text-teal-600 dark:text-teal-400">
+          {{ isSyncing ? '100%' : '0%' }}
         </span>
       </div>
 
-      <!-- Main Progress Bar -->
       <div class="w-full h-3 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-        <div
-          class="h-full bg-primary-600 transition-all duration-300 rounded-full"
-          :style="{ width: `${progressPercent}%` }"
-        ></div>
-      </div>
-
-      <!-- Realtime Transfer Metrics -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-700">
-        <div>Processed: <strong class="text-slate-800 dark:text-slate-200">{{ processedItems }} / {{ totalItems }}</strong></div>
-        <div>Speed: <strong class="text-slate-800 dark:text-slate-200">{{ transferSpeed }} MB/s</strong></div>
-        <div>Est. Time: <strong class="text-slate-800 dark:text-slate-200">{{ estimatedSecondsRemaining }}s</strong></div>
-        <div>Completed: <strong class="text-emerald-600 font-semibold">{{ stats.synced || 0 }}</strong></div>
+        <div class="h-full bg-teal-500 rounded-full animate-pulse w-full"></div>
       </div>
     </div>
 
-    <!-- Entity Progress Breakdown Cards (Part 4) -->
+    <!-- Realtime Entity Breakdown -->
     <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
       <h3 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-        {{ $t('sync.entity_breakdown') || 'Entity Queue Breakdown' }}
+        تفاصيل عناصر طابور المزامنة المعلقة (Realtime Queue)
       </h3>
 
-      <div class="space-y-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <!-- Patients Card -->
         <div class="p-3.5 bg-slate-50 dark:bg-slate-900/50 rounded-xl flex items-center justify-between">
           <div class="flex items-center space-x-3 rtl:space-x-reverse">
             <UserGroupIcon class="w-5 h-5 text-blue-500" />
             <div>
               <div class="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                {{ $t('sync.patients') || 'Patients' }}
+                المرضى (Patients)
               </div>
               <div class="text-xs text-slate-400">
-                Pending: {{ stats.pending_patients || 0 }}
+                معلق بانتظار الرفع: {{ pendingSummary.patients || 0 }}
               </div>
             </div>
           </div>
-          <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-            {{ stats.pending_patients === 0 ? 'Completed' : 'Waiting' }}
+          <span class="text-xs font-semibold px-2.5 py-1 rounded-full" :class="(pendingSummary.patients || 0) === 0 ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300' : 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'">
+            {{ (pendingSummary.patients || 0) === 0 ? 'مكتمل Mapped' : 'معلق' }}
           </span>
         </div>
 
@@ -170,15 +140,15 @@
             <DocumentTextIcon class="w-5 h-5 text-indigo-500" />
             <div>
               <div class="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                {{ $t('sync.notes') || 'Notes' }}
+                الملاحظات الطبية (Notes)
               </div>
               <div class="text-xs text-slate-400">
-                Pending: {{ stats.pending_notes || 0 }}
+                معلق بانتظار الرفع: {{ pendingSummary.notes || 0 }}
               </div>
             </div>
           </div>
-          <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-            {{ stats.pending_notes === 0 ? 'Completed' : 'Waiting' }}
+          <span class="text-xs font-semibold px-2.5 py-1 rounded-full" :class="(pendingSummary.notes || 0) === 0 ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300' : 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'">
+            {{ (pendingSummary.notes || 0) === 0 ? 'مكتمل Mapped' : 'معلق' }}
           </span>
         </div>
 
@@ -188,15 +158,15 @@
             <CalendarDaysIcon class="w-5 h-5 text-purple-500" />
             <div>
               <div class="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                {{ $t('sync.visits') || 'Visits' }}
+                الزيارات (Visits)
               </div>
               <div class="text-xs text-slate-400">
-                Pending: {{ stats.pending_visits || 0 }}
+                معلق بانتظار الرفع: {{ stats.pending_visits || 0 }}
               </div>
             </div>
           </div>
-          <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-            {{ stats.pending_visits === 0 ? 'Completed' : 'Waiting' }}
+          <span class="text-xs font-semibold px-2.5 py-1 rounded-full" :class="(stats.pending_visits || 0) === 0 ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300' : 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'">
+            {{ (stats.pending_visits || 0) === 0 ? 'مكتمل Mapped' : 'معلق' }}
           </span>
         </div>
 
@@ -206,15 +176,15 @@
             <PhotoIcon class="w-5 h-5 text-teal-500" />
             <div>
               <div class="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                {{ $t('sync.files') || 'Files & Media' }}
+                الملفات والفيديوهات (Files)
               </div>
               <div class="text-xs text-slate-400">
-                Pending: {{ stats.pending_files || 0 }}
+                معلق بانتظار الرفع: {{ pendingSummary.files || 0 }}
               </div>
             </div>
           </div>
-          <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-            {{ stats.pending_files === 0 ? 'Completed' : 'Waiting' }}
+          <span class="text-xs font-semibold px-2.5 py-1 rounded-full" :class="(pendingSummary.files || 0) === 0 ? 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300' : 'bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'">
+            {{ (pendingSummary.files || 0) === 0 ? 'مكتمل Mapped' : 'معلق' }}
           </span>
         </div>
       </div>
@@ -223,48 +193,21 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import {
   CloudArrowUpIcon,
   ArrowPathIcon,
-  PauseIcon,
-  PlayIcon,
-  XMarkIcon,
-  CheckCircleIcon,
-  ExclamationCircleIcon,
-  ExclamationTriangleIcon,
-  ClockIcon,
   UserGroupIcon,
   DocumentTextIcon,
   CalendarDaysIcon,
   PhotoIcon
 } from '@heroicons/vue/24/outline'
+import { useSyncEngine } from '@/Composables/useSyncEngine'
+
+const { isOnline, isSyncing, lastSyncResult, pendingSummary, triggerSync, refreshPendingSummary } = useSyncEngine()
 
 const stats = ref({})
-const engineState = ref('idle')
-const processedItems = ref(0)
-const totalItems = ref(0)
-const transferSpeed = ref('1.2')
-const estimatedSecondsRemaining = ref(0)
 let pollTimer = null
-
-const progressPercent = computed(() => {
-  if (!totalItems.value || totalItems.value === 0) return 0
-  return Math.min(100, Math.round((processedItems.value / totalItems.value) * 100))
-})
-
-const stateBadge = computed(() => {
-  switch (engineState.value) {
-    case 'running':
-      return { icon: ArrowPathIcon, color: 'text-blue-500 animate-spin', text: 'Running' }
-    case 'paused':
-      return { icon: PauseIcon, color: 'text-amber-500', text: 'Paused' }
-    case 'cancelled':
-      return { icon: XMarkIcon, color: 'text-slate-400', text: 'Cancelled' }
-    default:
-      return { icon: CheckCircleIcon, color: 'text-emerald-500', text: 'Idle' }
-  }
-})
 
 async function fetchDashboardStats() {
   try {
@@ -272,9 +215,6 @@ async function fetchDashboardStats() {
     const json = await res.json()
     if (json.success && json.stats) {
       stats.value = json.stats
-      engineState.value = json.stats.engine_state || 'idle'
-      totalItems.value = json.stats.total_queue || 0
-      processedItems.value = json.stats.synced || 0
     }
   } catch (e) {
     // Ignore fetch errors
@@ -282,42 +222,26 @@ async function fetchDashboardStats() {
 }
 
 async function startSync() {
-  engineState.value = 'running'
-  try {
-    const res = await fetch('/_native/api/sync/manual', { method: 'POST' })
-    await fetchDashboardStats()
-  } catch (e) {
-    engineState.value = 'idle'
-  }
-}
-
-async function pauseSync() {
-  await fetch('/_native/api/sync/pause', { method: 'POST' })
-  await fetchDashboardStats()
-}
-
-async function resumeSync() {
-  await fetch('/_native/api/sync/resume', { method: 'POST' })
-  await fetchDashboardStats()
-}
-
-async function cancelSync() {
-  await fetch('/_native/api/sync/cancel', { method: 'POST' })
+  await triggerSync()
   await fetchDashboardStats()
 }
 
 function formatDate(dateStr) {
-  if (!dateStr) return 'Never'
+  if (!dateStr) return 'لم تتم المزامنة بعد'
   try {
-    return new Date(dateStr).toLocaleString()
+    return new Date(dateStr).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })
   } catch (e) {
     return dateStr
   }
 }
 
 onMounted(() => {
+  refreshPendingSummary()
   fetchDashboardStats()
-  pollTimer = setInterval(fetchDashboardStats, 3000)
+  pollTimer = setInterval(() => {
+    refreshPendingSummary()
+    fetchDashboardStats()
+  }, 3000)
 })
 
 onUnmounted(() => {

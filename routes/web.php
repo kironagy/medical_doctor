@@ -331,6 +331,44 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
         ]);
     });
 
+    // Get full realtime sync dashboard stats
+    Route::get('/dashboard', function () {
+        try {
+            $patientPending = \App\Domains\Patients\Models\Patient::whereIn('sync_status', ['pending_create', 'pending_update'])->count();
+            $patientDeletes = \App\Domains\Patients\Models\Patient::where('sync_status', 'pending_delete')->count();
+            $notesPending   = \App\Domains\Patients\Models\PatientNote::whereIn('sync_status', ['pending_create', 'pending_delete'])->count();
+            $visitsPending  = \App\Domains\Patients\Models\PatientVisit::whereIn('sync_status', ['pending_create', 'pending_update', 'pending_delete'])->count();
+            $filesPending   = \Illuminate\Support\Facades\DB::table('offline_files')->whereIn('sync_status', ['pending_upload', 'failed'])->count() 
+                            + \App\Domains\Media\Models\PatientFile::whereNull('remote_uuid')->where('upload_status', 'ready')->count();
+            $totalQueue     = \App\Domains\Sync\Models\SyncQueue::where('status', 'pending')->count();
+            $totalPending   = $patientPending + $patientDeletes + $notesPending + $visitsPending + $filesPending;
+
+            $sqliteDbFile   = database_path('database.sqlite');
+            $sqliteSizeMb   = file_exists($sqliteDbFile) ? round(filesize($sqliteDbFile) / 1048576, 2) : 0;
+
+            return response()->json([
+                'success' => true,
+                'stats' => [
+                    'engine_state' => 'idle',
+                    'auth_status'  => auth()->check() ? 'Authenticated' : 'Offline Session',
+                    'pending'      => $totalPending,
+                    'total_queue'  => $totalQueue,
+                    'pending_patients' => $patientPending,
+                    'pending_notes'    => $notesPending,
+                    'pending_visits'   => $visitsPending,
+                    'pending_files'    => $filesPending,
+                    'pending_deletes'  => $patientDeletes,
+                    'synced'           => \App\Domains\Sync\Models\SyncQueue::where('status', 'completed')->count(),
+                    'failed'           => \App\Domains\Sync\Models\SyncQueue::where('status', 'failed')->count(),
+                    'sqlite_size_mb'   => $sqliteSizeMb,
+                    'last_successful_sync' => cache()->get('last_successful_sync_at', null),
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'error' => $e->getMessage()]);
+        }
+    });
+
     // Get pending operations summary
     Route::get('/pending-summary', function () {
         try {
