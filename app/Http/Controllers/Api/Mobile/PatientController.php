@@ -123,15 +123,31 @@ class PatientController extends Controller
             // If no authenticated user (offline/mobile), fallback to the first doctor in DB
             if (empty($validated['primary_doctor_id'])) {
                 $fallbackUser = \App\Domains\Users\Models\User::first();
-                if ($fallbackUser) {
-                    $validated['primary_doctor_id'] = $fallbackUser->id;
-                    $validated['created_by_id'] = $fallbackUser->id;
-                    \Illuminate\Support\Facades\Log::info('[MobilePatient] Fallback: assigned primary_doctor_id from first user', [
+                if (!$fallbackUser) {
+                    // Create a default doctor in SQLite if the database is completely empty (clean installs)
+                    \App\Domains\Users\Models\User::unguard();
+                    $fallbackUser = \App\Domains\Users\Models\User::firstOrCreate(
+                        ['id' => 1],
+                        [
+                            'name' => 'Default Doctor',
+                            'email' => 'doctor@local.test',
+                            'password' => bcrypt('password'),
+                            'role' => 'doctor',
+                            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+                            'status' => 'active',
+                        ]
+                    );
+                    \App\Domains\Users\Models\User::reguard();
+                    \Illuminate\Support\Facades\Log::info('[MobilePatient] Empty local DB: Seeded default doctor', [
                         'doctor_id' => $fallbackUser->id
                     ]);
-                } else {
-                    \Illuminate\Support\Facades\Log::warning('[MobilePatient] Fallback failed: No users found in database');
                 }
+
+                $validated['primary_doctor_id'] = $fallbackUser->id;
+                $validated['created_by_id'] = $fallbackUser->id;
+                \Illuminate\Support\Facades\Log::info('[MobilePatient] Fallback: assigned primary_doctor_id from resolved user', [
+                    'doctor_id' => $fallbackUser->id
+                ]);
             }
             if (!empty($validated['primary_doctor_id'])) {
                 $validated['created_by_id'] ??= $validated['primary_doctor_id'];

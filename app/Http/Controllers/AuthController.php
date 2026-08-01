@@ -57,6 +57,54 @@ class AuthController extends Controller
             return redirect()->intended('/dashboard');
         }
 
+        // If local authentication fails, attempt authentication against remote production API
+        // (essential for clean installs where the local SQLite database contains 0 users)
+        try {
+            Log::info('Local auth failed. Attempting remote fallback login for: ' . $credentials['email']);
+            $tokenResponse = ApiService::loginToRemote($credentials['email'], $credentials['password']);
+            if (isset($tokenResponse['token']) && isset($tokenResponse['user'])) {
+                $remoteUser = $tokenResponse['user'];
+                
+                // Create or update the user record locally in SQLite
+                \App\Domains\Users\Models\User::unguard();
+                $localUser = \App\Domains\Users\Models\User::updateOrCreate(
+                    ['email' => $remoteUser['email']],
+                    [
+                        'name' => $remoteUser['name'],
+                        'password' => bcrypt($credentials['password']), // Save local hashed password for future offline logins
+                        'role' => $remoteUser['role'] ?? 'doctor',
+                        'phone' => $remoteUser['phone'] ?? null,
+                        'address' => $remoteUser['address'] ?? null,
+                        'specialization' => $remoteUser['specialization'] ?? null,
+                        'code' => $remoteUser['code'] ?? null,
+                        'status' => $remoteUser['status'] ?? 'active',
+                        'uuid' => $remoteUser['uuid'] ?? (string) \Illuminate\Support\Str::uuid(),
+                    ]
+                );
+                \App\Domains\Users\Models\User::reguard();
+
+                // Authenticate the user session locally
+                Auth::login($localUser, $request->boolean('remember'));
+                $request->session()->regenerate();
+
+                // Save remote API token and store credentials for the sync engine
+                app(ApiService::class)->setToken($tokenResponse['token']);
+                session(['auth_credentials' => encrypt(json_encode([
+                    'email' => $credentials['email'],
+                    'password' => $credentials['password'],
+                ]))]);
+
+                Log::info('Successfully authenticated via remote fallback and synced user locally.');
+
+                if ($localUser->role === 'super-admin' || $localUser->hasRole('super-admin')) {
+                    return redirect('/admin/doctors');
+                }
+                return redirect()->intended('/dashboard');
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Remote fallback authentication failed: ' . $e->getMessage());
+        }
+
         return back()->withErrors([
             'email' => 'The provided credentials do not match our records.',
         ])->onlyInput('email');
