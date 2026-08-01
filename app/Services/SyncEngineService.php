@@ -582,17 +582,27 @@ class SyncEngineService
                     $results['uploaded']++;
                 } catch (\Throwable $e) {
                     Log::warning('[SyncEngine] File upload failed: ' . $e->getMessage(), [
-                        'file_uuid' => $file['uuid'],
+                        'file_uuid'   => $file['uuid'],
+                        'retry_count' => $file['retry_count'] ?? 0,
                     ]);
                     $this->offlineFileRepo->incrementRetry($file['uuid']);
-                    // Revert to pending_upload so it can be retried (instead of
-                    // staying in 'uploading' or 'failed' and needing recovery)
+
+                    // ── BUG-013 FIX: Use 'failed' status after failure ──────────
+                    // Old code reverted to 'pending_upload' even after failure.
+                    // This made it impossible to distinguish "waiting to upload"
+                    // from "tried and failed". Now we use 'failed' so the UI can
+                    // show the user the file is stuck. The sync query picks up
+                    // both 'pending_upload' AND 'failed' (retry_count < 10),
+                    // so retries still happen automatically on next sync cycle.
+                    $newRetryCount = ($file['retry_count'] ?? 0) + 1;
+                    $finalStatus = $newRetryCount >= 10 ? 'failed' : 'pending_upload';
                     DB::table('offline_files')
                         ->where('uuid', $file['uuid'])
                         ->where('sync_status', 'uploading')
                         ->update([
-                            'sync_status'  => 'pending_upload',
+                            'sync_status'   => $finalStatus,
                             'error_message' => $e->getMessage(),
+                            'updated_at'    => now(),
                         ]);
                     $results['failed']++;
                 }

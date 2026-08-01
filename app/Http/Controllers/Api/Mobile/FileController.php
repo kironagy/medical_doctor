@@ -87,19 +87,21 @@ class FileController extends Controller
         );
 
         $file = PatientFile::create([
-            'uuid' => $fileUuid,
-            'patient_id' => $patient->id,
+            'uuid'           => $fileUuid,
+            'patient_id'     => $patient->id,
             'uploaded_by_id' => $request->user()?->id ?? $patient->primary_doctor_id ?? 1,
-            'title' => $validated['title'] ?? $uploadedFile->getClientOriginalName(),
-            'desc' => $validated['desc'] ?? null,
-            'type' => $type,
-            'category' => $validated['category'] ?? null,
-            'date' => $validated['date'] ?? now(),
-            'file_name' => $uploadedFile->getClientOriginalName(),
-            'file_path' => $path,
-            'mime_type' => $mimeType,
-            'size' => $size,
-            'upload_status' => 'ready',
+            'title'          => $validated['title'] ?? $uploadedFile->getClientOriginalName(),
+            'desc'           => $validated['desc'] ?? null,
+            'type'           => $type,
+            'category'       => $validated['category'] ?? null,
+            'date'           => $validated['date'] ?? now(),
+            'file_name'      => $uploadedFile->getClientOriginalName(),
+            'file_path'      => $path,
+            'mime_type'      => $mimeType,
+            'size'           => $size,
+            'upload_status'  => 'ready',
+            // ── BUG-020 FIX: Mark pending_sync on SQLite so SyncEngine finds it ──
+            'sync_status'    => config('database.default') === 'sqlite' ? 'pending_sync' : null,
         ]);
 
         $this->logger->log('file_uploaded', 'PatientFile', $file->uuid, [

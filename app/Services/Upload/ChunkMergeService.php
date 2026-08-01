@@ -147,6 +147,12 @@ class ChunkMergeService
                 'file_name'         => $locked->original_name,
                 'file_path'         => $finalRelPath,
                 'upload_status'     => 'ready',
+                // ── BUG-007 FIX: Mark as pending_sync so SyncEngine finds this ──
+                // syncLocalPatientFiles() queries: remote_uuid=NULL + upload_status='ready'
+                // + sync_status != 'pending_delete'. Without an explicit sync_status,
+                // the column defaults to NULL which may cause unexpected query behaviour
+                // on some DB drivers. Setting 'pending_sync' makes intent explicit.
+                'sync_status'       => config('database.default') === 'sqlite' ? 'pending_sync' : null,
             ]);
 
             // Cleanup legacy chunk directory

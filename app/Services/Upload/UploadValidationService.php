@@ -37,6 +37,11 @@ class UploadValidationService
         if (empty($data['mime_type'])) {
             throw new HttpException(422, 'Missing MIME type');
         }
+        // ── BUG-017 FIX: Actually check against ALLOWED_MIMES ────────────
+        // The array existed but was never used — any MIME type was accepted.
+        if (!in_array($data['mime_type'], self::ALLOWED_MIMES, true)) {
+            throw new HttpException(422, 'Unsupported file type: ' . $data['mime_type']);
+        }
         if (empty($data['patient_id'])) {
             throw new HttpException(422, 'Missing patient ID');
         }

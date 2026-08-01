@@ -203,6 +203,25 @@ class ApiService
         return $client;
     }
 
+    /**
+     * HTTP client for file uploads — uses a longer timeout because files can be large.
+     * Normal API calls use client() with 30 seconds.
+     * Upload calls use this with 300 seconds (5 minutes).
+     */
+    private function uploadClient(): PendingRequest
+    {
+        $client = Http::timeout(300)   // ── BUG-009 FIX: 5 min for large file uploads
+            ->withHeaders([
+                'Accept' => 'application/json',
+            ]);
+
+        if ($this->token) {
+            $client->withToken($this->token);
+        }
+
+        return $client;
+    }
+
     public function get(string $path, array $query = []): array
     {
         return $this->send('GET', $path, ['query' => $query]);
@@ -231,7 +250,7 @@ class ApiService
     public function upload(string $path, array $files, array $data = []): array
     {
         $url = $this->baseUrl() . $path;
-        $request = $this->client()->asMultipart();
+        $request = $this->uploadClient()->asMultipart();  // ── BUG-009 FIX: 300s timeout
         $requestId = substr(uniqid('upl', true), -8);
 
         Log::info('[DIAG.ApiService] upload — starting', [

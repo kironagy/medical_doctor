@@ -210,16 +210,23 @@ Route::prefix('api/v1')->withoutMiddleware([
 });
 
 // ── Phase 7 — Offline File Uploads (OUTSIDE auth middleware) ─────────
-// Same rationale as api/v1 routes above — controller-level auth.
-// 🚫 CSRF excluded — same reasoning.
+// ── BUG-018 FIX: Merged duplicate _native/api/offline groups ────────────
+// Previously this prefix was declared twice (uploads + notes separately).
+// Now consolidated into ONE group to eliminate route naming conflicts.
+// 🚫 CSRF excluded — same reasoning as other _native routes.
 Route::prefix('_native/api/offline')->name('offline.')->withoutMiddleware([
     \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
 ])->group(function () {
+    // ── Offline file uploads ──────────────────────────────────────────
     Route::post('/uploads', [\App\Http\Controllers\Api\OfflineUploadController::class, 'store'])->name('uploads.store');
     Route::get('/uploads', [\App\Http\Controllers\Api\OfflineUploadController::class, 'index'])->name('uploads.index');
     Route::get('/uploads/{uuid}/status', [\App\Http\Controllers\Api\OfflineUploadController::class, 'status'])->name('uploads.status');
     Route::post('/uploads/{uuid}/retry', [\App\Http\Controllers\Api\OfflineUploadController::class, 'retry'])->name('uploads.retry');
     Route::delete('/uploads/{uuid}', [\App\Http\Controllers\Api\OfflineUploadController::class, 'destroy'])->name('uploads.destroy');
+    // ── Offline notes ─────────────────────────────────────────────────
+    Route::post('/notes', [\App\Http\Controllers\Api\OfflineNoteController::class, 'store'])->name('notes.store');
+    Route::get('/notes', [\App\Http\Controllers\Api\OfflineNoteController::class, 'index'])->name('notes.index');
+    Route::delete('/notes/{uuid}', [\App\Http\Controllers\Api\OfflineNoteController::class, 'destroy'])->name('notes.destroy');
 });
 
 // ═══ SYNC-005 FIX: Removed competing sync endpoints ═══════════════════
@@ -343,16 +350,8 @@ Route::prefix('_native/cache')->name('cache.')->withoutMiddleware([
 });
 
 
-// ── Phase 8 — Offline Notes (OUTSIDE auth middleware) ─────────────
-// Same pattern as offline uploads — controller-level auth.
-// 🚫 CSRF excluded — same reasoning as other _native routes.
-Route::prefix('_native/api/offline')->name('offline.')->withoutMiddleware([
-    \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
-])->group(function () {
-    Route::post('/notes', [\App\Http\Controllers\Api\OfflineNoteController::class, 'store'])->name('notes.store');
-    Route::get('/notes', [\App\Http\Controllers\Api\OfflineNoteController::class, 'index'])->name('notes.index');
-    Route::delete('/notes/{uuid}', [\App\Http\Controllers\Api\OfflineNoteController::class, 'destroy'])->name('notes.destroy');
-});
+// ── Phase 8 — Offline Notes routes merged above into _native/api/offline ──
+// (BUG-018 FIX: Was a duplicate prefix group here, now consolidated above)
 
 // ── Phase 8 — Category Cache Refresh (OUTSIDE auth middleware) ────
 // The frontend calls this endpoint to refresh the local category cache

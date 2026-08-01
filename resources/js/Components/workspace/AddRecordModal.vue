@@ -140,7 +140,7 @@ const toast = useToast()
 const { uploadFile: onlineUploadFile } = useUploads()
 const { uploadFile: offlineUploadFile } = useOfflineUploads()
 const { addNoteLocally } = useWorkspace()
-const { triggerSync } = useSyncEngine()
+const { triggerSync, isOnline: syncIsOnline } = useSyncEngine()  // BUG-015: use SyncEngine state
 
 const activeTab = ref('text')
 const notes = ref('')
@@ -192,12 +192,14 @@ async function submit() {
     }
     saving.value = true
     try {
-      const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+      // ── BUG-015 FIX: Use SyncEngine's isOnline instead of navigator.onLine ──
+      // navigator.onLine is unreliable in Android WebViews — it stays true even
+      // when the production server is unreachable. SyncEngine.isOnline integrates
+      // 5 detection paths including the native Android ConnectivityManager bridge.
+      const online = syncIsOnline.value
 
-      // ══ FIX: Send Bearer token so Mobile/NoteController can capture it ══
-      // The sync engine needs this token to authenticate with the production
-      // server. Without it, SyncEngineService::syncAll() skips entirely.
-      const token = localStorage.getItem('np_api_token')
+      // Send Bearer token so NoteController can capture it for the sync engine
+      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null
       const authHeaders = token ? { Authorization: 'Bearer ' + token } : {}
 
         if (online) {
@@ -226,9 +228,6 @@ async function submit() {
           // ═══════════════════════════════════════════════════════════════
           //  OFFLINE: Save locally — sync engine will push when online
           // ═══════════════════════════════════════════════════════════════
-          // ══ FIX: Send Bearer token so Mobile/NoteController can capture it ══
-          // Same as online branch — the token must be captured even when offline
-          // so that when connectivity returns, the sync engine has it.
           const saveRes = await axios.post(apiUrl(`/api/v1/mobile/patients/${props.patient.uuid}/notes`), {
             content: notes.value,
             category: props.categorySlug,
@@ -254,7 +253,8 @@ async function submit() {
     }
     saving.value = true
     try {
-      const online = typeof navigator !== 'undefined' ? navigator.onLine : true
+      // ── BUG-015 FIX: Use SyncEngine's isOnline instead of navigator.onLine ──
+      const online = syncIsOnline.value
       const patientId = props.patient.id
       const patientUuid = props.patient.uuid
       for (const file of selectedFiles.value) {

@@ -25,9 +25,10 @@
 // ═══════════════════════════════════════════════════════════════════
 
 import axios from 'axios'
-import { ref, reactive } from 'vue'
+import { ref, computed } from 'vue'
 import { useNativeBridge } from './useNativeBridge'
 import { useWorkspace } from './useWorkspace'
+import { useSyncEngine } from './useSyncEngine'  // BUG-015: reliable network state
 
 // ─── Module-level state (shared across all useOfflineUploads() calls) ──────
 const offlineUploads = ref([])
@@ -50,10 +51,14 @@ const STATUS_LABELS = {
 
 /**
  * Detect if the app is currently online.
- * Uses navigator.onLine as a fast check.
+ * ── BUG-015 FIX: Use SyncEngine's isOnline instead of navigator.onLine ──
+ * navigator.onLine is unreliable in Android WebViews — it can stay true
+ * for minutes after losing connection. SyncEngine.isOnline integrates the
+ * Android ConnectivityManager via the native bridge for accurate state.
  */
 function isOnline() {
-  return typeof navigator !== 'undefined' ? navigator.onLine : true
+  const { isOnline: syncOnline } = useSyncEngine()
+  return syncOnline.value
 }
 
 export function useOfflineUploads() {
@@ -126,9 +131,7 @@ export function useOfflineUploads() {
    * The file appears immediately in the UI via addFileLocally().
    */
   async function uploadFile(file, patientUuid, metadata = {}) {
-    const _trace_off = (m) => { try { fetch('/_native/api/debug/trace', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:m})}).catch(()=>{}); } catch(e) {} };_trace_off('[TRACE_F3] useOfflineUploads.uploadFile() ENTERED - patientUuid: ' + patientUuid + ' fileName: ' + file?.name + ' isOnline: ' + isOnline())
     if (isOnline()) {
-      const _t2 = (m) => { try { fetch('/_native/api/debug/trace', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:m})}).catch(()=>{}); } catch(e) {} };_t2('[TRACE_F3b] ONLINE - throwing error, should use useUploads instead')
       throw new Error(
         '[OfflineUpload] Cannot use offline upload while online. ' +
         'Use useUploads().uploadFile() for online uploads.'
@@ -143,7 +146,6 @@ export function useOfflineUploads() {
     if (metadata.category) fd.append('category', metadata.category)
 
     try {
-      const _t3 = (m) => { try { fetch('/_native/api/debug/trace', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:m})}).catch(()=>{}); } catch(e) {} };_t3('[TRACE_F4] axios.post to /_native/api/offline/uploads')
       const res = await axios.post('/_native/api/offline/uploads', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 120000,

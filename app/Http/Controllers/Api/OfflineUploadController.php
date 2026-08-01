@@ -32,10 +32,6 @@ class OfflineUploadController extends Controller
      */
     public function store(Request $request)
     {
-        $tf = '/data/local/tmp/np_traces.txt';
-        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5 OfflineController.store() ENTERED' . "\n", FILE_APPEND | LOCK_EX);
-        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5b hasFile=' . ($request->hasFile('file') ? 'YES' : 'NO') . ' uuid=' . $request->input('patient_uuid') . "\n", FILE_APPEND | LOCK_EX);
-        
         $validated = $request->validate([
             'file'         => 'required|file|max:512000',
             'patient_uuid' => 'required|string|size:36',
@@ -43,11 +39,37 @@ class OfflineUploadController extends Controller
             'desc'         => 'sometimes|string|max:1000',
             'category'     => 'sometimes|string|max:100',
         ]);
-        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5d Validation passed' . "\n", FILE_APPEND | LOCK_EX);
 
-        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5e looking up patient' . "\n", FILE_APPEND | LOCK_EX);
-        $patient = Patient::where('uuid', $validated['patient_uuid'])->firstOrFail();
-        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5f patient found, Gate::authorize (skip if no user)' . "\n", FILE_APPEND | LOCK_EX);
+        // ── BUG-008 FIX: resolvePatient fallback ──────────────────────────────
+        // The old code used firstOrFail() which returned 404 when the patient was
+        // created locally (pending_create) but not yet synced to the server.
+        // Now we use first() + stub creation as a fallback, matching the pattern
+        // used in ChunkUploadController::resolvePatient().
+        $patient = Patient::where('uuid', $validated['patient_uuid'])->first();
+
+        if (!$patient) {
+            // Patient exists on device (user is uploading against it) but is not
+            // in local SQLite yet — create a stub so we can associate the file.
+            Log::warning('[OfflineUpload] Patient not found locally, creating stub', [
+                'patient_uuid' => $validated['patient_uuid'],
+            ]);
+            try {
+                Patient::unguard();
+                $patient = Patient::create([
+                    'uuid'        => $validated['patient_uuid'],
+                    'name'        => 'Patient ' . substr($validated['patient_uuid'], 0, 8),
+                    'sync_status' => 'pending_sync',
+                ]);
+                Patient::reguard();
+            } catch (\Throwable $stubErr) {
+                Log::error('[OfflineUpload] Failed to create stub patient: ' . $stubErr->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Patient not found and stub creation failed.',
+                ], 404);
+            }
+        }
+
         $authUser = $request->user();
         if ($authUser) {
             try {
@@ -59,19 +81,14 @@ class OfflineUploadController extends Controller
         } else {
             Log::info('[OfflineUpload] No authenticated user, skipping Gate check (offline local file)');
         }
-        @file_put_contents($tf, now()->format('H:i:s.v') . ' F5g auth handled' . "\n", FILE_APPEND | LOCK_EX);
 
         try {
-            @file_put_contents($tf, now()->format('H:i:s.v') . ' F6 calling saveLocally()' . "\n", FILE_APPEND | LOCK_EX);
             $metadata = $this->offlineUploadService->saveLocally(
                 $request->file('file'),
                 $validated['patient_uuid']
             );
-            @file_put_contents($tf, now()->format('H:i:s.v') . ' F6b saveLocally returned uuid=' . ($metadata['uuid'] ?? 'NONE') . "\n", FILE_APPEND | LOCK_EX);
 
-            @file_put_contents($tf, now()->format('H:i:s.v') . ' F6c calling offlineRepo->create()' . "\n", FILE_APPEND | LOCK_EX);
             $record = $this->offlineRepo->create($metadata);
-            @file_put_contents($tf, now()->format('H:i:s.v') . ' F6d offlineRepo->create() DONE' . "\n", FILE_APPEND | LOCK_EX);
 
             Log::info('[OfflineUpload] File saved for pending upload', [
                 'local_uuid'   => $metadata['uuid'],
@@ -82,17 +99,17 @@ class OfflineUploadController extends Controller
             ]);
 
             return response()->json([
-                'success'      => true,
-                'uuid'         => $metadata['uuid'],
-                'patient_uuid' => $validated['patient_uuid'],
+                'success'       => true,
+                'uuid'          => $metadata['uuid'],
+                'patient_uuid'  => $validated['patient_uuid'],
                 'original_name' => $metadata['original_name'],
-                'mime_type'    => $metadata['mime_type'],
-                'extension'    => $metadata['extension'],
-                'size'         => $metadata['size'],
-                'sync_status'  => 'pending_upload',
-                'type'         => $metadata['type'] ?? 'document',
-                'local_path'   => $metadata['local_path'],
-                'created_at'   => now()->toIso8601String(),
+                'mime_type'     => $metadata['mime_type'],
+                'extension'     => $metadata['extension'],
+                'size'          => $metadata['size'],
+                'sync_status'   => 'pending_upload',
+                'type'          => $metadata['type'] ?? 'document',
+                'local_path'    => $metadata['local_path'],
+                'created_at'    => now()->toIso8601String(),
             ], 201);
         } catch (\Throwable $e) {
             $sqlState = null;
@@ -108,7 +125,6 @@ class OfflineUploadController extends Controller
 
             Log::error('UPLOAD EXCEPTION (OfflineUpload)', [
                 'url'          => $request->fullUrl(),
-                'method'       => $request->method(),
                 'patient_uuid' => $validated['patient_uuid'] ?? null,
                 'exception'    => get_class($e),
                 'message'      => $e->getMessage(),
@@ -116,7 +132,6 @@ class OfflineUploadController extends Controller
                 'sqlite_error' => $sqliteError,
                 'file'         => $e->getFile(),
                 'line'         => $e->getLine(),
-                'trace'        => $e->getTraceAsString(),
             ]);
 
             return response()->json([
@@ -127,7 +142,6 @@ class OfflineUploadController extends Controller
                 'sqlite_error' => $sqliteError,
                 'file'         => $e->getFile(),
                 'line'         => $e->getLine(),
-                'trace'        => $e->getTraceAsString(),
             ], 500);
         }
     }
