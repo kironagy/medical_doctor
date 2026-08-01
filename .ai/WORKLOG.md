@@ -2,6 +2,32 @@
 
 ## 2026-08-01
 
+### Forensic System Investigation & Technical Blueprint
+- **Task:** Perform full reverse-engineering forensic analysis of NativePHP Mobile & Laravel codebase.
+- **Created Document:** `docs/system-audit/nativephp-forensic-investigation.md`
+- **Investigation Scope:**
+  1. Complete Project Map & Component Dependency Graphs.
+  2. Execution Traces (Offline Upload, Online Direct Upload, Sync Engine Cycle).
+  3. Deep File Upload Systems Analysis across all media types (Image, Video, Audio, PDF, Docs).
+  4. Forensic Investigation of Image Preview Failures & Dynamic Appended Attribute Resolution.
+  5. Video Lifecycle & Byte-Range 206 Partial Content Streaming.
+  6. SQLite Database & Schema Audit, FK Integrity Guards, UUID Remapping.
+  7. Sync Engine Priority Queue Sequence & Concurrency Safeguards.
+  8. Network Request / Response Matrix & Endpoint Map.
+  9. Security & Performance Audit with 13-category System Forensic Scorecard.
+
+### System Technical Audit & Root Cause Analysis
+- **Task:** Perform comprehensive architectural audit of NativePHP Mobile & Laravel infrastructure.
+- **Created Document:** `docs/system-audit/nativephp-mobile-full-audit.md`
+- **Scope Covered:**
+  1. Executive Summary & Dual Database (SQLite / MySQL) Model Architecture.
+  2. Routing & Native Android WebView / C SAPI Bridge Communication (`ParseMobileMultipartMiddleware`).
+  3. Offline-First Lifecycle & State Machine Transitions (`pending_create`, `pending_upload`, `syncing`, `synced`, `failed`).
+  4. Upload Pipelines (Direct Upload, Chunked Video Upload, Offline Pending Upload) & Media Stream Handling.
+  5. Sync Engine Architecture (`SyncEngineService` & `useSyncEngine.js`), strict execution order, and 5-path network resilience triggers.
+  6. Root Cause Analysis for empty file cards, 0-byte direct write errors, and patient resolution fallbacks.
+  7. Technical recommendations for WAL mode, thumbnail fallbacks, and stabilization.
+
 ### Fix: Direct Image Uploads Without Chunking, Chunk 0 Size Error & Reactive Import Bug
 1. **Bug: Offline upload failed with `ReferenceError: reactive is not defined`**
    - **Root Cause:** `useOfflineUploads.js` called `const job = reactive({ ... })` in `createJob()` but only imported `ref` and `computed` from `'vue'`.
