@@ -543,3 +543,20 @@ When `axios` uploaded file chunks via `POST /api/v1/chunk/chunk`, the injected J
 - `nativephp/android/app/src/main/java/com/nativephp/mobile/bridge/PHPBridge.kt`
 - `nativephp/android/app/src/main/java/com/nativephp/mobile/network/PHPWebViewClient.kt`
 - `.ai/WORKLOG.md`
+
+---
+
+## 2026-08-01
+
+### Fix: Android SQLite DB Path Alignment across all Environment Profiles & Nullable File Desc Upload Fix
+
+#### Issue 1 — SQLite database name and path mismatch across environments
+- **Problem:** We previously updated `.env` to point to `/data/data/com.medicalplus.app/app_storage/persisted_data/database/database.sqlite`. However, NativePHP builds compile the APK using separate config profiles: `.env.native` and `.env.native-debug`. These files still pointed to `/files/storage/data/medical_plus.sqlite` or default relative paths. This caused the compiled mobile application to ignore our main `.env` setting and continue using `medical_plus.sqlite` at runtime.
+- **Fix:** 
+  1. Updated `DB_DATABASE` configuration across `.env`, `.env.native`, and `.env.native-debug` to point consistently to the same persistent path: `/data/data/com.medicalplus.app/app_storage/persisted_data/database/medical_plus.sqlite`.
+  2. Aligned the databases on the device by copying `/tmp/check_db_medical.sqlite` (restored backup containing patients `tt`, `wew`, and `ffff`) to both `medical_plus.sqlite` and `database.sqlite` paths.
+
+#### Issue 2 — Nullable file description causing validation and sync failure
+- **Problem:** When a user uploaded an image on mobile with no description, the Guzzle/HTTP sync request sent an empty/null `desc` field. The remote server validation failed with `The desc field must be a string.`, causing the sync engine to get stuck in an infinite loop retrying the same file and preventing any subsequent sync progress.
+- **Fix:** In `FileController::store()` validation rule, changed `desc` field validation from `sometimes|string|max:1000` to `sometimes|string|nullable|max:1000` to properly accept and store null/empty description inputs.
+

@@ -61,7 +61,7 @@ class FileController extends Controller
         $validated = $request->validate([
             'file' => 'required|file|max:512000',
             'title' => 'sometimes|string|max:255',
-            'desc' => 'sometimes|string|max:1000',
+            'desc' => 'sometimes|string|nullable|max:1000',
             'category' => 'sometimes|string|max:100',
             'date' => 'sometimes|date',
         ]);

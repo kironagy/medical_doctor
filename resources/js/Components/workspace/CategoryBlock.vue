@@ -493,21 +493,38 @@ async function loadCategoryData(page = 1) {
     if (timeFilter.value && customTimeFrom.value) params.time_from = customTimeFrom.value
     if (timeFilter.value && customTimeTo.value) params.time_to = customTimeTo.value
 
-    // Fetch server data + local pending notes in parallel
-    const [response, offlineRes] = await Promise.allSettled([
+    // Fetch server data + local pending notes + local pending uploads in parallel
+    const [response, offlineRes, offlineUploadsRes] = await Promise.allSettled([
       axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params }),
-      axios.get('/_native/api/offline/notes', { params: { patient_uuid: selectedPatient.value.uuid }, timeout: 3000 })
+      axios.get('/_native/api/offline/notes', { params: { patient_uuid: selectedPatient.value.uuid }, timeout: 3000 }),
+      axios.get('/_native/api/offline/uploads', { params: { patient_uuid: selectedPatient.value.uuid }, timeout: 3000 })
     ])
 
     if (response.status !== 'fulfilled') throw response.reason
 
     const freshServerFiles = response.value.data.data || []
     const freshFileUuids = new Set(freshServerFiles.map(f => f.uuid))
+
+    // Local pending files from SQLite (offline uploads endpoint)
+    let pendingLocalFiles = []
+    if (offlineUploadsRes.status === 'fulfilled') {
+      const allPendingFiles = offlineUploadsRes.value.data?.data || []
+      pendingLocalFiles = allPendingFiles.filter(
+        f => f.category === props.slug && !freshFileUuids.has(f.uuid)
+      )
+    }
+
     const workspaceLocalFiles = (allFiles.value || []).filter(
       f => f.category === props.slug && !freshFileUuids.has(f.uuid)
     )
-    serverFiles.value = workspaceLocalFiles.length > 0
-      ? [...workspaceLocalFiles, ...freshServerFiles]
+
+    // Combine: prefer workspaceData files (richer data), fallback to offline SQLite files
+    const workspaceFileUuids = new Set(workspaceLocalFiles.map(f => f.uuid))
+    const extraPendingFiles = pendingLocalFiles.filter(f => !workspaceFileUuids.has(f.uuid))
+    const localFiles = [...workspaceLocalFiles, ...extraPendingFiles]
+
+    serverFiles.value = localFiles.length > 0
+      ? [...localFiles, ...freshServerFiles]
       : freshServerFiles
 
     initialLoadDone.value = true

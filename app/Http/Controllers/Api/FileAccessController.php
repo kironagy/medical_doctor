@@ -408,7 +408,7 @@ class FileAccessController extends Controller
      *
      * Route: GET /_native/cache/files/{uuid}
      */
-    public function streamCached(Request $request, string $uuid): StreamedResponse
+    public function streamCached(Request $request, string $uuid)
     {
         // Phase 6: Try server PatientFile first
         $file = PatientFile::where('uuid', $uuid)->first();

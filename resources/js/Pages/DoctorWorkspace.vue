@@ -632,6 +632,7 @@ function onPatientSaved(patient) {
     console.log('[DIAG] onPatientSaved - calling refreshPatientList + selectPatient for uuid:', patient.uuid)
     refreshPatientList()
     selectPatient(patient.uuid)
+    axios.post('/_native/api/sync/engine').catch(() => {})
   } else {
     console.log('[DIAG] onPatientSaved - NO UUID! Patient keys:', Object.keys(patient || {}).join(','))
   }
@@ -642,6 +643,7 @@ function onPatientUpdated(patient) {
   refreshPatientList()
   if (patient?.uuid) {
     selectPatient(patient.uuid)
+    axios.post('/_native/api/sync/engine').catch(() => {})
   }
 }
 

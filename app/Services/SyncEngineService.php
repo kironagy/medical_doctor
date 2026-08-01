@@ -490,7 +490,7 @@ class SyncEngineService
                     ['file' => $absolutePath],
                     [
                         'title'    => $file->title ?? $file->file_name,
-                        'desc'     => $file->desc ?? null,
+                        'desc'     => $file->desc ?? '',
                         'category' => $file->category ?? null,
                         'date'     => ($file->date ? \Carbon\Carbon::parse($file->date)->format('Y-m-d') : now()->format('Y-m-d')),
                     ]
