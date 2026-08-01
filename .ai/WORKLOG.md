@@ -2,6 +2,20 @@
 
 ## 2026-08-01
 
+### Fix: Android 500 Upload Error (Missing View Config) & Namespace Fallback Fix
+
+#### Issue 1 — Missing config/view.php config file
+- **Root Cause:** The `config/view.php` file was missing from the project's configuration directory. During application bootstrap on any request, `NativeServiceProvider::boot()` registers Blade components, causing Laravel to resolve the Blade compiler. Because `config/view.php` was missing, the compiled views path (`view.compiled`) resolved to `null`, which threw an `InvalidArgumentException("Please provide a valid cache path.")` from the Blade compiler. This crashed all endpoints with a 500 error, including the image upload.
+- **Fix:** Created [config/view.php](file:///Users/kiro/Downloads/mediacal%20plus/Final_Medical/Medical_Plus_v3%203/config/view.php) with standard Laravel configuration parameters that dynamically default to `VIEW_COMPILED_PATH` or the standard framework views storage path.
+
+#### Issue 2 — Class NotFoundException in ChunkMergeService
+- **Root Cause:** In [ChunkMergeService.php](file:///Users/kiro/Downloads/mediacal%20plus/Final_Medical/Medical_Plus_v3%203/app/Services/Upload/ChunkMergeService.php), line 134 fell back to `\App\Models\User::value('id')` if no primary doctor was resolved. Since all models are located in domains, `App\Models\User` is non-existent, causing a fatal error if executed.
+- **Fix:** Corrected the reference to `\App\Domains\Users\Models\User::value('id')`.
+
+---
+
+## 2026-08-01
+
 ### Fix: Android/SQLite Local Media Stream and Patient Creation Idempotency Crashes
 
 #### Issue 1 — SQLite local database path alignment

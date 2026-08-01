@@ -131,7 +131,7 @@ class ChunkMergeService
             $mimeType = $locked->mime_type;
             $type = $this->typeFromMime($mimeType);
 
-            $uploadedById = $locked->user_id ?: ($patient->primary_doctor_id ?? \App\Models\User::value('id') ?? 1);
+            $uploadedById = $locked->user_id ?: ($patient->primary_doctor_id ?? \App\Domains\Users\Models\User::value('id') ?? 1);
 
             $patientFile = PatientFile::create([
                 'uuid'              => $fileUuid,
