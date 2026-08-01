@@ -119,26 +119,28 @@ class PatientController extends Controller
         if ($user) {
             $validated['primary_doctor_id'] = $user->id;
             $validated['created_by_id'] = $user->id;
-        } elseif (config('database.default') === 'sqlite') {
-            // SQLite (embedded NativePHP mobile app) is single-user and auth middleware is bypassed.
-            // Fall back to the first available user/doctor record so the database constraint does not fail.
-            $fallbackUser = \App\Domains\Users\Models\User::first();
-            if ($fallbackUser) {
-                $validated['primary_doctor_id'] = $fallbackUser->id;
-                $validated['created_by_id'] = $fallbackUser->id;
-                \Illuminate\Support\Facades\Log::info('[MobilePatient] SQLite fallback: assigned primary_doctor_id from first user', [
-                    'doctor_id' => $fallbackUser->id
-                ]);
-            } else {
-                \Illuminate\Support\Facades\Log::warning('[MobilePatient] SQLite fallback failed: No users found in database');
-            }
-        } elseif (!empty($validated['primary_doctor_id'])) {
-            $validated['created_by_id'] ??= $validated['primary_doctor_id'];
         } else {
-            \Illuminate\Support\Facades\Log::warning('[MobilePatient] Creating patient WITHOUT primary_doctor_id', [
-                'uuid' => $validated['uuid'] ?? 'not_set',
-                'name' => $validated['name'] ?? 'unknown',
-            ]);
+            // If no authenticated user (offline/mobile), fallback to the first doctor in DB
+            if (empty($validated['primary_doctor_id'])) {
+                $fallbackUser = \App\Domains\Users\Models\User::first();
+                if ($fallbackUser) {
+                    $validated['primary_doctor_id'] = $fallbackUser->id;
+                    $validated['created_by_id'] = $fallbackUser->id;
+                    \Illuminate\Support\Facades\Log::info('[MobilePatient] Fallback: assigned primary_doctor_id from first user', [
+                        'doctor_id' => $fallbackUser->id
+                    ]);
+                } else {
+                    \Illuminate\Support\Facades\Log::warning('[MobilePatient] Fallback failed: No users found in database');
+                }
+            }
+            if (!empty($validated['primary_doctor_id'])) {
+                $validated['created_by_id'] ??= $validated['primary_doctor_id'];
+            } else {
+                \Illuminate\Support\Facades\Log::warning('[MobilePatient] Creating patient WITHOUT primary_doctor_id', [
+                    'uuid' => $validated['uuid'] ?? 'not_set',
+                    'name' => $validated['name'] ?? 'unknown',
+                ]);
+            }
         }
 
         try {
