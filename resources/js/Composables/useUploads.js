@@ -261,8 +261,73 @@ export function useUploads() {
         return job;
     }
 
+    async function uploadDirectly(job, d = null) {
+        const { addFileLocally } = useWorkspace();
+        const metadata = job.metadata || {};
+        job.status = "uploading";
+        try {
+            const formData = new FormData();
+            formData.append("file", job.file);
+            if (metadata.title)    formData.append("title", metadata.title);
+            if (metadata.desc)     formData.append("desc", metadata.desc);
+            if (metadata.category) formData.append("category", metadata.category);
+            if (metadata.date)     formData.append("date", metadata.date);
+
+            const res = await uploadHttp.post(`/api/v1/mobile/patients/${job.patientId}/files`, formData, {
+                headers: { "Content-Type": "multipart/form-data" },
+                onUploadProgress: (evt) => {
+                    if (evt.total) {
+                        job.uploadedBytes = evt.loaded;
+                        job.progress = Math.min(99, Math.round((evt.loaded / evt.total) * 100));
+                    }
+                }
+            });
+
+            if (res.data) {
+                const fileData = res.data;
+                const fileUuid = fileData.uuid;
+                const mimeType = job.file?.type || fileData.mime_type || "application/octet-stream";
+                const localUrl = `/_native/cache/files/${fileUuid}`;
+                const localThumbnailUrl = mimeType.startsWith("image/")
+                    ? localUrl
+                    : mimeType.startsWith("video/")
+                        ? `/_native/cache/files/${fileUuid}/thumbnail`
+                        : null;
+
+                addFileLocally({
+                    uuid:          fileUuid,
+                    patient_id:    job.patientId,
+                    title:         metadata.title || job.file?.name || "",
+                    desc:          metadata.desc || "",
+                    category:      metadata.category || null,
+                    file_name:     job.file?.name || fileData.file_name || "",
+                    mime_type:     mimeType,
+                    size:          job.file?.size || fileData.size || 0,
+                    created_at:    new Date().toISOString(),
+                    updated_at:    new Date().toISOString(),
+                    upload_status: "ready",
+                    sync_status:   "pending_sync",
+                    url:           localUrl,
+                    thumbnail_url: localThumbnailUrl,
+                    type:          fileData.type || "image",
+                });
+            }
+
+            job.status   = "completed";
+            job.progress = 100;
+            delete job.file;
+        } catch (err) {
+            job.error  = err.message || "Upload failed";
+            job.status = "failed";
+        }
+    }
+
     async function startUpload(job, debug = null) {
         const d = debug || job?._debug || null;
+        const isVideo = job.file?.type?.startsWith("video/") || /\.(mp4|mov|avi|mkv|webm)$/i.test(job.file?.name || "");
+        if (!isVideo) {
+            return uploadDirectly(job, d);
+        }
         const { addFileLocally } = useWorkspace();
         try {
             const patientId  = job.patientId;

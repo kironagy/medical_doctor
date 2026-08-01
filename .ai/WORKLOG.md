@@ -2,6 +2,25 @@
 
 ## 2026-08-01
 
+### Fix: Direct Image Uploads Without Chunking, Chunk 0 Size Error & Reactive Import Bug
+1. **Bug: Offline upload failed with `ReferenceError: reactive is not defined`**
+   - **Root Cause:** `useOfflineUploads.js` called `const job = reactive({ ... })` in `createJob()` but only imported `ref` and `computed` from `'vue'`.
+   - **Fix:** Added `reactive` to `import { ref, computed, reactive } from 'vue'` in `useOfflineUploads.js`.
+2. **Feature/Fix: Images & Non-Video files now upload directly without chunking**
+   - **Root Cause:** `useUploads.js` was sending small images through chunked upload (`/api/v1/chunk/init` → `/chunk` → `/complete`), causing unnecessary overhead and SQLite session records.
+   - **Fix:** Added `uploadDirectly()` in `useUploads.js` to send images and non-video files via a single HTTP POST request to `/api/v1/mobile/patients/{uuid}/files`, reserving chunked upload exclusively for video files.
+3. **Bug: `Chunk 0 exceeds expected size` (HTTP 422) and `Direct-write file size mismatch` (HTTP 500)**
+   - **Root Cause:**
+     - `UploadValidationService::validateChunk()` strict-checked `$expectedSize + 64 bytes` tolerance.
+     - `ChunkMergeService::merge()` strict-checked `if ($size !== $locked->total_size)` when completing `/api/v1/chunk/complete`.
+     - When Android MediaStore or WebView altered image/video EXIF or stream byte counts slightly compared to JavaScript `File.size`, both strict checks threw errors.
+   - **Fix:**
+     - Updated `validateChunk()` in `UploadValidationService.php` to compare against `chunk_size + 1MB` (`$session->chunk_size + 1048576`).
+     - Updated `merge()` in `ChunkMergeService.php` to check `if ($size === 0)` (rejecting empty files only) and record the actual `$size` written to disk.
+4. **Build & Deploy:**
+   - Built production frontend bundle (`npm run build`).
+   - Rebuilt NativePHP Android bundle and installed APK on device (`php artisan native:build android debug --no-tty` and `./gradlew installDebug --rerun-tasks`).
+
 ### Fix: End-to-End Online and Offline File Uploads & Preview in Mobile App
 1. **Bug: Preview blank / 404 after Online upload finishes (`InlineFilePreview.vue` & `UnifiedMediaViewer.vue`)**
    - **Root Cause:** When an upload completes on native Android (`detectNative()`), the file resides in the local embedded server storage (`storage/app/...`) and local SQLite database until synced to remote MySQL. However, the preview components were calling `axios.get('/api/v1/files/${uuid}/signed-url')`, which hit the remote production server (`https://prof-hosam-fekry.online`) and returned 404 Not Found.

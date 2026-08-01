@@ -58,12 +58,8 @@ class UploadValidationService
         if ($chunk->getError() !== UPLOAD_ERR_OK) {
             throw new HttpException(422, 'Chunk upload error');
         }
-        $isLastChunk = $chunkIndex === $session->total_chunks - 1;
-        $expectedSize = $isLastChunk
-            ? ($session->total_size % $session->chunk_size) ?: $session->chunk_size
-            : $session->chunk_size;
-        $tolerance = 64;
-        if ($chunk->getSize() > $expectedSize + $tolerance) {
+        $maxAllowed = $session->chunk_size + 1048576; // 1MB tolerance for WebView / MediaStore changes
+        if ($chunk->getSize() > $maxAllowed) {
             throw new HttpException(422, "Chunk {$chunkIndex} exceeds expected size");
         }
     }

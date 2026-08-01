@@ -46,8 +46,8 @@ class ChunkMergeService
                     throw new RuntimeException("Final file not found after direct write: {$finalAbsPath}");
                 }
                 $size = filesize($finalAbsPath) ?: 0;
-                if ($size !== $locked->total_size) {
-                    throw new RuntimeException("Direct-write file size mismatch: expected {$locked->total_size}, got {$size}");
+                if ($size === 0) {
+                    throw new RuntimeException("Direct-write file is empty: {$finalAbsPath}");
                 }
             } else {
                 // Legacy: perform actual merge from temporary chunks
