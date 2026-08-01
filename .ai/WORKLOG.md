@@ -560,3 +560,26 @@ When `axios` uploaded file chunks via `POST /api/v1/chunk/chunk`, the injected J
 - **Problem:** When a user uploaded an image on mobile with no description, the Guzzle/HTTP sync request sent an empty/null `desc` field. The remote server validation failed with `The desc field must be a string.`, causing the sync engine to get stuck in an infinite loop retrying the same file and preventing any subsequent sync progress.
 - **Fix:** In `FileController::store()` validation rule, changed `desc` field validation from `sometimes|string|max:1000` to `sometimes|string|nullable|max:1000` to properly accept and store null/empty description inputs.
 
+---
+
+## 2026-08-01
+
+### Fix: Media Viewer Type Error, Local Offline File Merging & Instant Sync Speedup
+
+#### Issue 1 — Media stream TypeError crash on HEAD requests
+- **Problem:** `FileAccessController::streamCached` had a return type constraint `: StreamedResponse`. When Android WebView or MediaExtractor issued a `HEAD` request to probe file type or length, it returned a regular `Response` instead of a `StreamedResponse`, triggering a PHP `TypeError` 500 crash and making preview images/covers show as broken.
+- **Fix:** Removed the return type constraint from `streamCached()` method in [FileAccessController.php](file:///Users/kiro/Downloads/mediacal%20plus/Final_Medical/Medical_Plus_v3%203/app/Http/Controllers/Api/FileAccessController.php#L411).
+
+#### Issue 2 — Local unsynced files hidden in CategoryBlock
+- **Problem:** In [CategoryBlock.vue](file:///Users/kiro/Downloads/mediacal%20plus/Final_Medical/Medical_Plus_v3%203/resources/js/Components/workspace/CategoryBlock.vue#L498), `loadCategoryData()` only fetched local offline notes, but did not query the `_native/api/offline/uploads` endpoint. As a result, files waiting for sync or created locally during offline usage disappeared on page transition/refresh.
+- **Fix:** Updated `loadCategoryData()` to parallel-fetch `_native/api/offline/uploads` and merge those pending files into the view list alongside server files.
+
+#### Issue 3 — Omitted null description fallback during sync
+- **Problem:** The remote server validates `desc` as `sometimes|string`. If the user uploaded a file with a null description, the sync engine sent `null` as payload, causing validation to fail.
+- **Fix:** Fallback `desc` to an empty string `''` in [SyncEngineService.php](file:///Users/kiro/Downloads/mediacal%20plus/Final_Medical/Medical_Plus_v3%203/app/Services/SyncEngineService.php#L493) to satisfy Guzzle payload rules.
+
+#### Issue 4 — Latency when adding a patient (Heartbeat sync delay)
+- **Problem:** Patients were synced only during the 30-second heartbeat cycle, making the sync feel slow to the user.
+- **Fix:** Added direct sync triggers (`axios.post('/_native/api/sync/engine')`) inside the Vue event handlers `onPatientSaved` and `onPatientUpdated` in [DoctorWorkspace.vue](file:///Users/kiro/Downloads/mediacal%20plus/Final_Medical/Medical_Plus_v3%203/resources/js/Pages/DoctorWorkspace.vue#L635) to sync patient updates immediately.
+
+
