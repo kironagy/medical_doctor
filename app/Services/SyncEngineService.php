@@ -302,11 +302,11 @@ class SyncEngineService
                     // ── Phase 2: Make the API call ───────────────────────
                     if ($originalStatus === 'pending_create') {
                         try {
-                            $apiData = $this->patientRepo->createOnRemote($data);
+                            $apiData = $this->api->post('/patients', $data);
                         } catch (\Illuminate\Auth\AuthenticationException $authE) {
                             Log::warning('[SyncEngine] 401 on create, refreshing token...');
                             if ($this->refreshToken()) {
-                                $apiData = $this->patientRepo->createOnRemote($data);
+                                $apiData = $this->api->post('/patients', $data);
                             } else {
                                 throw $authE;
                             }
@@ -314,11 +314,11 @@ class SyncEngineService
                         $remoteUuid = $apiData['uuid'] ?? $apiData['data']['uuid'] ?? 'unknown';
                     } else {
                         try {
-                            $apiData = $this->patientRepo->updateOnRemote($patient->uuid, $data);
+                            $apiData = $this->api->put("/patients/{$patient->uuid}", $data);
                         } catch (\Illuminate\Auth\AuthenticationException $authE) {
                             Log::warning('[SyncEngine] 401 on update, refreshing token...');
                             if ($this->refreshToken()) {
-                                $apiData = $this->patientRepo->updateOnRemote($patient->uuid, $data);
+                                $apiData = $this->api->put("/patients/{$patient->uuid}", $data);
                             } else {
                                 throw $authE;
                             }
@@ -382,12 +382,6 @@ class SyncEngineService
                             'sync_status' => 'synced',
                             'updated_at'  => now(),
                         ]);
-                    // Now sync local data (best-effort — status is already synced)
-                    try {
-                        $this->patientRepo->syncSingleToLocal($apiData, force: true);
-                    } catch (\Throwable $e) {
-                        Log::warning('[SyncEngine] syncSingleToLocal failed (non-fatal, status already synced): ' . $e->getMessage());
-                    }
                 }
 
                     $syncedCount++;
@@ -729,7 +723,14 @@ class SyncEngineService
 
         foreach ($pendingDeletes as $patient) {
             try {
-                $this->patientRepo->deleteOnRemote($patient->uuid);
+                try {
+                    $this->api->delete("/patients/{$patient->uuid}");
+                } catch (\Throwable $e) {
+                    // 404 (Not Found) means the patient was already deleted on the remote server — treat as success
+                    if (!($e->getCode() === 404 || str_contains($e->getMessage(), '404') || str_contains($e->getMessage(), 'Not Found'))) {
+                        throw $e;
+                    }
+                }
 
                 // Remove from local SQLite entirely
                 // On SQLite (non-trashed): use delete() since forceDelete()
