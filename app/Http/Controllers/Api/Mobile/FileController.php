@@ -54,6 +54,7 @@ class FileController extends Controller
     public function store(Request $request, ?string $uuid = null)
     {
         $patientUuid = $uuid ?: $request->input('patient_uuid');
+        $uuid = $patientUuid; // Fix route vs request input mapping
         if (!$patientUuid) {
             return response()->json(['message' => 'patient_uuid is required'], 422);
         }
@@ -212,7 +213,7 @@ class FileController extends Controller
         }
 
         $absolutePath = Storage::disk('local')->path($path);
-        $mime = mime_content_type($absolutePath) ?: 'application/octet-stream';
+        $mime = $file->mime_type ?: (mime_content_type($absolutePath) ?: 'application/octet-stream');
         $size = filesize($absolutePath);
 
         return new StreamedResponse(function () use ($absolutePath) {

@@ -34,7 +34,7 @@ class FileAccessController extends Controller
         if (!file_exists($absolutePath)) {
             abort(404, 'File not found on disk.');
         }
-        $mime = mime_content_type($absolutePath) ?: 'application/octet-stream';
+        $mime = $file->mime_type ?: (mime_content_type($absolutePath) ?: 'application/octet-stream');
         $filemtime = filemtime($absolutePath);
         if ($filemtime === false) {
             $filemtime = time();

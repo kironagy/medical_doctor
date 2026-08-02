@@ -441,4 +441,10 @@ Route::post('/_native/api/categories/refresh', function () {
     }
 })->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
 
+// ── Phase 8 — Local Bootstrap Cache Refresh (OUTSIDE auth middleware) ──
+Route::post('/_native/api/bootstrap/refresh', [\App\Http\Controllers\Api\Mobile\BootstrapController::class, 'refreshCache'])
+    ->name('bootstrap.refresh')
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
+
+
 

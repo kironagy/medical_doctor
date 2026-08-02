@@ -165,7 +165,7 @@ class FileSyncService
     {
         $fileName = basename($absPath);
         $fileSize = filesize($absPath);
-        $mimeType = mime_content_type($absPath) ?: 'application/octet-stream';
+        $mimeType = ($file?->mime_type ?? $offFile?->mime_type) ?: (mime_content_type($absPath) ?: 'application/octet-stream');
         $title = $file ? ($file->title ?? $file->file_name) : ($offFile->title ?? $offFile->original_name);
 
         // Step 1: Init chunk upload session

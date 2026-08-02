@@ -115,6 +115,23 @@ const submit = () => {
         // We fire-and-forget: a failure is non-fatal (data will be fetched
         // on next online session or when categories are loaded normally).
         if (apiToken) {
+          // 1. Prime the local SQLite cache (Only intercepted/applicable on Mobile App)
+          try {
+            await fetch('/_native/api/bootstrap/refresh', {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + apiToken,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+            });
+            console.log('[Login] Local bootstrap cache primed successfully');
+          } catch (bootstrapErr) {
+            console.warn('[Login] Local bootstrap cache failed:', bootstrapErr.message);
+          }
+
+          // 2. Original endpoint (no-op on mobile MySQL but kept for compatibility)
           try {
             await fetch('/api/v1/mobile/bootstrap/refresh', {
               method: 'POST',
@@ -125,10 +142,10 @@ const submit = () => {
                 'X-Requested-With': 'XMLHttpRequest',
               },
             });
-            console.log('[Login] Bootstrap cache primed successfully');
+            console.log('[Login] Remote bootstrap cache primed successfully');
           } catch (bootstrapErr) {
             // Non-fatal: offline or server unreachable — will retry later
-            console.warn('[Login] Bootstrap cache failed (non-fatal):', bootstrapErr.message);
+            console.warn('[Login] Remote bootstrap cache failed (non-fatal):', bootstrapErr.message);
           }
         }
       } catch(e) {}
