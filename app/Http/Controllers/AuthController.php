@@ -36,13 +36,17 @@ class AuthController extends Controller
                     Log::info('Remote API token acquired successfully');
 
                     // ── Store encrypted credentials for auto-refresh on 401 ──
-                    // These are stored encrypted in the local SQLite session so the
-                    // sync engine can automatically re-login when the token expires.
-                    // The credentials are only decryptable with this device's APP_KEY.
                     session(['auth_credentials' => encrypt(json_encode([
-                        'email' => $credentials['email'],
+                        'email'    => $credentials['email'],
                         'password' => $credentials['password'],
                     ]))]);
+
+                    // ── Flash API token to Inertia page props ──────────────────
+                    // Login.vue::onSuccess reads page.props.api_token and stores it
+                    // in localStorage as 'np_api_token'. Without this, web-browser
+                    // logins never get the Bearer token, and every subsequent API
+                    // call (POST /api/v1/mobile/patients, etc.) returns 401/500.
+                    session()->flash('api_token', $tokenResponse['token']);
                 }
             } catch (\Throwable $e) {
                 Log::warning('Remote API login failed, sidebar will use local data: ' . $e->getMessage());
@@ -56,6 +60,7 @@ class AuthController extends Controller
 
             return redirect()->intended('/dashboard');
         }
+
 
         // If local authentication fails, attempt authentication against remote production API
         // (essential for clean installs where the local SQLite database contains 0 users)
