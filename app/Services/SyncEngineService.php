@@ -138,6 +138,14 @@ class SyncEngineService
             Log::error('[SyncEngine] Note sync failed: ' . $e->getMessage());
         }
 
+        // ── STEP 3a: Sync pending visits ─────────────────────────────────
+        // Must run AFTER patient sync (visits reference patients on the server).
+        try {
+            $results['visits'] = $this->syncPendingVisits();
+        } catch (\Throwable $e) {
+            Log::error('[SyncEngine] Visit sync failed: ' . $e->getMessage());
+        }
+
         // ── STEP 4: Process pending deletes ─────────────────────────────
         try {
             $results['deletes'] = $this->processPendingDeletes();
@@ -148,6 +156,7 @@ class SyncEngineService
         // ── STEP 5: Process pending file deletes ───────────────────────
         try {
             $results['file_deletes'] = $this->processPendingFileDeletes();
+
         } catch (\Throwable $e) {
             Log::error('[SyncEngine] File delete sync failed: ' . $e->getMessage());
         }
@@ -760,8 +769,189 @@ class SyncEngineService
     }
 
     /**
-     * Sync pending notes to the remote server.
+     * Sync pending visits to the remote server.
      *
+     * Visits created offline (sync_status = 'pending_create') are uploaded
+     * to the production API via POST /patients/{uuid}/visits.
+     * Visits updated offline → PUT.
+     * Visits deleted offline → DELETE.
+     *
+     * MUST run after syncPendingPatients() because visits reference patient UUIDs.
+     *
+     * @return array{uploaded: int, updated: int, deleted: int, failed: int}
+     */
+    public function syncPendingVisits(): array
+    {
+        $results = ['uploaded' => 0, 'updated' => 0, 'deleted' => 0, 'failed' => 0];
+
+        // ── Step 1: Sync pending_create visits ───────────────────────────
+        $pendingCreate = \App\Domains\Patients\Models\PatientVisit::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where('sync_status', 'pending_create')
+            ->with('patient')
+            ->orderBy('created_at', 'asc')
+            ->take(200)
+            ->get();
+
+        foreach ($pendingCreate as $visit) {
+            $patient = $visit->patient;
+            // Skip if patient is not yet synced to the server
+            if (!$patient || ($patient->sync_status ?? 'synced') !== 'synced') {
+                Log::debug('[SyncEngine] Skipping visit — patient not synced yet', [
+                    'visit_uuid'    => $visit->uuid,
+                    'patient_status'=> $patient ? ($patient->sync_status ?? 'null') : 'NOT_FOUND',
+                ]);
+                continue;
+            }
+
+            try {
+                $payload = collect($visit->toArray())
+                    ->except(['id', 'sync_status', 'remote_uuid', 'client_updated_at', 'deleted_at'])
+                    ->toArray();
+
+                $response = $this->api->post(
+                    "/patients/{$patient->uuid}/visits",
+                    $payload
+                );
+
+                $remoteUuid = $response['uuid'] ?? $response['data']['uuid'] ?? null;
+                if (!$remoteUuid) {
+                    throw new \RuntimeException('No UUID in server response for visit create');
+                }
+
+                \App\Domains\Patients\Models\PatientVisit::where('uuid', $visit->uuid)
+                    ->update([
+                        'sync_status' => 'synced',
+                        'remote_uuid' => $remoteUuid,
+                        'updated_at'  => now(),
+                    ]);
+
+                $results['uploaded']++;
+
+                Log::info('[SyncEngine] Visit synced (create)', [
+                    'local_uuid'  => $visit->uuid,
+                    'remote_uuid' => $remoteUuid,
+                    'patient'     => $patient->uuid,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('[SyncEngine] Visit create sync failed: ' . $e->getMessage(), [
+                    'visit_uuid' => $visit->uuid,
+                    'patient'    => $patient?->uuid,
+                ]);
+                \App\Domains\Patients\Models\PatientVisit::where('uuid', $visit->uuid)
+                    ->update([
+                        'sync_status'   => 'failed',
+                        'updated_at'    => now(),
+                    ]);
+                $results['failed']++;
+            }
+        }
+
+        // ── Step 2: Sync pending_update visits ──────────────────────────
+        $pendingUpdate = \App\Domains\Patients\Models\PatientVisit::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where('sync_status', 'pending_update')
+            ->with('patient')
+            ->orderBy('created_at', 'asc')
+            ->take(200)
+            ->get();
+
+        foreach ($pendingUpdate as $visit) {
+            $patient = $visit->patient;
+            if (!$patient || ($patient->sync_status ?? 'synced') !== 'synced') {
+                continue;
+            }
+
+            try {
+                // If no remote_uuid, the visit was never synced — convert to create
+                if (empty($visit->remote_uuid)) {
+                    \App\Domains\Patients\Models\PatientVisit::where('uuid', $visit->uuid)
+                        ->update(['sync_status' => 'pending_create', 'updated_at' => now()]);
+                    Log::info('[SyncEngine] Visit has no remote_uuid, converted pending_update to pending_create', [
+                        'visit_uuid' => $visit->uuid,
+                    ]);
+                    continue;
+                }
+
+                $payload = collect($visit->toArray())
+                    ->except(['id', 'sync_status', 'remote_uuid', 'client_updated_at', 'deleted_at', 'uuid'])
+                    ->toArray();
+
+                $this->api->put(
+                    "/patients/{$patient->uuid}/visits/{$visit->remote_uuid}",
+                    $payload
+                );
+
+                \App\Domains\Patients\Models\PatientVisit::where('uuid', $visit->uuid)
+                    ->update([
+                        'sync_status' => 'synced',
+                        'updated_at'  => now(),
+                    ]);
+
+                $results['updated']++;
+
+                Log::info('[SyncEngine] Visit synced (update)', [
+                    'local_uuid'  => $visit->uuid,
+                    'remote_uuid' => $visit->remote_uuid,
+                    'patient'     => $patient->uuid,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('[SyncEngine] Visit update sync failed: ' . $e->getMessage(), [
+                    'visit_uuid' => $visit->uuid,
+                    'patient'    => $patient?->uuid,
+                ]);
+                \App\Domains\Patients\Models\PatientVisit::where('uuid', $visit->uuid)
+                    ->update(['sync_status' => 'failed', 'updated_at' => now()]);
+                $results['failed']++;
+            }
+        }
+
+        // ── Step 3: Sync pending_delete visits ──────────────────────────
+        $pendingDelete = \App\Domains\Patients\Models\PatientVisit::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where('sync_status', 'pending_delete')
+            ->with('patient')
+            ->orderBy('created_at', 'asc')
+            ->take(200)
+            ->get();
+
+        foreach ($pendingDelete as $visit) {
+            try {
+                $patient = $visit->patient;
+                // If patient exists, try to delete from server
+                if ($patient && !empty($visit->remote_uuid)) {
+                    try {
+                        $this->api->delete("/patients/{$patient->uuid}/visits/{$visit->remote_uuid}");
+                    } catch (\Throwable $e) {
+                        // 404 = already deleted — treat as success
+                        if (!($e->getCode() === 404 || str_contains($e->getMessage(), '404') || str_contains($e->getMessage(), 'Not Found'))) {
+                            throw $e;
+                        }
+                        Log::info('[SyncEngine] Visit assumed already deleted remotely (404)', ['uuid' => $visit->uuid]);
+                    }
+                }
+
+                // Force delete locally
+                $visit->forceDelete();
+                $results['deleted']++;
+
+                Log::info('[SyncEngine] Visit deleted remotely', ['uuid' => $visit->uuid]);
+            } catch (\Throwable $e) {
+                Log::warning('[SyncEngine] Visit delete sync failed: ' . $e->getMessage(), [
+                    'visit_uuid' => $visit->uuid,
+                ]);
+                $results['failed']++;
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Process pending notes — sync note delete operations to the remote server.
      * Notes created offline (sync_status = 'pending_create') are uploaded
      * to the production API via POST /patients/{uuid}/notes.
      * Notes marked as pending_delete are deleted remotely.
@@ -1081,6 +1271,12 @@ class SyncEngineService
             'sync_status', ['pending_create', 'pending_delete']
         )->count();
 
+        // ── Include visits in pending check ──────────────────────────────
+        $pendingVisitCount = \App\Domains\Patients\Models\PatientVisit::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )->whereIn('sync_status', ['pending_create', 'pending_update', 'pending_delete'])
+            ->count();
+
         // ═══ SYNC-008 FIX: Include patient_files in pending check ═══════════
         $pendingPatientFileCount = \App\Domains\Media\Models\PatientFile::whereIn(
             'sync_status', ['pending_delete', 'pending_update']
@@ -1088,14 +1284,14 @@ class SyncEngineService
             $q->whereNull('remote_uuid')->where('upload_status', 'ready');
         })->count();
 
-        return ($pendingPatientCount + $pendingFileCount + $pendingNoteCount + $pendingPatientFileCount) > 0;
+        return ($pendingPatientCount + $pendingFileCount + $pendingNoteCount + $pendingVisitCount + $pendingPatientFileCount) > 0;
     }
 
     /**
      * Get a summary of all pending operations.
      * Used by the frontend to show sync status.
      *
-     * @return array{patients: int, files: int, deletes: int, total: int}
+     * @return array{patients: int, files: int, notes: int, visits: int, deletes: int, total: int}
      */
     public function getPendingSummary(): array
     {
@@ -1104,6 +1300,12 @@ class SyncEngineService
         $patientDelete = \App\Domains\Patients\Models\Patient::where('sync_status', 'pending_delete')->count();
         $filesPending  = DB::table('offline_files')->whereIn('sync_status', ['pending_upload', 'failed'])->count();
         $notesPending  = \App\Domains\Patients\Models\PatientNote::whereIn('sync_status', ['pending_create', 'pending_delete'])->count();
+
+        // ── Include visits in summary ─────────────────────────────────────
+        $visitsPending = \App\Domains\Patients\Models\PatientVisit::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )->whereIn('sync_status', ['pending_create', 'pending_update', 'pending_delete'])
+            ->count();
 
         // ═══ SYNC-008 FIX: Include patient_files in summary ═══════════════
         $patientFilesPending = \App\Domains\Media\Models\PatientFile::whereIn(
@@ -1117,7 +1319,8 @@ class SyncEngineService
             'deletes'  => $patientDelete,
             'files'    => $filesPending + $patientFilesPending,
             'notes'    => $notesPending,
-            'total'    => $patientCreate + $patientUpdate + $patientDelete + $filesPending + $patientFilesPending + $notesPending,
+            'visits'   => $visitsPending,
+            'total'    => $patientCreate + $patientUpdate + $patientDelete + $filesPending + $patientFilesPending + $notesPending + $visitsPending,
         ];
     }
 }

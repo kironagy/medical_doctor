@@ -96,10 +96,18 @@ class FileController extends Controller
         // the DB default and store NULL, breaking sync_status-based queries on the
         // production server.
         // On SQLite (embedded app), set 'pending_sync' so SyncEngine finds this file.
+        //
+        // ── FK FIX: Use resolveCurrentUserId() instead of hardcoded ?? 1 ────────
+        // The original code used `$patient->primary_doctor_id ?? 1`, which fails
+        // when the local user's ID is not 1 (e.g. the local SQLite seeded doctor
+        // gets ID 2 on a device where ID 1 was taken by a different record).
+        // resolveCurrentUserId() always returns a valid, existing user ID.
+        $uploadedById = $request->user()?->id ?? $this->resolveCurrentUserId();
+
         $createPayload = [
             'uuid'           => $fileUuid,
             'patient_id'     => $patient->id,
-            'uploaded_by_id' => $request->user()?->id ?? $patient->primary_doctor_id ?? 1,
+            'uploaded_by_id' => $uploadedById,
             'title'          => $validated['title'] ?? $uploadedFile->getClientOriginalName(),
             'desc'           => $validated['desc'] ?? null,
             'type'           => $type,
@@ -122,6 +130,50 @@ class FileController extends Controller
         ]);
 
         return response()->json(new FileResource($file), 201);
+    }
+
+    /**
+     * Resolve the current user ID for FK assignment.
+     *
+     * Priority:
+     *   1. Authenticated user (session/Sanctum)
+     *   2. First user in local SQLite (offline single-user device)
+     *   3. Seed a default doctor (clean install with empty DB)
+     *
+     * This replaces the old `$patient->primary_doctor_id ?? 1` hardcoded fallback,
+     * which fails when the local user ID ≠ 1.
+     */
+    private function resolveCurrentUserId(): int
+    {
+        $user = auth()->user();
+        if ($user) {
+            return $user->id;
+        }
+
+        $localUser = \App\Domains\Users\Models\User::first();
+        if ($localUser) {
+            return $localUser->id;
+        }
+
+        // Absolute last resort: seed default doctor on clean install
+        \App\Domains\Users\Models\User::unguard();
+        $defaultUser = \App\Domains\Users\Models\User::firstOrCreate(
+            ['email' => 'doctor@local.test'],
+            [
+                'name'     => 'Default Doctor',
+                'password' => bcrypt('password'),
+                'role'     => 'doctor',
+                'uuid'     => (string) \Illuminate\Support\Str::uuid(),
+                'status'   => 'active',
+            ]
+        );
+        \App\Domains\Users\Models\User::reguard();
+
+        Log::info('[FileController] Seeded default doctor for clean install', [
+            'doctor_id' => $defaultUser->id,
+        ]);
+
+        return $defaultUser->id;
     }
 
     public function stream(Request $request, string $fileUuid)

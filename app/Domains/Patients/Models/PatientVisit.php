@@ -13,15 +13,17 @@ class PatientVisit extends Model
     protected $fillable = [
         'uuid', 'patient_id', 'visit_type', 'visit_type_custom', 'reason', 'reason_custom',
         'visit_date', 'visit_time', 'session_details', 'diagnosis', 'prescription',
-        'next_visit_date', 'cost', 'client_updated_at'
+        'next_visit_date', 'cost',
+        // Offline sync columns
+        'sync_status', 'remote_uuid', 'client_updated_at',
     ];
 
     protected $casts = [
-        'visit_date' => 'date',
-        'next_visit_date' => 'date',
-        'session_details' => 'array',
-        'cost' => 'decimal:2',
-        'client_updated_at' => 'datetime',
+        'visit_date'       => 'date',
+        'next_visit_date'  => 'date',
+        'session_details'  => 'array',
+        'cost'             => 'decimal:2',
+        'client_updated_at'=> 'datetime',
     ];
 
     protected static function booted()

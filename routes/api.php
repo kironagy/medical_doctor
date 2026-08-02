@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\Mobile\DashboardController;
 use App\Http\Controllers\Api\Mobile\DoctorController;
 use App\Http\Controllers\Api\Mobile\ShareController;
 use App\Http\Controllers\Api\Mobile\SearchController;
+use App\Http\Controllers\Api\Mobile\BootstrapController;
 use App\Http\Controllers\Api\CategoryFileController;
 
 Route::get('/files/{uuid}/stream', [FileAccessController::class, 'streamDirect'])
@@ -54,6 +55,12 @@ Route::prefix('v1')->group(function () {
     Route::prefix('mobile')->middleware($mobileMiddleware)->group(function () {
         // Dashboard
         Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
+
+        // Bootstrap — cache all master data after login (for offline operation)
+        // Called immediately after first successful login to prime the local cache.
+        // Returns categories, visit types, user profile for offline form population.
+        Route::get('/bootstrap', [BootstrapController::class, 'data']);
+        Route::post('/bootstrap/refresh', [BootstrapController::class, 'refreshCache']);
 
         // Patients
         Route::get('/patients', [PatientController::class, 'index']);

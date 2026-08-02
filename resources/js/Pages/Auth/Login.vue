@@ -90,7 +90,7 @@ const form = useForm({
 const submit = () => {
   form.post('/login', {
     replace: true,
-    onSuccess: (page) => {
+    onSuccess: async (page) => {
       try {
         const token = page.props.session_remember_token;
         if (token) {
@@ -101,6 +101,35 @@ const submit = () => {
         const apiToken = page.props.api_token;
         if (apiToken) {
           localStorage.setItem('np_api_token', apiToken);
+        }
+
+        // ── Bootstrap: Cache all master data for offline operation ───────
+        // This call primes the local SQLite with:
+        //   - File categories (for upload forms)
+        //   - User profile (for FK assignment)
+        //   - Visit types (for visit creation forms)
+        //
+        // Without this, offline forms show empty dropdowns and fail with
+        // NOT NULL constraint errors when creating records offline.
+        //
+        // We fire-and-forget: a failure is non-fatal (data will be fetched
+        // on next online session or when categories are loaded normally).
+        if (apiToken) {
+          try {
+            await fetch('/api/v1/mobile/bootstrap/refresh', {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + apiToken,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+            });
+            console.log('[Login] Bootstrap cache primed successfully');
+          } catch (bootstrapErr) {
+            // Non-fatal: offline or server unreachable — will retry later
+            console.warn('[Login] Bootstrap cache failed (non-fatal):', bootstrapErr.message);
+          }
         }
       } catch(e) {}
     },

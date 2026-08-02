@@ -187,29 +187,65 @@ class NoteController extends Controller
 
     private function resolvePatient(string $uuid): Patient
     {
-        $patient = Patient::where('uuid', $uuid)->first();
+        $patient = Patient::withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)
+            ->where('uuid', $uuid)->first();
         if ($patient) {
             return $patient;
         }
 
-        $stubData = [
-            'uuid' => $uuid,
-            'sync_status' => 'pending_create',
-            'name' => 'Patient (' . substr($uuid, 0, 8) . ')',
-        ];
-        $userId = auth()->id();
-        if (!$userId && config('database.default') === 'sqlite') {
-            $user = \App\Domains\Users\Models\User::first();
-            if ($user) {
-                $userId = $user->id;
-            }
-        }
+        // ── Always resolve a valid doctor ID before creating the stub ────
+        // Without this, primary_doctor_id is null → NOT NULL constraint error.
+        $doctorId = $this->resolveCurrentUserId();
 
-        if ($userId) {
-            $stubData['primary_doctor_id'] = $userId;
-            $stubData['created_by_id'] = $userId;
-        }
+        $stubData = [
+            'uuid'              => $uuid,
+            'sync_status'       => 'pending_create',
+            'name'              => 'Patient (' . substr($uuid, 0, 8) . ')',
+            'primary_doctor_id' => $doctorId,
+            'created_by_id'     => $doctorId,
+        ];
 
         return Patient::create($stubData);
+    }
+
+    /**
+     * Resolve the current user ID for FK assignment.
+     *
+     * Priority:
+     *   1. Authenticated user (session/Sanctum)
+     *   2. First user in local SQLite (offline single-user device)
+     *   3. Seed a default doctor (clean install with empty DB)
+     */
+    private function resolveCurrentUserId(): int
+    {
+        $user = auth()->user();
+        if ($user) {
+            return $user->id;
+        }
+
+        $localUser = \App\Domains\Users\Models\User::first();
+        if ($localUser) {
+            return $localUser->id;
+        }
+
+        // Absolute last resort — clean install with empty SQLite
+        \App\Domains\Users\Models\User::unguard();
+        $defaultUser = \App\Domains\Users\Models\User::firstOrCreate(
+            ['email' => 'doctor@local.test'],
+            [
+                'name'     => 'Default Doctor',
+                'password' => bcrypt('password'),
+                'role'     => 'doctor',
+                'uuid'     => (string) \Illuminate\Support\Str::uuid(),
+                'status'   => 'active',
+            ]
+        );
+        \App\Domains\Users\Models\User::reguard();
+
+        Log::info('[MobileNote] Seeded default doctor for clean install', [
+            'doctor_id' => $defaultUser->id,
+        ]);
+
+        return $defaultUser->id;
     }
 }
