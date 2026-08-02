@@ -639,7 +639,6 @@ function onPatientSaved(patient) {
     console.log('[DIAG] onPatientSaved - calling refreshPatientList + selectPatient for uuid:', patient.uuid)
     refreshPatientList()
     selectPatient(patient.uuid)
-    axios.post('/_native/api/sync/engine').catch(() => {})
   } else {
     console.log('[DIAG] onPatientSaved - NO UUID! Patient keys:', Object.keys(patient || {}).join(','))
   }
@@ -650,7 +649,6 @@ function onPatientUpdated(patient) {
   refreshPatientList()
   if (patient?.uuid) {
     selectPatient(patient.uuid)
-    axios.post('/_native/api/sync/engine').catch(() => {})
   }
 }
 
@@ -767,9 +765,6 @@ async function deleteNote(note) {
   try {
     await axios.delete(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`), getApiConfig())
     
-    if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
-      axios.post('/_native/api/sync/engine').catch(() => {})
-    }
     refreshWorkspaceData()
     toast.success(t('common.success'))
   } catch (e) {
@@ -786,7 +781,6 @@ async function submitNoteForm() {
 				content: noteFormContent.value,
 			}, getApiConfig())
 			let updatedNote = res.data
-			axios.post('/_native/api/sync/engine').catch(() => {})
 			if (updatedNote?.uuid) addNoteLocally(updatedNote)
 			toast.success(t('workspace.note_updated'))
 		} else {
@@ -799,7 +793,6 @@ async function submitNoteForm() {
 			}, getApiConfig())
 			let createdNote = res.data
 			
-			axios.post('/_native/api/sync/engine').catch(() => {})
 			// ── Insert note into workspaceData IMMEDIATELY ──────────────
 			// The note is saved in local SQLite with sync_status = 'pending_create'.
 			// refreshWorkspaceData() fetches from the production server which
@@ -812,13 +805,6 @@ async function submitNoteForm() {
 		editingNote.value = null
 		noteFormContent.value = ''
 		refreshWorkspaceData()
-
-		// ── Trigger sync engine after note mutation ─────────────────────
-		// Fire the sync engine in the background to push pending notes to
-		// production. Don't await — the note is already visible locally
-		// via addNoteLocally() above.
-		axios.post('/_native/api/sync/engine', {}, { timeout: 120000 })
-			.catch(() => {}); // fire-and-forget
 	} catch (e) {
 		console.error('Note save failed', e)
 		toast.error(t('common.error'))
@@ -865,10 +851,6 @@ async function submitVisitForm() {
       await axios.post(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/visits`), payload, getApiConfig())
       toast.success(t('workspace.visit_added'))
     }
-    
-    // FIX-02: Previous URL '/_native/api/sync' was removed in SYNC-005.
-    // The correct endpoint is '/_native/api/sync/engine'.
-    axios.post('/_native/api/sync/engine').catch(() => {})
     
     closeVisitModal()
     await refreshWorkspaceData()

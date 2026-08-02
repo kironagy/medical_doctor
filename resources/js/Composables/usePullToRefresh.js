@@ -112,6 +112,15 @@ export function usePullToRefresh(options = {}) {
 
   async function invokeRefresh() {
     try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        try {
+          const { useToast } = await import('./useToast')
+          useToast().warning('لا يوجد اتصال بالإنترنت - وضع عدم الاتصال')
+        } catch (_) {
+          console.warn('Offline mode: pull to refresh aborted')
+        }
+        return
+      }
       if (onRefresh) await onRefresh()
     } catch (_) {
     } finally {

@@ -219,9 +219,6 @@ async function submit() {
           emit('saved')
           emit('update:modelValue', false)
           
-          // trigger sync explicitly using the engine endpoint
-          triggerSync()
-          
           // Reload the category list AFTER note is confirmed on server
           emit('noteAdded', createdNote)
         } else {

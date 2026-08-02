@@ -89,8 +89,54 @@ class BootstrapController extends Controller
         }
 
         $cached = ['categories' => 0, 'errors' => []];
+        $userId = null;
 
-        // ── 1. Cache categories ──────────────────────────────────────────
+        // ── 1. Cache user profile first to resolve local userId ──────────
+        try {
+            $meResponse = \Illuminate\Support\Facades\Http::timeout(10)
+                ->withToken($token)
+                ->withHeaders(['Accept' => 'application/json'])
+                ->get(rtrim(config('app.mobile_api_url', config('app.url')), '/') . '/api/v1/me');
+
+            if ($meResponse->successful()) {
+                $userData = $meResponse->json();
+                if (!empty($userData['id'])) {
+                    $userId = $userData['id'];
+                    // Upsert user in local SQLite
+                    $existing = \App\Domains\Users\Models\User::where('email', $userData['email'])->first();
+                    \App\Domains\Users\Models\User::unguard();
+                    if ($existing) {
+                        $existing->update([
+                            'name'       => $userData['name'] ?? $existing->name,
+                            'avatar_url' => $userData['avatar_url'] ?? null,
+                        ]);
+                    } else {
+                        \App\Domains\Users\Models\User::create([
+                            'id'             => $userData['id'],
+                            'name'           => $userData['name'],
+                            'email'          => $userData['email'],
+                            'role'           => $userData['role'] ?? 'doctor',
+                            'password'       => bcrypt('password'),
+                            'uuid'           => $userData['uuid'] ?? (string) \Illuminate\Support\Str::uuid(),
+                            'specialization' => $userData['specialization'] ?? null,
+                        ]);
+                    }
+                    \App\Domains\Users\Models\User::reguard();
+                    $cached['user'] = $userData['email'] ?? 'unknown';
+                }
+            }
+        } catch (\Throwable $e) {
+            $cached['errors'][] = 'user: ' . $e->getMessage();
+            Log::warning('[Bootstrap] Failed to cache user profile: ' . $e->getMessage());
+        }
+
+        // Resolve fallback userId if profile call failed or was offline
+        if (!$userId) {
+            $localUser = \App\Domains\Users\Models\User::first();
+            $userId = $localUser ? $localUser->id : 1;
+        }
+
+        // ── 2. Cache categories with user ID association ──────────────────
         try {
             $response = \Illuminate\Support\Facades\Http::timeout(15)
                 ->withToken($token)
@@ -100,10 +146,11 @@ class BootstrapController extends Controller
             if ($response->successful()) {
                 $categories = $response->json('data') ?? $response->json() ?? [];
                 if (!empty($categories)) {
-                    // Upsert each category into cached_categories table
-                    DB::table('cached_categories')->truncate();
+                    // Truncate only for this specific user to support multi-doctor offline use
+                    DB::table('cached_categories')->where('user_id', $userId)->delete();
                     foreach ($categories as $cat) {
                         DB::table('cached_categories')->insert([
+                            'user_id'      => $userId,
                             'uuid'         => $cat['uuid'] ?? \Illuminate\Support\Str::uuid(),
                             'name'         => $cat['name'] ?? 'Unnamed',
                             'slug'         => $cat['slug'] ?? \Illuminate\Support\Str::slug($cat['name'] ?? 'unnamed'),
@@ -118,7 +165,7 @@ class BootstrapController extends Controller
                         ]);
                         $cached['categories']++;
                     }
-                    Log::info('[Bootstrap] Cached ' . $cached['categories'] . ' categories');
+                    Log::info('[Bootstrap] Cached ' . $cached['categories'] . ' categories for user ' . $userId);
                 }
             } else {
                 $cached['errors'][] = 'categories: HTTP ' . $response->status();
@@ -126,34 +173,6 @@ class BootstrapController extends Controller
         } catch (\Throwable $e) {
             $cached['errors'][] = 'categories: ' . $e->getMessage();
             Log::warning('[Bootstrap] Failed to cache categories: ' . $e->getMessage());
-        }
-
-        // ── 2. Cache user profile ────────────────────────────────────────
-        try {
-            $meResponse = \Illuminate\Support\Facades\Http::timeout(10)
-                ->withToken($token)
-                ->withHeaders(['Accept' => 'application/json'])
-                ->get(rtrim(config('app.mobile_api_url', config('app.url')), '/') . '/api/v1/me');
-
-            if ($meResponse->successful()) {
-                $userData = $meResponse->json();
-                if (!empty($userData['id'])) {
-                    // Upsert user in local SQLite
-                    $existing = \App\Domains\Users\Models\User::where('email', $userData['email'])->first();
-                    if ($existing) {
-                        \App\Domains\Users\Models\User::unguard();
-                        $existing->update([
-                            'name'       => $userData['name'] ?? $existing->name,
-                            'avatar_url' => $userData['avatar_url'] ?? null,
-                        ]);
-                        \App\Domains\Users\Models\User::reguard();
-                    }
-                    $cached['user'] = $userData['email'] ?? 'unknown';
-                }
-            }
-        } catch (\Throwable $e) {
-            $cached['errors'][] = 'user: ' . $e->getMessage();
-            Log::warning('[Bootstrap] Failed to cache user profile: ' . $e->getMessage());
         }
 
         return response()->json([

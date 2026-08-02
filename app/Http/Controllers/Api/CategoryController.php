@@ -12,6 +12,16 @@ class CategoryController extends Controller
     {
         $user = $request->user();
 
+        if (config('database.default') === 'sqlite') {
+            $repo = app(\App\Contracts\Repositories\CategoryRepositoryInterface::class);
+            $userId = $user?->id;
+            if (!$userId) {
+                $localUser = \App\Domains\Users\Models\User::first();
+                $userId = $localUser?->id;
+            }
+            return response()->json($repo->all($userId));
+        }
+
         $customCategories = $user?->preferences['custom_categories'] ?? [];
         $defaultCategories = config('categories', []);
         $merged = $this->mergeCategories($defaultCategories, $customCategories);
@@ -30,6 +40,17 @@ class CategoryController extends Controller
             'categories.*.order' => 'nullable|integer',
             'categories.*.is_visible' => 'nullable|boolean',
         ]);
+
+        if (config('database.default') === 'sqlite') {
+            $repo = app(\App\Contracts\Repositories\CategoryRepositoryInterface::class);
+            $userId = $user?->id;
+            if (!$userId) {
+                $localUser = \App\Domains\Users\Models\User::first();
+                $userId = $localUser?->id;
+            }
+            $repo->refresh($userId, $validated['categories']);
+            return response()->json($validated['categories']);
+        }
 
         $isSuperAdmin = $user && ($user->role === 'super-admin' || $user->hasRole('super-admin'));
 

@@ -977,9 +977,6 @@ watch(uploads, (list) => {
   }
   if (c > localCompleteCount.value) {
     localCompleteCount.value = c
-    if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
-      axios.post('/_native/api/sync/engine').catch(() => {})
-    }
     setTimeout(() => {
       if (initialLoadDone.value) loadCategoryData(currentPage.value)
     }, 5000)
@@ -1064,9 +1061,6 @@ async function handleNativeFileResult(fileData) {
     const unwatch = watch(() => uploadJob.status, (status) => {
       if (status === 'completed') {
         unwatch()
-        if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
-          axios.post('/_native/api/sync/engine').catch(() => {})
-        }
         setTimeout(() => {
           if (initialLoadDone.value) loadCategoryData(currentPage.value)
         }, 5000)
@@ -1145,9 +1139,6 @@ function handleFiles(selectedFiles) {
       const unwatch = watch(() => uploadJob.status, (status) => {
         if (status === 'completed') {
           unwatch()
-          if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
-            axios.post('/_native/api/sync/engine').catch(() => {})
-          }
           setTimeout(() => {
             if (initialLoadDone.value) loadCategoryData(currentPage.value)
           }, 5000)
@@ -1174,9 +1165,6 @@ async function submitVisit() {
         visit_type: visitType.value,
         category: props.slug,
       }, getApiConfig())
-    if (online) {
-      axios.post('/_native/api/sync/engine').catch(() => {})
-    }
     showCategoryMenu.value = false
     showVisitModal.value = false
     visitType.value = ''
@@ -1280,9 +1268,6 @@ async function deleteNoteDirectly(note) {
   if (!confirmed) return
   try {
     await axios.delete(apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`), getApiConfig())
-    if (typeof navigator !== 'undefined' ? navigator.onLine : true) {
-      axios.post('/_native/api/sync/engine').catch(() => {})
-    }
     refreshWorkspaceData()
     toast.success('تم حذف الملاحظة بنجاح')
   } catch (e) {
