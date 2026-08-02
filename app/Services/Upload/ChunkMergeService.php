@@ -131,6 +131,31 @@ class ChunkMergeService
             $mimeType = $locked->mime_type;
             $type = $this->typeFromMime($mimeType);
 
+            if ($type === 'document' && $locked->original_name) {
+                $ext = strtolower(pathinfo($locked->original_name, PATHINFO_EXTENSION));
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'tiff', 'tif'])) {
+                    $type = 'image';
+                    $mimeType = match($ext) {
+                        'jpg', 'jpeg' => 'image/jpeg',
+                        'png' => 'image/png',
+                        'gif' => 'image/gif',
+                        'webp' => 'image/webp',
+                        'heic' => 'image/heic',
+                        default => 'image/' . $ext,
+                    };
+                } elseif (in_array($ext, ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'wmv', 'flv'])) {
+                    $type = 'video';
+                    $mimeType = match($ext) {
+                        'mp4' => 'video/mp4',
+                        'mov' => 'video/quicktime',
+                        'avi' => 'video/x-msvideo',
+                        'mkv' => 'video/x-matroska',
+                        'webm' => 'video/webm',
+                        default => 'video/' . $ext,
+                    };
+                }
+            }
+
             $uploadedById = $locked->user_id ?: ($patient->primary_doctor_id ?? \App\Domains\Users\Models\User::value('id') ?? 1);
 
             $patientFile = PatientFile::create([

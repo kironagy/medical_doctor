@@ -278,6 +278,7 @@ const props = defineProps({
 const {
 selectedPatient,
 setPatients,
+setCategories,
 selectedPatientId,
 closePatient,
 workspaceData,
@@ -356,6 +357,11 @@ const ptrContentStyle = computed(() => ({
 let refreshPromise = null
 
 onMounted(() => {
+  // Hydrate categories from props immediately to avoid transient empty categories UI states
+  if (props.categories && props.categories.length > 0) {
+    setCategories(props.categories);
+  }
+
   // ── 🔥 FIX: Hydrate patients.value from Inertia props IMMEDIATELY ──
   // This MUST run BEFORE refreshPatientList() so offline-created patients
   // are visible on the FIRST render cycle. Without this, patients.value is

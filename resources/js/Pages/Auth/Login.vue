@@ -82,8 +82,8 @@ if (user.value && typeof window !== 'undefined' && window.location.pathname === 
 }
 
 const form = useForm({
-  email: '',
-  password: '',
+  email: 'doctor@medical.test',
+  password: 'password',
   remember: true,
 });
 

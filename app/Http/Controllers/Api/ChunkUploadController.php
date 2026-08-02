@@ -29,6 +29,31 @@ class ChunkUploadController extends Controller
             $request->session()->save();
         }
         $start = microtime(true);
+
+        // Correct mime_type if it is application/octet-stream or empty, based on file_name extension
+        $mimeType = $request->input('mime_type');
+        $fileName = $request->input('file_name');
+        if ($fileName && ($mimeType === 'application/octet-stream' || empty($mimeType))) {
+            $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+            $correctedMime = match($ext) {
+                'jpg', 'jpeg' => 'image/jpeg',
+                'png' => 'image/png',
+                'gif' => 'image/gif',
+                'webp' => 'image/webp',
+                'heic' => 'image/heic',
+                'mp4' => 'video/mp4',
+                'mov' => 'video/quicktime',
+                'avi' => 'video/x-msvideo',
+                'mkv' => 'video/x-matroska',
+                'webm' => 'video/webm',
+                'pdf' => 'application/pdf',
+                default => null,
+            };
+            if ($correctedMime) {
+                $request->merge(['mime_type' => $correctedMime]);
+            }
+        }
+
         Log::channel('upload')->info('chunk:init - ENTER Controller', [
             'payload' => $request->all()
         ]);

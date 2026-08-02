@@ -74,6 +74,11 @@ const selectedPatient = computed(() => {
 
 const filteredPatients = computed(() => {
     let list = patients.value.filter(p => (p.sync_status ?? 'synced') !== 'pending_delete');
+    list.sort((a, b) => {
+        const dateA = new Date(a.created_at || a.client_updated_at || 0);
+        const dateB = new Date(b.created_at || b.client_updated_at || 0);
+        return dateB - dateA;
+    });
     if (!searchQuery.value) return list;
     const q = searchQuery.value.toLowerCase();
     return list.filter(
@@ -116,8 +121,18 @@ const sharedByName = computed(() => workspaceData.value?.permissions?.shared_by_
 // Read-only: shared patients with access_level='read' must not show any write actions
 const isReadOnly = computed(() => isShared.value && accessLevel.value === 'read');
 
+const globalCategories = ref([]);
+
+function setCategories(categoryList) {
+    if (categoryList && categoryList.length > 0) {
+        globalCategories.value = categoryList;
+    }
+}
+
 const categories = computed(() => {
-    return workspaceData.value?.categories || [];
+    return globalCategories.value.length > 0
+        ? globalCategories.value
+        : (workspaceData.value?.categories || []);
 });
 
 const allFiles = computed(() => {
@@ -156,7 +171,13 @@ function isCategoryLoaded(slug) {
 }
 
 function setPatients(patientList) {
-    patients.value = patientList;
+    const list = [...patientList];
+    list.sort((a, b) => {
+        const dateA = new Date(a.created_at || a.client_updated_at || 0);
+        const dateB = new Date(b.created_at || b.client_updated_at || 0);
+        return dateB - dateA;
+    });
+    patients.value = list;
 }
 
 async function selectPatient(uuid) {
@@ -175,6 +196,9 @@ async function selectPatient(uuid) {
         const res = await axios.get(`/api/v1/workspace/${uuid}`);
         workspaceData.value = res.data;
         const cats = res.data.categories || [];
+        if (cats.length > 0) {
+            globalCategories.value = cats;
+        }
         cats.forEach((c) => {
             expandedCategories.value[c.slug] = true;
         });
@@ -319,11 +343,17 @@ function refreshWorkspaceData() {
 					}
 				}
 				workspaceData.value = merged;
+				if (merged.categories && merged.categories.length > 0) {
+					globalCategories.value = merged.categories;
+				}
 			})
 			.catch((e) => {
 				// ── On fetch failure: KEEP the snapshot, don't wipe ──
 				if (!workspaceData.value && workspaceSnapshot) {
 					workspaceData.value = workspaceSnapshot;
+					if (workspaceSnapshot.categories && workspaceSnapshot.categories.length > 0) {
+						globalCategories.value = workspaceSnapshot.categories;
+					}
 				}
 				console.error('[refreshWorkspaceData] Fetch failed — keeping existing workspaceData', e.message);
 			})
@@ -462,6 +492,11 @@ function upsertPatient(patient) {
             ...patient,
         };
     }
+    patients.value.sort((a, b) => {
+        const dateA = new Date(a.created_at || a.client_updated_at || 0);
+        const dateB = new Date(b.created_at || b.client_updated_at || 0);
+        return dateB - dateA;
+    });
 }
 
 function reloadPatientData() {
@@ -754,7 +789,13 @@ async function refreshPatientList(page = 1) {
                 total: localPending.length + preservedPatients.length + res.data.data.length,
             });
 
-            patients.value = [...localPending, ...preservedPatients, ...res.data.data];
+            const mergedPatients = [...localPending, ...preservedPatients, ...res.data.data];
+            mergedPatients.sort((a, b) => {
+                const dateA = new Date(a.created_at || a.client_updated_at || 0);
+                const dateB = new Date(b.created_at || b.client_updated_at || 0);
+                return dateB - dateA;
+            });
+            patients.value = mergedPatients;
             patientsMeta.value = res.data.meta;
 
             // Verify the new patient is in the final list
@@ -996,6 +1037,7 @@ export function useWorkspace() {
         openSettings,
         closeSettings,
         setPatients,
+        setCategories,
         selectPatient,
         toggleSidebar,
         toggleCategory,

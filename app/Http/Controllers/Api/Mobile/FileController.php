@@ -84,6 +84,31 @@ class FileController extends Controller
             default => 'document',
         };
 
+        if ($type === 'document') {
+            $ext = strtolower($extension);
+            if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'tiff', 'tif'])) {
+                $type = 'image';
+                $mimeType = match($ext) {
+                    'jpg', 'jpeg' => 'image/jpeg',
+                    'png' => 'image/png',
+                    'gif' => 'image/gif',
+                    'webp' => 'image/webp',
+                    'heic' => 'image/heic',
+                    default => 'image/' . $ext,
+                };
+            } elseif (in_array($ext, ['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'wmv', 'flv'])) {
+                $type = 'video';
+                $mimeType = match($ext) {
+                    'mp4' => 'video/mp4',
+                    'mov' => 'video/quicktime',
+                    'avi' => 'video/x-msvideo',
+                    'mkv' => 'video/x-matroska',
+                    'webm' => 'video/webm',
+                    default => 'video/' . $ext,
+                };
+            }
+        }
+
         $path = $uploadedFile->storeAs(
             "patients/{$uuid}",
             "{$fileUuid}.{$extension}",
