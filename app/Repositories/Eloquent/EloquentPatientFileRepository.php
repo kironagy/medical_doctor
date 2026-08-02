@@ -8,10 +8,10 @@ use App\Domains\Patients\Models\Patient;
 
 class EloquentPatientFileRepository implements PatientFileRepositoryInterface
 {
-    public function forPatient(string $patientUuid): array
+    public function forPatient(string $patientUuid, ?int $limit = null): array
     {
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
-        return $patient->files()
+        $query = $patient->files()
             ->latest()
             ->select([
                 'id', 'uuid', 'patient_id', 'title', 'file_name', 'mime_type',
@@ -19,9 +19,25 @@ class EloquentPatientFileRepository implements PatientFileRepositoryInterface
                 'notes', 'tags',
                 // FIX: Include columns required to compute url/thumbnail_url appended attributes
                 'file_path', 'thumbnail_path', 'type', 'upload_status', 'sync_status',
-            ])
-            ->get()
-            ->toArray(); // toArray() triggers $appends (url, thumbnail_url, name, extension)
+            ]);
+
+        // PERF: Optional LIMIT — prevents loading thousands of rows (and their
+        // appended url/thumbnail_url attributes) for patients with large file
+        // histories. The workspace only renders a window + stats counters.
+        if ($limit !== null && $limit > 0) {
+            $query->limit($limit);
+        }
+
+        return $query->get()->toArray(); // toArray() triggers $appends (url, thumbnail_url, name, extension)
+    }
+
+    /**
+     * Cheap COUNT of a patient's files (for stats without loading the list).
+     */
+    public function countForPatient(string $patientUuid): int
+    {
+        $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
+        return $patient->files()->count();
     }
 
     public function find(string $uuid): ?array

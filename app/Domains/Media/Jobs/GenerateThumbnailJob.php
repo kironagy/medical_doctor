@@ -35,6 +35,16 @@ class GenerateThumbnailJob implements ShouldQueue
 
     public function handle(): void
     {
+        // ── PERF FIX: Skip on the embedded device. ─────────────────────────
+        // On the NativePHP app QUEUE_CONNECTION=sync, so this job runs INLINE
+        // inside the upload-complete HTTP request. ffmpeg frame extraction can
+        // block the request for a long time. Thumbnails are generated on the
+        // production server; the mobile UI falls back to a play icon when no
+        // thumbnail exists.
+        if (config('database.default') === 'sqlite') {
+            return;
+        }
+
         $patientFile = PatientFile::find($this->patientFileId);
         
         if (!$patientFile) {

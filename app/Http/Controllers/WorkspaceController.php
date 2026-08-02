@@ -246,16 +246,18 @@ class WorkspaceController extends Controller
 
     public function patientData(string $uuid)
     {
-        $t0 = microtime(true);
         try {
             $patient = $this->patientRepo->findByUuid($uuid);
         } catch (\RuntimeException $e) {
             Log::warning('[Workspace] patientData - patient not found: ' . $uuid);
             return response()->json(['message' => 'Patient not found'], 404);
         }
-        $t1 = microtime(true);
 
-        $allFiles = $this->fileRepo->forPatient($uuid);
+        // PERF: Load only the newest 200 files (enough for the UI window + stats)
+        // and count the rest cheaply. Previously this loaded EVERY file (with
+        // appended url/thumbnail_url) for the patient on every open.
+        $totalFiles = $this->fileRepo->countForPatient($uuid);
+        $allFiles = $this->fileRepo->forPatient($uuid, 200);
         $files = array_slice($allFiles, 0, 50);
 
         // Merge offline pending uploads into the file list
@@ -288,11 +290,8 @@ class WorkspaceController extends Controller
             $files = array_merge($offlineMapped, $files);
         }
 
-        $t2 = microtime(true);
         $notes = $this->noteRepo->forPatient($uuid);
-        $t3 = microtime(true);
         $visits = $this->visitRepo->forPatient($uuid);
-        $t4 = microtime(true);
 
         $today = now()->toDateString();
         $visitsCollection = collect($visits);
@@ -324,7 +323,7 @@ class WorkspaceController extends Controller
             : null;
 
         $stats = [
-            'total_files' => count($allFiles),
+            'total_files' => $totalFiles,
             'total_notes' => count($notes),
             'total_visits' => count($visits),
             'recent_uploads' => array_slice($allFiles, 0, 5),
@@ -369,21 +368,7 @@ class WorkspaceController extends Controller
             ],
         ];
 
-        $t6 = microtime(true);
-        $response = response()->json($payload);
-
-        Log::info('Controller: patientData Profiling', [
-            'repo_patient_ms' => round(($t1 - $t0) * 1000, 2),
-            'repo_files_ms' => round(($t2 - $t1) * 1000, 2),
-            'repo_notes_ms' => round(($t3 - $t2) * 1000, 2),
-            'repo_visits_ms' => round(($t4 - $t3) * 1000, 2),
-            'payload_assembly_ms' => round(($t6 - $t4) * 1000, 2),
-            'total_ms' => round(($t6 - $t0) * 1000, 2),
-            'total_files_count' => count($allFiles),
-            'returned_files_count' => count($files),
-        ]);
-
-        return $response;
+        return response()->json($payload);
     }
 
     public function exportPatient(string $uuid)

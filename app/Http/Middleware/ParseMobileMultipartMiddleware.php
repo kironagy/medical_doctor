@@ -35,10 +35,23 @@ class ParseMobileMultipartMiddleware
 
         // Run whenever request is a POST/PUT/PATCH mutation
         if ($request->isMethod('POST') || $request->isMethod('PUT') || $request->isMethod('PATCH')) {
-            // Check if Content-Type specifies multipart OR raw content starts with multipart boundary
-            $rawInput = $request->getContent();
-            if (!empty($rawInput) && (str_contains($contentType, 'multipart/form-data') || str_starts_with(ltrim($rawInput), '--'))) {
-                $this->parseMultipart($request, $contentType, $rawInput);
+            // ── PERF FIX: Skip manual parsing when Symfony already parsed the
+            // files. On a normal multipart request, PHP populates $_FILES at
+            // request creation, so $request->files is populated BEFORE this
+            // middleware runs. Only the broken Android WebView case (content
+            // type forced to x-www-form-urlencoded) leaves files empty — that
+            // is the ONLY case that needs the manual parser.
+            //
+            // Previously this read $request->getContent() (buffering the ENTIRE
+            // body into memory) and re-parsed every multipart upload — doubling
+            // I/O and memory for every image/video upload.
+            $alreadyParsed = $request->files->count() > 0;
+            if (!$alreadyParsed) {
+                // Check if Content-Type specifies multipart OR raw content starts with multipart boundary
+                $rawInput = $request->getContent();
+                if (!empty($rawInput) && (str_contains($contentType, 'multipart/form-data') || str_starts_with(ltrim($rawInput), '--'))) {
+                    $this->parseMultipart($request, $contentType, $rawInput);
+                }
             }
         }
 

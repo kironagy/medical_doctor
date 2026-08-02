@@ -135,16 +135,48 @@ router.on('finish', (event) => decrementInertiaRequests(event, 'finished'));
 // router.on('exception') / router.on('success') are technically covered by finish,
 // but we just rely on finish which runs unconditionally at the end of a visit.
 
-function canScheduleChunk() {
-    return globalActiveChunks < POOL_SIZE && normalRequestsPending === 0;
+// ── WATCHDOG FIX (uploads hanging forever) ────────────────────────────────
+// The scheduler used to gate chunk uploads behind `normalRequestsPending === 0`.
+// If that counter ever leaked (e.g. an Inertia visit started but never
+// finished, or a normal request hung), chunks queued forever and the upload
+// appeared stuck at 0% with no server-side chunk ever arriving (confirmed in
+// uploads.log: chunk:init succeeded but chunk:chunk was never received).
+//
+// Now, a chunk that has waited more than WATCHDOG_MS bypasses the
+// normal-request gate (the POOL_SIZE semaphore — the real connection limit —
+// still always applies). A timer guarantees the watchdog runs even when no
+// other event fires pumpScheduler().
+const WATCHDOG_MS = 4000;
+let watchdogTimer = null;
+
+function canScheduleChunk(bypassGate = false) {
+    if (globalActiveChunks >= POOL_SIZE) return false;
+    if (bypassGate) return true;
+    return normalRequestsPending === 0;
 }
 
 function pumpScheduler() {
-    while (canScheduleChunk() && globalChunkQueue.length > 0) {
-        const resolve = globalChunkQueue.shift();
+    const now = Date.now();
+    while (globalChunkQueue.length > 0) {
+        const entry = globalChunkQueue[0];
+        const bypassGate = now - entry.queuedAt >= WATCHDOG_MS;
+        if (!canScheduleChunk(bypassGate)) break;
+        globalChunkQueue.shift();
         globalActiveChunks++;
-        resolve(); // Hand off slot directly
+        entry.resolve(); // Hand off slot directly
     }
+}
+
+function ensureWatchdog() {
+    if (watchdogTimer) return;
+    watchdogTimer = setInterval(() => {
+        if (globalChunkQueue.length > 0) {
+            pumpScheduler();
+        } else if (globalActiveChunks === 0) {
+            clearInterval(watchdogTimer);
+            watchdogTimer = null;
+        }
+    }, 1000);
 }
 
 async function acquireGlobalSlot() {
@@ -152,7 +184,8 @@ async function acquireGlobalSlot() {
         globalActiveChunks++;
         return;
     }
-    return new Promise(resolve => globalChunkQueue.push(resolve));
+    ensureWatchdog();
+    return new Promise(resolve => globalChunkQueue.push({ resolve, queuedAt: Date.now() }));
 }
 
 function releaseGlobalSlot() {

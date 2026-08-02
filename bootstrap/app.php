@@ -27,7 +27,13 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(\App\Http\Middleware\ParseMobileMultipartMiddleware::class);
         $middleware->statefulApi();
-        if (env('APP_DEBUG', false)) {
+        // ── PERF FIX: Profiler now requires an explicit NATIVEPHP_PROFILER=true ──
+        // Previously it ran whenever APP_DEBUG=true (which debug builds ship with),
+        // writing REQUEST_START + REQUEST_FINISHED log entries for EVERY request
+        // — significant disk I/O on the embedded device and a big part of the
+        // perceived slowness. It is investigation-only instrumentation; enable it
+        // explicitly when profiling is needed.
+        if (env('NATIVEPHP_PROFILER', false)) {
             $middleware->append(\App\Http\Middleware\NativePHPProfilerMiddleware::class);
         }
         $middleware->trustProxies(at: '*');

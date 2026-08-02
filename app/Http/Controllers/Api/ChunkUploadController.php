@@ -385,9 +385,23 @@ class ChunkUploadController extends Controller
     {
         Log::channel('upload')->info('chunk:init - resolvePatient starting', ['patient_id' => $patientId]);
 
+        // ═══ SYNC FIX: Look up the patient WITHOUT the DoctorIsolationScope. ═══
+        // The scope filters patients by primary_doctor_id / created_by_id for the
+        // CURRENT session user. On the embedded app the session user may differ
+        // from the doctor who owns the patient (or be absent entirely), which
+        // made the scoped query return null for EXISTING patients — causing a
+        // stub to be created for a patient that already exists locally.
+        //
+        // ═══ SYNC FIX: NEVER overwrite an existing patient with stub data. ═══
+        // The previous implementation used updateOrCreate() with unguarded stub
+        // data that included 'sync_status' => 'pending_sync'. When the patient
+        // existed (e.g. created offline as 'pending_create'), this REWROTE the
+        // sync_status to 'pending_sync' — a status the SyncEngine never queries
+        // (it only picks up 'pending_create'/'pending_update'). Result: the
+        // patient stopped syncing to production and its files waited forever.
         $patient = is_numeric($patientId)
-            ? Patient::find((int) $patientId)
-            : Patient::where('uuid', $patientId)->first();
+            ? Patient::withoutGlobalScopes()->find((int) $patientId)
+            : Patient::withoutGlobalScopes()->where('uuid', $patientId)->first();
 
         if ($patient) {
             Log::channel('upload')->info('chunk:init - resolvePatient patient found locally');
@@ -399,7 +413,12 @@ class ChunkUploadController extends Controller
 
         $stubData = [
             'uuid' => $uuid,
-            'sync_status' => 'pending_sync',
+            // ═══ SYNC FIX: 'pending_create' (NOT 'pending_sync') ═══════════
+            // SyncEngineService::syncPendingPatients() queries patients with
+            // sync_status IN ('pending_create', 'pending_update'). Stubs created
+            // with 'pending_sync' were invisible to the sync engine and never
+            // reached the production server.
+            'sync_status' => 'pending_create',
             'name' => 'Patient ' . $uuid,
         ];
 
@@ -426,12 +445,11 @@ class ChunkUploadController extends Controller
             $stubData['created_by_id'] = $userId;
         }
 
-        Patient::unguard();
-        $patient = Patient::updateOrCreate(
+        // Insert-only (never update an existing patient here — see comment above).
+        $patient = Patient::withoutGlobalScopes()->firstOrCreate(
             ['uuid' => $uuid],
             $stubData
         );
-        Patient::reguard();
 
         return $patient;
     }

@@ -209,6 +209,69 @@ Route::prefix('api/v1')->withoutMiddleware([
     Route::get('/admin/doctors/{doctor}', [App\Http\Controllers\Admin\DoctorController::class, 'apiShow']);
 });
 
+// ── Mobile API Aliases (EMBEDDED APP ONLY) ────────────────────────────────
+// The frontend (useWorkspace, useUploads, AddRecordModal, DoctorWorkspace)
+// calls /api/v1/mobile/* endpoints on the embedded Laravel. On the PRODUCTION
+// server these live in api.php (auth:sanctum protected). On the embedded
+// NativePHP app (SQLite) they must be registered here so the exact same
+// frontend code works offline — otherwise online flows 404.
+//
+// 🔐 SECURITY: These routes are registered ONLY when running on SQLite
+// (embedded single-user device). On the production MySQL server this block
+// is skipped entirely, so no unauthenticated production endpoint is exposed.
+// The controllers already handle null users gracefully (offline-first design).
+if (config('database.default') === 'sqlite') {
+    Route::prefix('api/v1/mobile')->withoutMiddleware([
+        \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+    ])->group(function () {
+        // Patients
+        Route::post('/patients', [\App\Http\Controllers\Api\Mobile\PatientController::class, 'store']);
+        Route::put('/patients/{uuid}', [\App\Http\Controllers\Api\Mobile\PatientController::class, 'update']);
+        Route::delete('/patients/{uuid}', [\App\Http\Controllers\Api\Mobile\PatientController::class, 'destroy']);
+        Route::get('/patients/{uuid}', [\App\Http\Controllers\Api\Mobile\PatientController::class, 'show']);
+        Route::get('/patients', [\App\Http\Controllers\Api\Mobile\PatientController::class, 'index']);
+
+        // Files (direct upload path used by useUploads.uploadDirectly for images)
+        Route::post('/patients/{uuid}/files', [\App\Http\Controllers\Api\Mobile\FileController::class, 'store']);
+        Route::get('/patients/{uuid}/files', [\App\Http\Controllers\Api\Mobile\FileController::class, 'index']);
+        Route::put('/files/{fileUuid}', [\App\Http\Controllers\Api\Mobile\FileController::class, 'update']);
+        Route::delete('/files/{fileUuid}', [\App\Http\Controllers\Api\Mobile\FileController::class, 'destroy']);
+        Route::get('/files/{fileUuid}', [\App\Http\Controllers\Api\Mobile\FileController::class, 'show']);
+        Route::get('/files/{fileUuid}/stream', [\App\Http\Controllers\Api\Mobile\FileController::class, 'stream']);
+        Route::get('/files/{fileUuid}/thumbnail', [\App\Http\Controllers\Api\Mobile\FileController::class, 'thumbnail']);
+
+        // Notes
+        Route::post('/patients/{uuid}/notes', [\App\Http\Controllers\Api\Mobile\NoteController::class, 'store']);
+        Route::get('/patients/{uuid}/notes', [\App\Http\Controllers\Api\Mobile\NoteController::class, 'index']);
+        Route::put('/patients/{uuid}/notes/{noteUuid}', [\App\Http\Controllers\Api\Mobile\NoteController::class, 'update']);
+        Route::delete('/patients/{uuid}/notes/{noteUuid}', [\App\Http\Controllers\Api\Mobile\NoteController::class, 'destroy']);
+
+        // Visits
+        Route::post('/patients/{uuid}/visits', [\App\Http\Controllers\Api\Mobile\VisitController::class, 'store']);
+        Route::get('/patients/{uuid}/visits', [\App\Http\Controllers\Api\Mobile\VisitController::class, 'index']);
+        Route::put('/patients/{uuid}/visits/{visitId}', [\App\Http\Controllers\Api\Mobile\VisitController::class, 'update']);
+        Route::delete('/patients/{uuid}/visits/{visitId}', [\App\Http\Controllers\Api\Mobile\VisitController::class, 'destroy']);
+
+        // Shares
+        Route::get('/patients/{uuid}/shares', [\App\Http\Controllers\Api\Mobile\ShareController::class, 'index']);
+        Route::delete('/patients/{uuid}/shares/{shareId}', [\App\Http\Controllers\Api\Mobile\ShareController::class, 'destroy']);
+
+        // Bootstrap cache
+        Route::get('/bootstrap', [\App\Http\Controllers\Api\Mobile\BootstrapController::class, 'data']);
+        Route::post('/bootstrap/refresh', [\App\Http\Controllers\Api\Mobile\BootstrapController::class, 'refreshCache']);
+
+        // Chunked upload compatibility (older embedded builds used these URLs)
+        Route::post('/chunk/init', [\App\Http\Controllers\Api\ChunkUploadController::class, 'init']);
+        Route::post('/chunk/chunk', [\App\Http\Controllers\Api\ChunkUploadController::class, 'chunk']);
+        Route::post('/chunk/complete', [\App\Http\Controllers\Api\ChunkUploadController::class, 'complete']);
+        Route::post('/chunk/{uuid}/cancel', [\App\Http\Controllers\Api\ChunkUploadController::class, 'cancel']);
+        Route::get('/chunk/{uuid}/status', [\App\Http\Controllers\Api\ChunkUploadController::class, 'status']);
+
+        // Category files (paginated)
+        Route::get('/patients/{uuid}/categories/{slug}/files', [\App\Http\Controllers\Api\CategoryFileController::class, 'files']);
+    });
+}
+
 // ── Phase 7 — Offline File Uploads (OUTSIDE auth middleware) ─────────
 // ── BUG-018 FIX: Merged duplicate _native/api/offline groups ────────────
 // Previously this prefix was declared twice (uploads + notes separately).

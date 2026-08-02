@@ -25,6 +25,15 @@ class OptimizeVideoForStreaming implements ShouldQueue
 
     public function handle()
     {
+        // ── PERF FIX: Skip on the embedded device. ─────────────────────────
+        // On the NativePHP app QUEUE_CONNECTION=sync, so this job would run
+        // INLINE inside the upload-complete HTTP request. ffmpeg re-muxing can
+        // block the request for minutes/hours. Video streaming optimization is
+        // only needed on the production server, not on the single-device app.
+        if (config('database.default') === 'sqlite') {
+            return;
+        }
+
         $file = PatientFile::find($this->fileId);
         if (!$file) {
             Log::warning('Video optimization skipped: file not found', ['id' => $this->fileId]);
