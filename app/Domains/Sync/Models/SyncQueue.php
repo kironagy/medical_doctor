@@ -35,6 +35,10 @@ class SyncQueue extends Model
             if (empty($model->uuid)) {
                 $model->uuid = (string) Str::uuid();
             }
+            // Legacy schema fallbacks to prevent SQLite NOT NULL constraint failures
+            $model->entity = $model->entity ?? $model->entity_type ?? 'unknown';
+            $model->table_name = $model->table_name ?? $model->entity_type ?? 'unknown';
+            $model->record_uuid = $model->record_uuid ?? $model->entity_uuid ?? (string) Str::uuid();
         });
     }
 }
