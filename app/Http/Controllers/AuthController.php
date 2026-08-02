@@ -28,28 +28,32 @@ class AuthController extends Controller
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
 
-            // Obtain production API token for sidebar data sync
+            // Obtain API token for mobile API requests and sync
             try {
-                $tokenResponse = ApiService::loginToRemote($credentials['email'], $credentials['password']);
-                if (isset($tokenResponse['token'])) {
-                    app(ApiService::class)->setToken($tokenResponse['token']);
-                    Log::info('Remote API token acquired successfully');
+                $user = $request->user();
+                $token = null;
+
+                if (config('database.default') === 'sqlite') {
+                    // On mobile (SQLite), we must obtain a token from the remote production server
+                    $tokenResponse = ApiService::loginToRemote($credentials['email'], $credentials['password']);
+                    $token = $tokenResponse['token'] ?? null;
+                } else {
+                    // On production (MySQL), generate local Sanctum token directly to avoid HTTP loopback loops
+                    $token = $user->createToken('auth_token')->plainTextToken;
+                }
+
+                if ($token) {
+                    app(ApiService::class)->setToken($token);
+                    Log::info('API token acquired successfully');
 
                     // ── Store encrypted credentials for auto-refresh on 401 ──
                     session(['auth_credentials' => encrypt(json_encode([
                         'email'    => $credentials['email'],
                         'password' => $credentials['password'],
                     ]))]);
-
-                    // ── Flash API token to Inertia page props ──────────────────
-                    // Login.vue::onSuccess reads page.props.api_token and stores it
-                    // in localStorage as 'np_api_token'. Without this, web-browser
-                    // logins never get the Bearer token, and every subsequent API
-                    // call (POST /api/v1/mobile/patients, etc.) returns 401/500.
-                    session()->flash('api_token', $tokenResponse['token']);
                 }
             } catch (\Throwable $e) {
-                Log::warning('Remote API login failed, sidebar will use local data: ' . $e->getMessage());
+                Log::warning('API token acquisition failed: ' . $e->getMessage());
             }
 
             // Role-based redirect: super-admin goes to admin doctors page, others to dashboard
