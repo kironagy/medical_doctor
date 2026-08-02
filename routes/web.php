@@ -300,16 +300,20 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
                 }
             }
 
-            $manualSync = app(\App\Services\ManualSyncService::class);
-            $results = $manualSync->syncAll();
-            return response()->json($results);
+            $syncEngine = app(\App\Services\SyncEngineService::class);
+            $results = $syncEngine->syncAll();
+            return response()->json([
+                'success' => true,
+                'message' => 'Sync completed successfully',
+                'stats'   => $results,
+            ]);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('[ManualSync] Failed: ' . $e->getMessage());
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     });
 
-    // Compatibility endpoint alias pointing to ManualSyncService
+    // Compatibility endpoint alias pointing to SyncEngineService
     Route::post('/engine', function (\Illuminate\Http\Request $request) {
         if (config('database.default') === 'sqlite') {
             $bearerToken = $request->bearerToken();
@@ -322,12 +326,12 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
             }
         }
 
-        $manualSync = app(\App\Services\ManualSyncService::class);
-        $results = $manualSync->syncAll();
+        $syncEngine = app(\App\Services\SyncEngineService::class);
+        $results = $syncEngine->syncAll();
         return response()->json([
-            'success' => $results['success'] ?? true,
-            'message' => $results['message'] ?? 'Manual sync completed',
-            'results' => $results['stats'] ?? [],
+            'success' => true,
+            'message' => 'Manual sync completed',
+            'results' => $results,
         ]);
     });
 
