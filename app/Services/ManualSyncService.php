@@ -96,6 +96,13 @@ class ManualSyncService
 
         $token = $this->api->getToken();
         if (empty($token)) {
+            // Attempt to refresh/acquire token using stored encrypted credentials
+            if ($this->refreshToken()) {
+                $token = $this->api->getToken();
+            }
+        }
+
+        if (empty($token)) {
             Cache::put(self::STATE_KEY, 'idle', 3600);
             Log::warning('[ManualSyncService] ⏭ Sync aborted — No API token present');
             return [
@@ -242,5 +249,40 @@ class ManualSyncService
             'last_error'          => $lastError,
             'auth_status'         => !empty($this->api->getToken()) ? 'Authenticated' : 'Unauthenticated',
         ];
+    }
+
+    /**
+     * Try to refresh the API token using stored encrypted credentials.
+     */
+    private function refreshToken(): bool
+    {
+        try {
+            $encrypted = session('auth_credentials');
+            if (!$encrypted) {
+                Log::warning('[ManualSyncService] No stored credentials available for token refresh');
+                return false;
+            }
+
+            $creds = json_decode(decrypt($encrypted), true);
+            if (!$creds || empty($creds['email']) || empty($creds['password'])) {
+                Log::warning('[ManualSyncService] Invalid stored credentials for token refresh');
+                return false;
+            }
+
+            Log::info('[ManualSyncService] Attempting token acquisition/refresh for: ' . $creds['email']);
+            $response = \App\Services\Mobile\ApiService::loginToRemote($creds['email'], $creds['password']);
+
+            if (isset($response['token'])) {
+                $this->api->setToken($response['token']);
+                Log::info('[ManualSyncService] Token refreshed/acquired successfully');
+                return true;
+            }
+
+            Log::warning('[ManualSyncService] Token refresh returned no token');
+            return false;
+        } catch (\Throwable $e) {
+            Log::error('[ManualSyncService] Token refresh failed: ' . $e->getMessage());
+            return false;
+        }
     }
 }
