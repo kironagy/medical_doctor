@@ -22,10 +22,16 @@ class FileAccessController extends Controller
     ) {}
     private function resolveFile(Request $request, string $uuid): PatientFile
     {
+        // ⚠️ Always bypass DoctorIsolationScope: on SQLite (mobile, no auth user)
+        // the scope filters by uploaded_by_id = null and finds nothing.
+        $query = PatientFile::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where('uuid', $uuid);
+
         if ($request->hasValidSignature()) {
-            return PatientFile::withoutGlobalScopes()->where('uuid', $uuid)->firstOrFail();
+            return $query->withoutGlobalScopes()->firstOrFail();
         }
-        return PatientFile::where('uuid', $uuid)->firstOrFail();
+        return $query->firstOrFail();
     }
 
     private function commonHeaders(PatientFile $file): array
@@ -411,7 +417,14 @@ class FileAccessController extends Controller
     public function streamCached(Request $request, string $uuid)
     {
         // Phase 6: Try server PatientFile first
-        $file = PatientFile::where('uuid', $uuid)->first();
+        // ⚠️ Use withoutGlobalScope: on SQLite (no auth user) DoctorIsolationScope
+        // filters by primary_doctor_id = null → finds nothing → wrong 404 for valid file.
+        $file = PatientFile::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where('uuid', $uuid)
+            ->first();
+
         if ($file) {
             // On embedded SQLite (NativePHP mobile), there is no authenticated user.
             // The device is single-user, so Gate checks are not applicable.
@@ -420,13 +433,22 @@ class FileAccessController extends Controller
                 Gate::authorize('view', $file->patient);
             }
 
-            // FIX: If the file exists on local disk (e.g. freshly uploaded via chunk),
-            // stream it directly without going through the cache layer.
-            // The cache repo only knows about files explicitly downloaded/cached;
-            // newly uploaded files live in Storage::disk('local') directly.
-            if ($file->file_path && Storage::disk('local')->exists($file->file_path)) {
-                // File is on local disk (freshly uploaded via chunk) — stream directly.
-                // streamDirect handles both GET and HEAD requests with proper headers.
+            // Try to stream from local disk (freshly uploaded files live here)
+            $filePath = $file->file_path;
+            $diskExists = $filePath && Storage::disk('local')->exists($filePath);
+            $absolutePath = $filePath ? Storage::disk('local')->path($filePath) : null;
+            $physicalExists = $absolutePath && file_exists($absolutePath);
+
+            Log::info('[streamCached] File lookup', [
+                'uuid'           => $uuid,
+                'file_path'      => $filePath,
+                'disk_exists'    => $diskExists,
+                'absolute_path'  => $absolutePath,
+                'physical_exists'=> $physicalExists,
+            ]);
+
+            if ($diskExists || $physicalExists) {
+                // File is on local disk — stream directly.
                 return $this->streamDirect($request, $uuid);
             }
 

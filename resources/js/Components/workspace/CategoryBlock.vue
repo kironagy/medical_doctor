@@ -159,7 +159,18 @@
                     </div>
                   </template>
                   <template v-else>
-                    <img v-if="item.thumbnail_url" :src="item.thumbnail_url" class="object-cover w-full h-full absolute inset-0 z-0" @error="e => { e.target.style.display='none'; }" />
+                    <img
+                      v-if="item.thumbnail_url"
+                      :src="item.thumbnail_url"
+                      class="object-cover w-full h-full absolute inset-0 z-0"
+                      @error="e => {
+                        if (item.url && e.target.src !== item.url) {
+                          e.target.src = item.url;
+                        } else {
+                          e.target.style.display = 'none';
+                        }
+                      }"
+                    />
 
                     <!-- Fallback / Play icon overlay for Video -->
                     <div v-if="item.mime_type?.startsWith('video/')" class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none" :class="{ 'bg-slate-900/40': item.thumbnail_url }">
