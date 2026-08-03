@@ -318,7 +318,7 @@ export function useUploads() {
 
             if (res.data) {
                 const fileData = res.data;
-                const fileUuid = fileData.uuid;
+                const fileUuid = fileData.uuid || fileData.file_uuid;
                 const mimeType = job.file?.type || fileData.mime_type || "application/octet-stream";
                 const localUrl = `/_native/cache/files/${fileUuid}`;
                 const localThumbnailUrl = mimeType.startsWith("image/")
