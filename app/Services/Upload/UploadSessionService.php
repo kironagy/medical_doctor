@@ -31,7 +31,7 @@ class UploadSessionService
         }
 
         $finalPath = $patientUuid
-            ? "patients/{$patientUuid}/{%s}.{$extension}"
+            ? "patients/{$patientUuid}/%s.{$extension}"
             : null;
 
         $uuid = (string) Str::uuid();
