@@ -85,10 +85,14 @@ class PatientRepository implements PatientRepositoryInterface
     public function delete(string $uuid): void
     {
         DB::transaction(function () use ($uuid) {
+            $hasRemoteUuid = \Illuminate\Support\Facades\Schema::hasColumn('patients', 'remote_uuid');
             $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-            )->where(function ($q) use ($uuid) {
-                $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+            )->where(function ($q) use ($uuid, $hasRemoteUuid) {
+                $q->where('uuid', $uuid);
+                if ($hasRemoteUuid) {
+                    $q->orWhere('remote_uuid', $uuid);
+                }
             })->first();
 
             if (!$patient) {
@@ -147,10 +151,14 @@ class PatientRepository implements PatientRepositoryInterface
     public function forceDelete(string $uuid): void
     {
         DB::transaction(function () use ($uuid) {
+            $hasRemoteUuid = \Illuminate\Support\Facades\Schema::hasColumn('patients', 'remote_uuid');
             $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-            )->withTrashed()->where(function ($q) use ($uuid) {
-                $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+            )->withTrashed()->where(function ($q) use ($uuid, $hasRemoteUuid) {
+                $q->where('uuid', $uuid);
+                if ($hasRemoteUuid) {
+                    $q->orWhere('remote_uuid', $uuid);
+                }
             })->first();
 
             if (!$patient) {

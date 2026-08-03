@@ -51,23 +51,32 @@ class EloquentPatientRepository implements PatientRepositoryInterface
         ];
     }
 
+    private function applyUuidQuery($query, string $uuid)
+    {
+        $hasRemoteUuid = \Illuminate\Support\Facades\Schema::hasColumn('patients', 'remote_uuid');
+        return $query->where(function ($q) use ($uuid, $hasRemoteUuid) {
+            $q->where('uuid', $uuid);
+            if ($hasRemoteUuid) {
+                $q->orWhere('remote_uuid', $uuid);
+            }
+        });
+    }
+
     public function find(string $uuid): ?array
     {
-        $patient = Patient::withoutGlobalScope(
+        $query = Patient::withoutGlobalScope(
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-        )->where(function ($q) use ($uuid) {
-            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
-        })->first();
+        );
+        $patient = $this->applyUuidQuery($query, $uuid)->first();
         return $patient?->toArray();
     }
 
     public function findByUuid(string $uuid): array
     {
-        $patient = Patient::withoutGlobalScope(
+        $query = Patient::withoutGlobalScope(
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-        )->where(function ($q) use ($uuid) {
-            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
-        })->first();
+        );
+        $patient = $this->applyUuidQuery($query, $uuid)->first();
 
         if (!$patient) {
             throw new \RuntimeException('Patient not found: ' . $uuid);
@@ -92,22 +101,20 @@ class EloquentPatientRepository implements PatientRepositoryInterface
 
     public function update(string $uuid, array $data): array
     {
-        $patient = Patient::withoutGlobalScope(
+        $query = Patient::withoutGlobalScope(
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-        )->where(function ($q) use ($uuid) {
-            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
-        })->firstOrFail();
+        );
+        $patient = $this->applyUuidQuery($query, $uuid)->firstOrFail();
         $patient->update($data);
         return $patient->fresh()->toArray();
     }
 
     public function delete(string $uuid): void
     {
-        $patient = Patient::withoutGlobalScope(
+        $query = Patient::withoutGlobalScope(
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-        )->where(function ($q) use ($uuid) {
-            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
-        })->first();
+        );
+        $patient = $this->applyUuidQuery($query, $uuid)->first();
         if ($patient) {
             $patient->delete();
         }
