@@ -117,6 +117,7 @@ class ParseMobileMultipartMiddleware
             $headerLines = explode("\n", $headerBlock);
             $contentDisposition = '';
             $fieldMime = 'application/octet-stream';
+            $isBase64 = false;
 
             foreach ($headerLines as $line) {
                 $line = trim($line);
@@ -124,6 +125,8 @@ class ParseMobileMultipartMiddleware
                     $contentDisposition = $line;
                 } elseif (stripos($line, 'Content-Type:') === 0) {
                     $fieldMime = trim(substr($line, strlen('Content-Type:')));
+                } elseif (stripos($line, 'Content-Transfer-Encoding:') === 0) {
+                    $isBase64 = stripos($line, 'base64') !== false;
                 }
             }
 
@@ -140,6 +143,29 @@ class ParseMobileMultipartMiddleware
             // ── 3. File Field vs Text Field ─────────────────────────────────
             if (preg_match('/filename=(?:["\']?)(.*?)(?:["\']?)(?:;|\r|\n|$)/i', $contentDisposition, $fileMatches) && !empty($fileMatches[1])) {
                 $filename = trim($fileMatches[1]);
+
+                // ── BINARY CORRUPTION FIX ─────────────────────────────────────
+                // The Android WebView's injected JS now sends file parts as
+                // base64 (Content-Transfer-Encoding: base64) because the JNI
+                // JavascriptInterface bridge re-encodes strings as modified
+                // UTF-8, which doubled every binary byte >= 0x80 and corrupted
+                // all image/video uploads. Decode base64 back to raw bytes here.
+                if ($isBase64) {
+                    $decoded = base64_decode($body, true);
+                    if ($decoded !== false && $decoded !== '') {
+                        $body = $decoded;
+                        Log::info('[ParseMobileMultipart] Base64-decoded file part', [
+                            'field'    => $fieldName,
+                            'filename' => $filename,
+                            'raw'      => strlen($body) > 0 ? 'ok' : 'empty',
+                        ]);
+                    } else {
+                        Log::warning('[ParseMobileMultipart] Base64 decode FAILED for file part', [
+                            'field'    => $fieldName,
+                            'filename' => $filename,
+                        ]);
+                    }
+                }
 
                 // Write file chunk to temporary storage
                 $tmpPath = tempnam(sys_get_temp_dir(), 'nphp_upl_');
