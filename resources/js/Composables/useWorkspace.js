@@ -721,27 +721,15 @@ async function refreshPatientList(page = 1) {
             //
             //    GUARANTEE: No patient visible before the refresh is ever
             //    removed unless they have sync_status='pending_delete'.
-            const finalUuids = new Set([
-                ...localPending.map(p => p.uuid),
-                ...res.data.data.map(p => p.uuid),
-            ]);
-            const preservedPatients = [];
-            console.log('[INSTRUMENT] refreshPatientList STEP 4 safety net - checking', allPatientsBackup.size, 'backup patients against', finalUuids.size, 'final UUIDs');
+            // ── SAFETY NET: Preserve ONLY pending local patients ─────────────
+            // Only preserve patients from snapshot/backup whose sync_status
+            // is explicitly 'pending_create' or 'pending_update'.
+            // Patients that were synced and are now missing from the server
+            // response were DELETED on the server, so they MUST NOT be re-added.
             for (const [uuid, patient] of allPatientsBackup) {
                 if (!finalUuids.has(uuid)) {
-                    const isPendingDelete = (patient.sync_status ?? 'synced') === 'pending_delete';
-                    console.warn(
-                        isPendingDelete ? '[INSTRUMENT]' : '[INSTRUMENT] SAFETY NET: preserving missing patient',
-                        {
-                            uuid: patient.uuid,
-                            name: patient.name,
-                            sync_status: patient.sync_status,
-                            reason: isPendingDelete
-                                ? 'pending_delete'
-                                : 'missing from finalUuids',
-                        }
-                    );
-                    if (!isPendingDelete) {
+                    const isLocalPending = patient.sync_status === 'pending_create' || patient.sync_status === 'pending_update';
+                    if (isLocalPending) {
                         preservedPatients.push(patient);
                     }
                 }
@@ -806,6 +794,7 @@ async function fetchArchivedPatients(page = 1) {
 
 async function archivePatient(uuid) {
     try {
+        patients.value = patients.value.filter(p => p.uuid !== uuid && p.remote_uuid !== uuid);
         await axios.delete(`/api/v1/workspace/patients/${uuid}`);
         selectedPatientId.value = null;
         workspaceData.value = null;

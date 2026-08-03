@@ -565,6 +565,7 @@ async function handleArchive() {
   })
   if (!confirmed) return
   try {
+    patients.value = patients.value.filter(p => p.uuid !== uuid && p.remote_uuid !== uuid)
     await axios.delete(`/api/v1/workspace/patients/${uuid}`)
     selectedPatientId.value = null
     workspaceData.value = null
