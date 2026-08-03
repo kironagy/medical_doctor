@@ -73,8 +73,13 @@ class FileCacheRepository implements FileCacheRepositoryInterface
         }
 
         // Verify file exists and user has access
-        $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
-        Gate::authorize('view', $file->patient);
+        $file = PatientFile::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where('uuid', $fileUuid)->firstOrFail();
+
+        if (config('database.default') !== 'sqlite') {
+            Gate::authorize('view', $file->patient);
+        }
 
         $extension = pathinfo($file->file_name, PATHINFO_EXTENSION) ?: 'bin';
         $destination = $this->fileService->buildDestination($fileUuid, $extension);

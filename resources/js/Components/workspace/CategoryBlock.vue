@@ -504,96 +504,48 @@ async function loadCategoryData(page = 1) {
     if (timeFilter.value && customTimeFrom.value) params.time_from = customTimeFrom.value
     if (timeFilter.value && customTimeTo.value) params.time_to = customTimeTo.value
 
-    // Fetch server data + local pending notes + local pending uploads in parallel
-    const [response, offlineRes, offlineUploadsRes] = await Promise.allSettled([
-      axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params }),
-      axios.get('/_native/api/offline/notes', { params: { patient_uuid: selectedPatient.value.uuid }, timeout: 3000 }),
-      axios.get('/_native/api/offline/uploads', { params: { patient_uuid: selectedPatient.value.uuid }, timeout: 3000 })
-    ])
+    // Fetch category files from API
+    let response = null;
+    let serverRequestFailed = false;
+    let serverStatus = 200;
+    try {
+      response = await axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params });
+    } catch (err) {
+      serverRequestFailed = true;
+      serverStatus = err.response?.status || 0;
+    }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  FIX: Pending patients are not on the production server yet.
-    //  When ONLINE, this GET is forwarded to production which returns
-    //  404 for a freshly-created (pending_create) patient. Previously we
-    //  threw here → a 'Failed to load files' toast fired for EVERY
-    //  category — the "many alerts" right after adding a patient.
-    //  Now we fall back to local data (workspace + offline SQLite) and
-    //  only show the toast when the request actually failed for a real
-    //  network/server reason (not a benign 404 for a pending patient).
-    // ═══════════════════════════════════════════════════════════════
-    const serverRequestFailed = response.status !== 'fulfilled';
-    const serverStatus = serverRequestFailed ? (response.reason?.response?.status || 0) : 200;
-    // A patient is "pending" if it has a non-synced sync_status, OR if it has
-    // no sync_status at all (freshly created patients may not carry the field
-    // in the API response). If the server request failed AND the patient is
-    // local-only, a 404 is expected — not an error.
     const patientStatus = selectedPatient.value?.sync_status;
     const isPendingPatient = !patientStatus || patientStatus !== 'synced';
-    // Treat a 404 as "patient not on production yet" (harmless for pending
-    // patients). Any other failure (network, 5xx) is a genuine error.
-    const benignFailure = serverRequestFailed &&
-      (serverStatus === 404 || isPendingPatient);
+    const benignFailure = serverRequestFailed && (serverStatus === 404 || isPendingPatient);
 
-    const freshServerFiles = !serverRequestFailed ? (response.value.data.data || []) : []
-    const freshServerNotes = !serverRequestFailed ? (response.value.data.notes || []) : []
-    const freshFileUuids = new Set(freshServerFiles.map(f => f.uuid))
-
-    // Local pending files from SQLite (offline uploads endpoint)
-    let pendingLocalFiles = []
-    if (offlineUploadsRes.status === 'fulfilled') {
-      const allPendingFiles = offlineUploadsRes.value.data?.data || []
-      pendingLocalFiles = allPendingFiles.filter(
-        f => f.category === props.slug && !freshFileUuids.has(f.uuid)
-      )
-    }
+    const freshServerFiles = !serverRequestFailed ? (response.data.data || []) : [];
+    const freshServerNotes = !serverRequestFailed ? (response.data.notes || []) : [];
+    const freshFileUuids = new Set(freshServerFiles.map(f => f.uuid));
 
     const workspaceLocalFiles = (allFiles.value || []).filter(
       f => f.category === props.slug && !freshFileUuids.has(f.uuid)
-    )
+    );
 
-    // Combine: prefer workspaceData files (richer data), fallback to offline SQLite files
-    const workspaceFileUuids = new Set(workspaceLocalFiles.map(f => f.uuid))
-    const extraPendingFiles = pendingLocalFiles.filter(f => !workspaceFileUuids.has(f.uuid))
-    const localFiles = [...workspaceLocalFiles, ...extraPendingFiles]
+    serverFiles.value = workspaceLocalFiles.length > 0
+      ? [...workspaceLocalFiles, ...freshServerFiles]
+      : freshServerFiles;
 
-    serverFiles.value = localFiles.length > 0
-      ? [...localFiles, ...freshServerFiles]
-      : freshServerFiles
+    initialLoadDone.value = true;
 
-    initialLoadDone.value = true
-
-    // ── Merge server notes with local pending notes ─────────────────────
-    // Production doesn't have notes created offline (pending_create).
-    // Fetch them directly from local SQLite and merge so they appear immediately.
-    const freshNoteUuids = new Set(freshServerNotes.map(n => n.uuid))
-
-    // Local pending notes from SQLite (offline endpoint)
-    let pendingLocalNotes = []
-    if (offlineRes.status === 'fulfilled') {
-      const allPending = offlineRes.value.data?.data || []
-      pendingLocalNotes = allPending.filter(
-        n => n.category === props.slug && !freshNoteUuids.has(n.uuid)
-      )
-    }
-
-    // Also check workspaceData for any notes added via addNoteLocally()
+    const freshNoteUuids = new Set(freshServerNotes.map(n => n.uuid));
     const workspaceLocalNotes = (allNotes.value || []).filter(
       n => n.category === props.slug && !freshNoteUuids.has(n.uuid)
-    )
+    );
 
-    // Combine: prefer workspaceData notes (richer data), fallback to offline SQLite notes
-    const workspaceUuids = new Set(workspaceLocalNotes.map(n => n.uuid))
-    const extraPendingNotes = pendingLocalNotes.filter(n => !workspaceUuids.has(n.uuid))
-    const localNotes = [...workspaceLocalNotes, ...extraPendingNotes]
-
-    serverNotes.value = localNotes.length > 0
-      ? [...localNotes, ...freshServerNotes]
-      : freshServerNotes
+    serverNotes.value = workspaceLocalNotes.length > 0
+      ? [...workspaceLocalNotes, ...freshServerNotes]
+      : freshServerNotes;
 
     serverMeta.value = !serverRequestFailed
-      ? response.value.data.meta
-      : { total: localFiles.length, current_page: 1, last_page: Math.max(1, Math.ceil(localFiles.length / perPage)) }
-    currentPage.value = serverMeta.value.current_page
+      ? (response.data.meta || { total: freshServerFiles.length, current_page: 1, last_page: 1 })
+      : { total: workspaceLocalFiles.length, current_page: 1, last_page: Math.max(1, Math.ceil(workspaceLocalFiles.length / perPage)) };
+    currentPage.value = serverMeta.value.current_page;
 
     if (serverRequestFailed && !benignFailure) {
       console.error('Failed to load category data (server error)', response.reason)

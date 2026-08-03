@@ -452,7 +452,13 @@ class FileAccessController extends Controller
                 return $this->streamDirect($request, $uuid);
             }
 
-            // File not on local disk — fall through to cache repo (downloads from remote)
+            // File not on local disk — attempt auto-download & cache from remote if online
+            try {
+                $this->cacheRepo->cache($uuid);
+            } catch (\Throwable $e) {
+                Log::warning('[streamCached] Cache download attempt failed: ' . $e->getMessage(), ['uuid' => $uuid]);
+            }
+
             return $this->cacheRepo->stream(
                 $uuid,
                 $request->header('Range'),

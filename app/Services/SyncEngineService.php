@@ -598,7 +598,7 @@ class SyncEngineService
 
             foreach ($claimedFiles as $file) {
                 // ── CRITICAL CHECK: Is the patient synced? ─────────────────
-                $patient = \App\Domains\Patients\Models\Patient::where('uuid', $file['patient_uuid'])->first();
+                $patient = \Illuminate\Support\Facades\DB::table('patients')->where('uuid', $file['patient_uuid'])->first();
                 if (!$patient || ($patient->sync_status ?? 'synced') !== 'synced') {
                     // Patient not synced — revert file to pending_upload
                     DB::table('offline_files')
@@ -790,7 +790,7 @@ class SyncEngineService
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
             )
             ->where('sync_status', 'pending_create')
-            ->with('patient')
+            ->with(['patient' => fn($q) => $q->withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)])
             ->orderBy('created_at', 'asc')
             ->take(200)
             ->get();
@@ -854,7 +854,7 @@ class SyncEngineService
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
             )
             ->where('sync_status', 'pending_update')
-            ->with('patient')
+            ->with(['patient' => fn($q) => $q->withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)])
             ->orderBy('created_at', 'asc')
             ->take(200)
             ->get();
@@ -914,7 +914,7 @@ class SyncEngineService
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
             )
             ->where('sync_status', 'pending_delete')
-            ->with('patient')
+            ->with(['patient' => fn($q) => $q->withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)])
             ->orderBy('created_at', 'asc')
             ->take(200)
             ->get();
@@ -971,7 +971,7 @@ class SyncEngineService
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
             )
             ->where('sync_status', 'pending_create')
-            ->with('patient')
+            ->with(['patient' => fn($q) => $q->withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)])
             ->orderBy('created_at', 'asc')
             ->take(200)
             ->get();
@@ -1032,7 +1032,7 @@ class SyncEngineService
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
             )
             ->where('sync_status', 'pending_update')
-            ->with('patient')
+            ->with(['patient' => fn($q) => $q->withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)])
             ->orderBy('created_at', 'asc')
             ->take(200)
             ->get();
@@ -1101,7 +1101,7 @@ class SyncEngineService
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
             )
             ->where('sync_status', 'pending_delete')
-            ->with('patient')
+            ->with(['patient' => fn($q) => $q->withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)])
             ->orderBy('created_at', 'asc')
             ->take(200)
             ->get();
@@ -1154,7 +1154,7 @@ class SyncEngineService
             )
             ->withTrashed()
             ->where('sync_status', 'pending_delete')
-            ->with('patient')
+            ->with(['patient' => fn($q) => $q->withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)])
             ->get();
 
         foreach ($pendingDeletes as $file) {
@@ -1211,7 +1211,7 @@ class SyncEngineService
             )
             ->withTrashed()
             ->where('sync_status', 'pending_update')
-            ->with('patient')
+            ->with(['patient' => fn($q) => $q->withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)])
             ->get();
 
         foreach ($pendingUpdates as $file) {
