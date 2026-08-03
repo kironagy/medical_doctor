@@ -60,6 +60,13 @@ Route::post('/api/session/restore', function (\Illuminate\Http\Request $request)
 });
 
 Route::get('/', function () {
+    if (config('database.default') === 'sqlite') {
+        $user = \App\Domains\Users\Models\User::first();
+        if ($user) {
+            auth()->login($user);
+        }
+        return redirect()->route('workspace');
+    }
     if (auth()->check() && (auth()->user()->hasRole('super-admin') || auth()->user()->role === 'super-admin')) {
         return redirect()->route('admin.doctors.index');
     }

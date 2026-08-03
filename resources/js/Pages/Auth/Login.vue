@@ -75,10 +75,10 @@ import BaseButton from '@/Components/BaseButton.vue';
 
 const page = usePage()
 
-// If user is already authenticated, navigate smoothly to dashboard (SPA)
+// If user is already authenticated or running in native app, navigate smoothly to workspace (SPA)
 const user = computed(() => page.props.auth?.user)
-if (user.value && typeof window !== 'undefined' && window.location.pathname === '/login') {
-  router.visit('/dashboard', { replace: true });
+if ((user.value || (typeof window !== 'undefined' && (window.AndroidBridge || window.NativePHP || window.location.hostname === '127.0.0.1'))) && typeof window !== 'undefined' && window.location.pathname === '/login') {
+  router.visit('/workspace', { replace: true });
 }
 
 const form = useForm({
