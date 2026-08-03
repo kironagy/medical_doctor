@@ -8,6 +8,7 @@
   >
     <video
       ref="videoEl"
+      :src="src"
       class="video-element w-full h-full object-contain"
       :poster="poster"
       preload="metadata"

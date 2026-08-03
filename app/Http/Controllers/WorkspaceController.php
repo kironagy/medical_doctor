@@ -264,24 +264,33 @@ class WorkspaceController extends Controller
         $offlineFiles = $this->offlineFileRepo->findByPatientUuid($uuid);
         if (!empty($offlineFiles)) {
             $offlineMapped = array_map(function ($of) {
+                $mime = $of['mime_type'] ?? '';
+                $type = match (true) {
+                    str_starts_with($mime, 'image/') => 'image',
+                    str_starts_with($mime, 'video/') => 'video',
+                    str_starts_with($mime, 'audio/') => 'audio',
+                    $mime === 'application/pdf' => 'pdf',
+                    default => 'document',
+                };
                 return [
                     'uuid'          => $of['uuid'],
                     'patient_id'    => $of['patient_uuid'],
                     'title'         => $of['original_name'],
                     'file_name'     => $of['original_name'],
-                    'mime_type'     => $of['mime_type'],
+                    'mime_type'     => $mime,
                     'extension'     => $of['extension'],
                     'size'          => (int) $of['size'],
-                    'type'          => match (true) {
-                        str_starts_with($of['mime_type'] ?? '', 'image/') => 'image',
-                        str_starts_with($of['mime_type'] ?? '', 'video/') => 'video',
-                        str_starts_with($of['mime_type'] ?? '', 'audio/') => 'audio',
-                        ($of['mime_type'] ?? '') === 'application/pdf' => 'pdf',
-                        default => 'document',
-                    },
+                    'type'          => $type,
+                    'category'      => $of['category'] ?? null,
                     'sync_status'   => $of['sync_status'],
                     'local_path'    => $of['local_path'],
                     'upload_status' => $of['sync_status'],
+                    'url'           => '/_native/cache/files/' . $of['uuid'],
+                    'thumbnail_url' => str_starts_with($mime, 'image/')
+                        ? '/_native/cache/files/' . $of['uuid']
+                        : (str_starts_with($mime, 'video/')
+                            ? '/_native/cache/files/' . $of['uuid'] . '/thumbnail'
+                            : null),
                     'created_at'    => $of['created_at'],
                     'updated_at'    => $of['updated_at'],
                 ];

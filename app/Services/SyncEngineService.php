@@ -349,19 +349,6 @@ class SyncEngineService
                             'updated_at'  => now(),
                         ]);
 
-                    $cleanData = \Illuminate\Support\Arr::except(
-                        $apiData['data'] ?? $apiData,
-                        ['id', 'primary_doctor', 'visits', 'shares', 'files', 'notes']
-                    );
-                    $cleanData['sync_status'] = 'synced';
-
-                    $validColumns = \Illuminate\Support\Facades\Schema::getColumnListing('patients');
-                    $cleanData = array_intersect_key($cleanData, array_flip($validColumns));
-
-                    \App\Domains\Patients\Models\Patient::unguard();
-                    \App\Domains\Patients\Models\Patient::where('uuid', $remoteUuid)->update($cleanData);
-                    \App\Domains\Patients\Models\Patient::reguard();
-
                     // Update offline_files which is the ONLY table that
                     // references patients by UUID instead of auto-increment ID
                     \Illuminate\Support\Facades\DB::table('offline_files')

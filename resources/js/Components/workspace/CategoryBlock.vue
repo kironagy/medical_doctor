@@ -547,16 +547,11 @@ async function loadCategoryData(page = 1) {
       : { total: workspaceLocalFiles.length, current_page: 1, last_page: Math.max(1, Math.ceil(workspaceLocalFiles.length / perPage)) };
     currentPage.value = serverMeta.value.current_page;
 
-    if (serverRequestFailed && !benignFailure) {
-      console.error('Failed to load category data (server error)', response.reason)
-      toast.error('Failed to load files')
-    } else if (serverRequestFailed) {
-      // Benign: patient is pending / not yet on production — no toast.
-      console.warn('Category data unavailable for pending patient (local fallback used)', response.reason?.message)
+    if (serverRequestFailed) {
+      console.warn('Category server data unavailable (using local SQLite fallback)', response?.reason?.message)
     }
   } catch (e) {
-    console.error('Failed to load category data', e)
-    toast.error('Failed to load files')
+    console.warn('Category data fetch exception (using local SQLite fallback)', e)
   } finally {
     loading.value = false
   }
