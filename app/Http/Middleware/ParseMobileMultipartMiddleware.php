@@ -33,6 +33,17 @@ class ParseMobileMultipartMiddleware
 
         $contentType = $request->header('content-type') ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? $_SERVER['CONTENT_TYPE'] ?? '';
 
+        // ── Auto-login local user on embedded SQLite (mobile app) ──────────
+        // Embedded Laravel runtime on Android is single-user native mobile app.
+        // Auto-logging in the local doctor user when guest ensures that offline
+        // page requests (/workspace, /dashboard) NEVER redirect to /login or fail with 404.
+        if (config('database.default') === 'sqlite' && \Illuminate\Support\Facades\Auth::guest()) {
+            $localUser = \App\Domains\Users\Models\User::first();
+            if ($localUser) {
+                \Illuminate\Support\Facades\Auth::login($localUser);
+            }
+        }
+
         // Run whenever request is a POST/PUT/PATCH mutation
         if ($request->isMethod('POST') || $request->isMethod('PUT') || $request->isMethod('PATCH')) {
             // ── PERF FIX: Skip manual parsing when Symfony already parsed the

@@ -193,7 +193,7 @@ class FileAccessController extends Controller
 
         if (!$file) {
             $offlineFile = DB::table('offline_files')->where('uuid', $uuid)->first();
-            if ($offlineFile && str_starts_with($offlineFile->mime_type ?? '', 'image/')) {
+            if ($offlineFile) {
                 return $this->streamCached(request(), $uuid);
             }
             return response()->noContent();
