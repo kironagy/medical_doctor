@@ -83,14 +83,9 @@
               @error="e => {
                 const uuid = file?.uuid;
                 if (!uuid) return;
-                const cacheUrl = cachedFileUrl(uuid);
-                if (!e.target.src.endsWith(cacheUrl) && cachedFiles.value[uuid]) {
-                  e.target.src = cacheUrl;
-                } else {
-                  const fallbackUrl = '/api/v1/files/' + uuid;
-                  if (!e.target.src.endsWith(fallbackUrl)) {
-                    e.target.src = fallbackUrl;
-                  }
+                const localUrl = '/_native/cache/files/' + uuid;
+                if (e.target.src !== localUrl) {
+                  e.target.src = localUrl;
                 }
               }"
               ref="imageRef"
