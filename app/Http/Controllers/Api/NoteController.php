@@ -118,17 +118,61 @@ class NoteController extends Controller
             return $patient;
         }
 
+        // ── NOT NULL FIX (500 error on fresh install) ─────────────────────
+        // On a clean install the local users table can be EMPTY. Using only
+        // auth()->id() left primary_doctor_id null, causing SQLite
+        // 'NOT NULL constraint failed: patients.primary_doctor_id' → 500.
+        $userId = $this->resolveCurrentUserId();
+
         $stubData = [
-            'uuid' => $uuid,
-            'sync_status' => 'pending_create',
-            'name' => 'Patient (' . substr($uuid, 0, 8) . ')',
+            'uuid'              => $uuid,
+            'sync_status'       => 'pending_create',
+            'name'              => 'Patient (' . substr($uuid, 0, 8) . ')',
+            'primary_doctor_id' => $userId,
+            'created_by_id'     => $userId,
         ];
-        $userId = auth()->id();
-        if ($userId) {
-            $stubData['primary_doctor_id'] = $userId;
-            $stubData['created_by_id'] = $userId;
-        }
 
         return Patient::create($stubData);
+    }
+
+    /**
+     * Resolve the current user ID for FK assignment.
+     *
+     * Priority:
+     *   1. Authenticated user (session/Sanctum)
+     *   2. First user in local SQLite (offline single-user device)
+     *   3. Seed a default doctor (clean install with empty DB)
+     */
+    private function resolveCurrentUserId(): int
+    {
+        $user = auth()->user();
+        if ($user) {
+            return $user->id;
+        }
+
+        $localUser = \App\Domains\Users\Models\User::first();
+        if ($localUser) {
+            return $localUser->id;
+        }
+
+        // Absolute last resort: seed default doctor on clean install
+        \App\Domains\Users\Models\User::unguard();
+        $defaultUser = \App\Domains\Users\Models\User::firstOrCreate(
+            ['email' => 'doctor@local.test'],
+            [
+                'name'     => 'Default Doctor',
+                'password' => bcrypt('password'),
+                'role'     => 'doctor',
+                'uuid'     => (string) \Illuminate\Support\Str::uuid(),
+                'status'   => 'active',
+            ]
+        );
+        \App\Domains\Users\Models\User::reguard();
+
+        Log::info('[NoteController] Seeded default doctor for clean install', [
+            'doctor_id' => $defaultUser->id,
+        ]);
+
+        return $defaultUser->id;
     }
 }

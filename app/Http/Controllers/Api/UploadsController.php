@@ -366,11 +366,53 @@ class UploadsController extends Controller
         Log::channel('upload')->info('upload:start - resolvePatient creating stub for local patient');
         $uuid = is_numeric($patientId) ? (string) \Illuminate\Support\Str::uuid() : $patientId;
         $stubData = [
-            'uuid' => $uuid,
-            'name' => 'Patient (' . substr($uuid, 0, 8) . ')',
-            'sync_status' => 'pending_create',
-            'primary_doctor_id' => auth()->id() ?? 1,
+            'uuid'              => $uuid,
+            'name'              => 'Patient (' . substr($uuid, 0, 8) . ')',
+            'sync_status'       => 'pending_create',
+            'primary_doctor_id' => $this->resolveCurrentUserId(),
+            'created_by_id'     => $this->resolveCurrentUserId(),
         ];
         return Patient::create($stubData);
+    }
+
+    /**
+     * Resolve the current user ID for FK assignment.
+     *
+     * Priority:
+     *   1. Authenticated user (session/Sanctum)
+     *   2. First user in local SQLite (offline single-user device)
+     *   3. Seed a default doctor (clean install with empty DB)
+     */
+    private function resolveCurrentUserId(): int
+    {
+        $user = auth()->user();
+        if ($user) {
+            return $user->id;
+        }
+
+        $localUser = \App\Domains\Users\Models\User::first();
+        if ($localUser) {
+            return $localUser->id;
+        }
+
+        // Absolute last resort: seed default doctor on clean install
+        \App\Domains\Users\Models\User::unguard();
+        $defaultUser = \App\Domains\Users\Models\User::firstOrCreate(
+            ['email' => 'doctor@local.test'],
+            [
+                'name'     => 'Default Doctor',
+                'password' => bcrypt('password'),
+                'role'     => 'doctor',
+                'uuid'     => (string) \Illuminate\Support\Str::uuid(),
+                'status'   => 'active',
+            ]
+        );
+        \App\Domains\Users\Models\User::reguard();
+
+        Log::channel('upload')->info('upload:start - Seeded default doctor for clean install', [
+            'doctor_id' => $defaultUser->id,
+        ]);
+
+        return $defaultUser->id;
     }
 }

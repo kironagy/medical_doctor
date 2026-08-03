@@ -420,23 +420,23 @@ class FileController extends Controller
             return $patient;
         }
 
-        $stubData = [
-            'uuid' => $uuid,
-            'sync_status' => 'pending_create',
-            'name' => 'Patient (' . substr($uuid, 0, 8) . ')',
-        ];
-        $userId = auth()->id();
-        if (!$userId && config('database.default') === 'sqlite') {
-            $user = \App\Domains\Users\Models\User::first();
-            if ($user) {
-                $userId = $user->id;
-            }
-        }
+        // ── NOT NULL FIX (500 error on fresh install) ─────────────────────
+        // On a clean install the local users table can be EMPTY. Using only
+        // auth()->id() + User::first() left primary_doctor_id null, causing
+        // SQLite 'NOT NULL constraint failed: patients.primary_doctor_id'
+        // → HTTP 500 on the very first upload/note/visit for a new patient.
+        // resolveCurrentUserId() guarantees a valid user ID (and seeds a
+        // default doctor as an absolute last resort), so the stub patient
+        // always satisfies the NOT NULL constraint.
+        $userId = $this->resolveCurrentUserId();
 
-        if ($userId) {
-            $stubData['primary_doctor_id'] = $userId;
-            $stubData['created_by_id'] = $userId;
-        }
+        $stubData = [
+            'uuid'              => $uuid,
+            'sync_status'       => 'pending_create',
+            'name'              => 'Patient (' . substr($uuid, 0, 8) . ')',
+            'primary_doctor_id' => $userId,
+            'created_by_id'     => $userId,
+        ];
 
         return Patient::create($stubData);
     }
