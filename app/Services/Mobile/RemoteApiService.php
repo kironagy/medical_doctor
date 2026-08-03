@@ -125,6 +125,43 @@ class RemoteApiService
     }
 
     /**
+     * Download a file from production server and sink directly to disk.
+     */
+    public function download(string $endpoint, string $destinationPath): bool
+    {
+        $url = $this->resolveUrl($endpoint);
+
+        try {
+            $dir = dirname($destinationPath);
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+
+            $headers = ['Accept' => '*/*'];
+            if ($this->token) {
+                $headers['Authorization'] = 'Bearer ' . $this->token;
+            }
+
+            $response = Http::timeout(180)
+                ->withHeaders($headers)
+                ->withOptions(['sink' => $destinationPath])
+                ->get($url);
+
+            $success = $response->successful() && file_exists($destinationPath) && filesize($destinationPath) > 0;
+            if (!$success && file_exists($destinationPath)) {
+                @unlink($destinationPath);
+            }
+            return $success;
+        } catch (\Throwable $e) {
+            Log::error('[RemoteApiService] download failed for ' . $endpoint . ': ' . $e->getMessage());
+            if (file_exists($destinationPath)) {
+                @unlink($destinationPath);
+            }
+            return false;
+        }
+    }
+
+    /**
      * Internal request builder with retry support.
      */
     private function request(string $method, string $endpoint, array $options = []): array

@@ -512,17 +512,13 @@ async function addPatient(formData) {
         // Both routes now capture the Bearer token from the request.
         const token = localStorage.getItem('np_api_token');
         const authHeaders = token ? { Authorization: 'Bearer ' + token } : {};
-        if (online) {
-            trace('[TRACE_P4a] ONLINE - POST to production API')
-            res = await axios.post('/api/v1/mobile/patients', formData, {
-                headers: authHeaders,
-            });
-        } else {
-            trace('[TRACE_P4b] OFFLINE - POST to embedded Laravel')
-            res = await axios.post('/api/v1/workspace/patients', formData, {
-                headers: authHeaders,
-            });
-        }
+        
+        // Offline-first: ALWAYS create in local SQLite first for instant 5ms response.
+        // Background SyncEngine will push pending_create items to remote API.
+        trace('[TRACE_P4] Creating patient in local SQLite for instant response')
+        res = await axios.post('/api/v1/workspace/patients', formData, {
+            headers: authHeaders,
+        });
         trace('[TRACE_P8] axios.post response status: ' + res.status + ' data: ' + JSON.stringify(res.data).substring(0, 500))
         console.log('[INSTRUMENT] addPatient POST response status:', res.status);
         const patient = res.data?.patient || res.data;

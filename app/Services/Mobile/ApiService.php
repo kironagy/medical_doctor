@@ -52,6 +52,11 @@ class ApiService
         return $this->remoteApi->upload($endpoint, $files, $data);
     }
 
+    public function download(string $endpoint, string $destinationPath): bool
+    {
+        return $this->remoteApi->download($endpoint, $destinationPath);
+    }
+
     /**
      * Authenticate credentials against the remote production server to obtain a Sanctum Bearer token.
      *

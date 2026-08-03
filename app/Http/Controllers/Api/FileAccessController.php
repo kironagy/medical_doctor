@@ -24,9 +24,12 @@ class FileAccessController extends Controller
     {
         // ⚠️ Always bypass DoctorIsolationScope: on SQLite (mobile, no auth user)
         // the scope filters by uploaded_by_id = null and finds nothing.
+        // Support lookup by local UUID OR remote_uuid assigned after sync.
         $query = PatientFile::withoutGlobalScope(
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-        )->where('uuid', $uuid);
+        )->where(function ($q) use ($uuid) {
+            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        });
 
         if ($request->hasValidSignature()) {
             return $query->withoutGlobalScopes()->firstOrFail();
@@ -182,10 +185,17 @@ class FileAccessController extends Controller
 
     public function thumbnailDirect(string $uuid)
     {
-        $file = PatientFile::where('uuid', $uuid)->firstOrFail();
+        $file = PatientFile::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($uuid) {
+            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        })->first();
 
-        $path = $file->thumbnail_path;
-        if (empty($path) || !Storage::disk('local')->exists($path)) {
+        if (!$file) {
+            $offlineFile = DB::table('offline_files')->where('uuid', $uuid)->first();
+            if ($offlineFile && str_starts_with($offlineFile->mime_type ?? '', 'image/')) {
+                return $this->streamCached(request(), $uuid);
+            }
             return response()->noContent();
         }
 

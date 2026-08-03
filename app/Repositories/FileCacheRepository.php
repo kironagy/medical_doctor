@@ -72,10 +72,12 @@ class FileCacheRepository implements FileCacheRepositoryInterface
             return $this->status($fileUuid);
         }
 
-        // Verify file exists and user has access
+        // Verify file exists and user has access (by local uuid or remote_uuid)
         $file = PatientFile::withoutGlobalScope(
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-        )->where('uuid', $fileUuid)->firstOrFail();
+        )->where(function ($q) use ($fileUuid) {
+            $q->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid);
+        })->firstOrFail();
 
         if (config('database.default') !== 'sqlite') {
             Gate::authorize('view', $file->patient);
@@ -88,11 +90,14 @@ class FileCacheRepository implements FileCacheRepositoryInterface
         $this->ensureQuota($file->size);
 
         // Download via ApiService (streams to disk, no memory load)
-        // Uses the stream endpoint to get raw file bytes, not the show endpoint (JSON).
-        $success = $this->api->download('/files/' . $fileUuid . '/stream', $destination);
+        $remoteId = $file->remote_uuid ?: $fileUuid;
+        $success = $this->api->download('/api/v1/files/' . $remoteId . '/stream', $destination);
+        if (!$success) {
+            $success = $this->api->download('/api/v1/files/' . $remoteId, $destination);
+        }
 
         if (!$success) {
-            Log::warning('[FileCache] Failed to download file for caching', ['uuid' => $fileUuid]);
+            Log::warning('[FileCache] Failed to download file for caching', ['uuid' => $fileUuid, 'remote_id' => $remoteId]);
             throw new \RuntimeException('Failed to download file for caching.');
         }
 

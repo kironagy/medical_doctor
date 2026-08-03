@@ -43,8 +43,12 @@ class FileController extends Controller
 
     public function show(string $fileUuid)
     {
-        $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
-        if (request()->user()) {
+        $file = PatientFile::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($fileUuid) {
+            $q->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid);
+        })->firstOrFail();
+        if (config('database.default') !== 'sqlite' && request()->user()) {
             Gate::authorize('view', $file->patient);
         }
 
@@ -224,8 +228,15 @@ class FileController extends Controller
 
     public function stream(Request $request, string $fileUuid)
     {
-        $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
-        Gate::authorize('view', $file->patient);
+        $file = PatientFile::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($fileUuid) {
+            $q->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid);
+        })->firstOrFail();
+
+        if (config('database.default') !== 'sqlite' && $request->user()) {
+            Gate::authorize('view', $file->patient);
+        }
 
         $path = $file->file_path;
         if (!Storage::disk('local')->exists($path)) {
@@ -257,8 +268,15 @@ class FileController extends Controller
 
     public function thumbnail(Request $request, string $fileUuid)
     {
-        $file = PatientFile::where('uuid', $fileUuid)->firstOrFail();
-        Gate::authorize('view', $file->patient);
+        $file = PatientFile::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($fileUuid) {
+            $q->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid);
+        })->firstOrFail();
+
+        if (config('database.default') !== 'sqlite' && $request->user()) {
+            Gate::authorize('view', $file->patient);
+        }
 
         $path = $file->thumbnail_path;
         if ($path && Storage::disk('local')->exists($path)) {
