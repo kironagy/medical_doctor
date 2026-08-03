@@ -10,15 +10,27 @@ class EloquentPatientRepository implements PatientRepositoryInterface
 {
     public function all(): array
     {
-        return Patient::latest()->get()->toArray();
+        return Patient::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) {
+            $q->whereNull('sync_status')->orWhere('sync_status', '!=', 'pending_delete');
+        })->latest()->get()->toArray();
     }
 
     public function paginated(int $perPage = 10, int $page = 1, ?string $status = null): array
     {
-        $query = Patient::latest();
+        $query = Patient::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->latest();
         
         if ($status === 'archived') {
-            $query = Patient::onlyTrashed()->latest();
+            $query = Patient::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )->onlyTrashed()->latest();
+        } else {
+            $query->where(function ($q) {
+                $q->whereNull('sync_status')->orWhere('sync_status', '!=', 'pending_delete');
+            });
         }
         
         $paginator = $query->paginate(
