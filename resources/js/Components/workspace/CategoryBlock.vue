@@ -164,7 +164,7 @@
                       :src="item.thumbnail_url"
                       class="object-cover w-full h-full absolute inset-0 z-0"
                       @error="e => {
-                        const fallback = item.url ? new URL(item.url, window.location.origin).href : null;
+                        const fallback = item.url || null;
                         if (fallback && e.target.src !== fallback) {
                           e.target.src = fallback;
                         } else {
