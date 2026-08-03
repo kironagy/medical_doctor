@@ -83,7 +83,7 @@
               @error="e => {
                 const uuid = file?.uuid;
                 if (!uuid) return;
-                const localUrl = '/_native/cache/files/' + uuid;
+                const localUrl = new URL('/_native/cache/files/' + uuid, window.location.origin).href;
                 if (e.target.src !== localUrl) {
                   e.target.src = localUrl;
                 }
