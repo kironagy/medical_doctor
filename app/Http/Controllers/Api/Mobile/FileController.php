@@ -51,6 +51,26 @@ class FileController extends Controller
         return response()->json(new FileResource($file));
     }
 
+    /**
+     * List locally-pending offline uploads (files saved to SQLite but not yet
+     * synced to the production server).
+     *
+     * Used by the frontend (CategoryBlock.loadCategoryData, useWorkspace
+     * selectPatient rehydration) to merge pending uploads into the UI even
+     * before the sync engine has pushed them to production.
+     */
+    public function pendingIndex(Request $request)
+    {
+        $patientUuid = $request->input('patient_uuid');
+        $repo = app(\App\Contracts\Repositories\OfflineFileRepositoryInterface::class);
+
+        $files = $patientUuid
+            ? $repo->findByPatientUuid($patientUuid)
+            : $repo->findPending();
+
+        return response()->json(['data' => $files]);
+    }
+
     public function store(Request $request, ?string $uuid = null)
     {
         $patientUuid = $uuid ?: $request->input('patient_uuid');

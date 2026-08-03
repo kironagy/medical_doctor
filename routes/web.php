@@ -284,9 +284,22 @@ Route::prefix('_native/api/offline')->name('offline.')->withoutMiddleware([
     Route::post('/uploads', [\App\Http\Controllers\Api\Mobile\FileController::class, 'store'])->name('uploads.store');
     Route::delete('/uploads/{fileUuid}', [\App\Http\Controllers\Api\Mobile\FileController::class, 'destroy'])->name('uploads.destroy');
 
+    // ── GET: List pending offline uploads (BUG-FIX) ─────────────────────
+    // The frontend (CategoryBlock.loadCategoryData + useWorkspace.selectPatient
+    // rehydration) calls GET /_native/api/offline/uploads?patient_uuid=… to
+    // merge locally-pending files into the category view. These routes were
+    // previously POST/DELETE only, so the GET returned 405 Method Not Allowed
+    // (spamming the logs) and pending files never appeared for new patients.
+    Route::get('/uploads', [\App\Http\Controllers\Api\Mobile\FileController::class, 'pendingIndex'])->name('uploads.index');
+
     // Note creation endpoints (consolidated into Mobile NoteController)
     Route::post('/notes', [\App\Http\Controllers\Api\Mobile\NoteController::class, 'store'])->name('notes.store');
     Route::delete('/notes/{noteUuid}', [\App\Http\Controllers\Api\Mobile\NoteController::class, 'destroy'])->name('notes.destroy');
+
+    // ── GET: List pending local notes (BUG-FIX) ─────────────────────────
+    // Same rationale as uploads.index — CategoryBlock fetches pending local
+    // notes via GET so offline-created notes show immediately.
+    Route::get('/notes', [\App\Http\Controllers\Api\Mobile\NoteController::class, 'pendingIndex'])->name('notes.index');
 });
 
 // ═══ SYNC-005 FIX: Removed competing sync endpoints ═══════════════════

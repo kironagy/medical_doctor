@@ -31,6 +31,36 @@ class NoteController extends Controller
         return response()->json($notes);
     }
 
+    /**
+     * List locally-pending notes (created/updated offline, not yet synced to
+     * the production server).
+     *
+     * Used by the frontend (CategoryBlock.loadCategoryData) so offline-created
+     * notes appear immediately without waiting for the sync engine.
+     */
+    public function pendingIndex(Request $request)
+    {
+        $patientUuid = $request->input('patient_uuid');
+        if (!$patientUuid) {
+            return response()->json(['data' => []]);
+        }
+
+        $patient = Patient::withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)
+            ->where('uuid', $patientUuid)
+            ->first();
+
+        if (!$patient) {
+            return response()->json(['data' => []]);
+        }
+
+        $notes = PatientNote::where('patient_id', $patient->id)
+            ->whereIn('sync_status', ['pending_create', 'pending_update'])
+            ->latest()
+            ->get();
+
+        return response()->json(['data' => $notes]);
+    }
+
     public function store(Request $request, ?string $uuid = null)
     {
         $patientUuid = $uuid ?: $request->input('patient_uuid');

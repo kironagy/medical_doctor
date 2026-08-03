@@ -203,8 +203,27 @@ async function selectPatient(uuid) {
             expandedCategories.value[c.slug] = true;
         });
     } catch (e) {
-        console.error("Failed to load patient data", e);
-        workspaceData.value = null;
+        // ═══════════════════════════════════════════════════════════════
+        //  FIX: Don't wipe workspaceData for freshly created patients.
+        //  A brand-new patient (sync_status=pending_create) exists only in
+        //  local SQLite. When ONLINE, this GET is forwarded to the production
+        //  server which doesn't have the patient yet → 404 → previously we
+        //  nulled workspaceData, making the workspace appear broken right
+        //  after "Add patient" (empty header + every CategoryBlock erroring).
+        //  If addPatient() already populated workspaceData for this uuid, keep
+        //  it and let the category blocks hydrate from local pending data.
+        // ═══════════════════════════════════════════════════════════════
+        console.error("Failed to load patient data (keeping local snapshot if any)", e);
+        const local = workspaceData.value;
+        if (local?.patient?.uuid === uuid || local?.uuid === uuid) {
+            // Keep the snapshot already built by addPatient() — patient header
+            // and local files/notes stay visible until sync pushes to prod.
+            if (local.categories && local.categories.length > 0) {
+                globalCategories.value = local.categories;
+            }
+        } else {
+            workspaceData.value = null;
+        }
     } finally {
         loadingPatient.value = false;
     }

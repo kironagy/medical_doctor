@@ -500,9 +500,31 @@ async function loadCategoryData(page = 1) {
       axios.get('/_native/api/offline/uploads', { params: { patient_uuid: selectedPatient.value.uuid }, timeout: 3000 })
     ])
 
-    if (response.status !== 'fulfilled') throw response.reason
+    // ═══════════════════════════════════════════════════════════════
+    //  FIX: Pending patients are not on the production server yet.
+    //  When ONLINE, this GET is forwarded to production which returns
+    //  404 for a freshly-created (pending_create) patient. Previously we
+    //  threw here → a 'Failed to load files' toast fired for EVERY
+    //  category — the "many alerts" right after adding a patient.
+    //  Now we fall back to local data (workspace + offline SQLite) and
+    //  only show the toast when the request actually failed for a real
+    //  network/server reason (not a benign 404 for a pending patient).
+    // ═══════════════════════════════════════════════════════════════
+    const serverRequestFailed = response.status !== 'fulfilled';
+    const serverStatus = serverRequestFailed ? (response.reason?.response?.status || 0) : 200;
+    // A patient is "pending" if it has a non-synced sync_status, OR if it has
+    // no sync_status at all (freshly created patients may not carry the field
+    // in the API response). If the server request failed AND the patient is
+    // local-only, a 404 is expected — not an error.
+    const patientStatus = selectedPatient.value?.sync_status;
+    const isPendingPatient = !patientStatus || patientStatus !== 'synced';
+    // Treat a 404 as "patient not on production yet" (harmless for pending
+    // patients). Any other failure (network, 5xx) is a genuine error.
+    const benignFailure = serverRequestFailed &&
+      (serverStatus === 404 || isPendingPatient);
 
-    const freshServerFiles = response.value.data.data || []
+    const freshServerFiles = !serverRequestFailed ? (response.value.data.data || []) : []
+    const freshServerNotes = !serverRequestFailed ? (response.value.data.notes || []) : []
     const freshFileUuids = new Set(freshServerFiles.map(f => f.uuid))
 
     // Local pending files from SQLite (offline uploads endpoint)
@@ -532,7 +554,6 @@ async function loadCategoryData(page = 1) {
     // ── Merge server notes with local pending notes ─────────────────────
     // Production doesn't have notes created offline (pending_create).
     // Fetch them directly from local SQLite and merge so they appear immediately.
-    const freshServerNotes = response.value.data.notes || []
     const freshNoteUuids = new Set(freshServerNotes.map(n => n.uuid))
 
     // Local pending notes from SQLite (offline endpoint)
@@ -558,8 +579,18 @@ async function loadCategoryData(page = 1) {
       ? [...localNotes, ...freshServerNotes]
       : freshServerNotes
 
-    serverMeta.value = response.value.data.meta
-    currentPage.value = response.value.data.meta.current_page
+    serverMeta.value = !serverRequestFailed
+      ? response.value.data.meta
+      : { total: localFiles.length, current_page: 1, last_page: Math.max(1, Math.ceil(localFiles.length / perPage)) }
+    currentPage.value = serverMeta.value.current_page
+
+    if (serverRequestFailed && !benignFailure) {
+      console.error('Failed to load category data (server error)', response.reason)
+      toast.error('Failed to load files')
+    } else if (serverRequestFailed) {
+      // Benign: patient is pending / not yet on production — no toast.
+      console.warn('Category data unavailable for pending patient (local fallback used)', response.reason?.message)
+    }
   } catch (e) {
     console.error('Failed to load category data', e)
     toast.error('Failed to load files')
