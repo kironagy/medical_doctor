@@ -432,7 +432,9 @@ class FileAccessController extends Controller
         $file = PatientFile::withoutGlobalScope(
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
             )
-            ->where('uuid', $uuid)
+            ->where(function ($q) use ($uuid) {
+                $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+            })
             ->first();
 
         if ($file) {

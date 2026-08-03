@@ -35,8 +35,8 @@
           <span class="text-white/50 text-xs">جارٍ تحميل الفيديو…</span>
         </div>
         <VideoPlayer
-          v-else-if="signedUrl"
-          :src="signedUrl"
+          v-else-if="signedUrl || detectNative()"
+          :src="fileUrl"
           :type="file?.mime_type || 'video/mp4'"
           :poster="posterUrl"
           class="w-full h-full rounded-lg overflow-hidden"

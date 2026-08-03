@@ -85,17 +85,28 @@ class PatientRepository implements PatientRepositoryInterface
     public function delete(string $uuid): void
     {
         DB::transaction(function () use ($uuid) {
-            $patient = \App\Domains\Patients\Models\Patient::where('uuid', $uuid)->first();
+            $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )->where(function ($q) use ($uuid) {
+                $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+            })->first();
 
-            if ($patient && $patient->sync_status === 'pending_create') {
+            if (!$patient) {
+                return;
+            }
+
+            if ($patient->sync_status === 'pending_create') {
                 $patient->forceDelete();
                 return;
             }
 
-            $this->local->update($uuid, ['sync_status' => 'pending_delete', 'client_updated_at' => now()]);
-            $this->local->delete($uuid);
+            $patient->update([
+                'sync_status'       => 'pending_delete',
+                'client_updated_at' => now(),
+            ]);
+            $patient->delete();
 
-            $this->queueService->push('patient', $uuid, 'delete');
+            $this->queueService->push('patient', $patient->uuid, 'delete');
         });
     }
 
@@ -136,9 +147,18 @@ class PatientRepository implements PatientRepositoryInterface
     public function forceDelete(string $uuid): void
     {
         DB::transaction(function () use ($uuid) {
-            $this->local->update($uuid, ['sync_status' => 'pending_delete', 'client_updated_at' => now()]);
-            $this->local->delete($uuid);
-            $this->queueService->push('patient', $uuid, 'delete');
+            $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )->withTrashed()->where(function ($q) use ($uuid) {
+                $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+            })->first();
+
+            if (!$patient) {
+                return;
+            }
+
+            $patient->forceDelete();
+            $this->queueService->push('patient', $patient->uuid, 'delete');
         });
     }
 }

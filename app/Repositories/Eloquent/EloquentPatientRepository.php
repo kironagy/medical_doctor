@@ -41,13 +41,27 @@ class EloquentPatientRepository implements PatientRepositoryInterface
 
     public function find(string $uuid): ?array
     {
-        $patient = Patient::where('uuid', $uuid)->first();
+        $patient = Patient::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($uuid) {
+            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        })->first();
         return $patient?->toArray();
     }
 
     public function findByUuid(string $uuid): array
     {
-        return Patient::where('uuid', $uuid)->firstOrFail()->toArray();
+        $patient = Patient::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($uuid) {
+            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        })->first();
+
+        if (!$patient) {
+            throw new \RuntimeException('Patient not found: ' . $uuid);
+        }
+
+        return $patient->toArray();
     }
 
     public function create(array $data): array
@@ -66,14 +80,25 @@ class EloquentPatientRepository implements PatientRepositoryInterface
 
     public function update(string $uuid, array $data): array
     {
-        $patient = Patient::where('uuid', $uuid)->firstOrFail();
+        $patient = Patient::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($uuid) {
+            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        })->firstOrFail();
         $patient->update($data);
         return $patient->fresh()->toArray();
     }
 
     public function delete(string $uuid): void
     {
-        Patient::where('uuid', $uuid)->firstOrFail()->delete();
+        $patient = Patient::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($uuid) {
+            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        })->first();
+        if ($patient) {
+            $patient->delete();
+        }
     }
 
     public function search(string $term): array
