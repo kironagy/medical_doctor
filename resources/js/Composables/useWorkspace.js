@@ -712,6 +712,13 @@ async function refreshPatientList(page = 1) {
             console.log('[INSTRUMENT] refreshPatientList STEP 4 merge - localPending count:', localPending.length, 'uuids:', localPending.map(p => p.uuid + '(' + (p.sync_status || '?') + ')').join(','));
             console.log('[INSTRUMENT] refreshPatientList STEP 4 merge - apiUuids:', Array.from(apiUuids).join(','));
 
+            // finalUuids = every uuid already covered by the two sources
+            // merged so far (local pending + API data). Used below to find
+            // patients that are in neither and must be preserved as a
+            // safety net. preservedPatients collects those.
+            const finalUuids = new Set([...localPending.map(p => p.uuid), ...apiUuids]);
+            const preservedPatients = [];
+
             // ── UNIVERSAL SAFETY NET: Preserve ANY patient from backup
             //    that is missing from the merged result.
             //    This ensures that even newly created patients (with no
