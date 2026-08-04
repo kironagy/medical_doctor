@@ -57,7 +57,7 @@ class AuthController extends Controller
         }
 
         if (Auth::check()) {
-            return redirect('/dashboard');
+            return redirect('/workspace');
         }
         return Inertia::render('Auth/Login');
     }
@@ -103,13 +103,13 @@ class AuthController extends Controller
                 Log::warning('API token acquisition failed: ' . $e->getMessage());
             }
 
-            // Role-based redirect: super-admin goes to admin doctors page, others to dashboard
+            // Role-based redirect: super-admin goes to admin doctors page, others to workspace
             $user = $request->user();
             if ($user && ($user->role === 'super-admin' || $user->hasRole('super-admin'))) {
                 return redirect('/admin/doctors');
             }
 
-            return redirect()->intended('/dashboard');
+            return redirect('/workspace');
         }
 
 
@@ -158,7 +158,7 @@ class AuthController extends Controller
                 if ($localUser->role === 'super-admin' || $localUser->hasRole('super-admin')) {
                     return redirect('/admin/doctors');
                 }
-                return redirect()->intended('/dashboard');
+                return redirect('/workspace');
             }
         } catch (\Throwable $e) {
             Log::warning('Remote fallback authentication failed: ' . $e->getMessage());

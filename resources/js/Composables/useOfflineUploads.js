@@ -193,13 +193,6 @@ export function useOfflineUploads() {
    * The file appears immediately in the UI via addFileLocally().
    */
   async function uploadFile(file, patientUuid, metadata = {}) {
-    if (isOnline()) {
-      throw new Error(
-        '[OfflineUpload] Cannot use offline upload while online. ' +
-        'Use useUploads().uploadFile() for online uploads.'
-      )
-    }
-
     const isLargeOrVideo = (file.type && file.type.startsWith('video/')) || (file.size > 5 * 1024 * 1024)
 
     try {
