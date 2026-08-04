@@ -63,6 +63,9 @@ class WorkspaceController extends Controller
         $categories = $this->getCategories($user);
         $patients = $this->patientRepo->all();
 
+        $pendingCount = count(array_filter($patients, fn($p) => ($p['sync_status'] ?? 'synced') !== 'synced'));
+        Log::info("[Workspace] Loaded " . count($patients) . " patients from local SQLite ({$pendingCount} pending sync)");
+
         return Inertia::render('DoctorWorkspace', [
             'patients' => $patients,
             'categories' => $categories,

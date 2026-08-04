@@ -67,7 +67,7 @@ class ApiService
      */
     public static function loginToRemote(string $email, string $password): array
     {
-        $baseUrl = rtrim(config('app.mobile_api_url', 'https://prof-hosam-fekry.online'), '/');
+        $baseUrl = rtrim(config('app.mobile_api_url'), '/');
         $loginUrl = $baseUrl . '/api/v1/login';
 
         \Illuminate\Support\Facades\Log::info('[ApiService] loginToRemote: attempting remote login at: ' . $loginUrl);

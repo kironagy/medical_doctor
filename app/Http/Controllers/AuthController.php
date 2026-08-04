@@ -12,9 +12,12 @@ class AuthController extends Controller
 {
     public function showLogin(Request $request)
     {
+        Log::info('[Boot] showLogin served via ' . config('database.default') . ' connection');
+
         if (config('database.default') === 'sqlite') {
             $user = \App\Domains\Users\Models\User::first();
             if ($user) {
+                Log::info('[Boot] Offline-safe auto-login for local user', ['user_id' => $user->id]);
                 Auth::login($user);
                 return redirect('/workspace');
             }
