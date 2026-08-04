@@ -111,7 +111,7 @@ class DownloadSyncService
                     try {
                         Patient::unguard();
                         if (!$localP) {
-                            Patient::create($clean);
+                            $localP = Patient::create($clean);
                             $summary['patients']++;
                         } elseif (($remoteP['version'] ?? 1) > ($localP->version ?? 1)) {
                             $localP->update($clean);
@@ -123,6 +123,23 @@ class DownloadSyncService
                     } finally {
                         Patient::reguard();
                     }
+
+                    $patientId = $localP ? $localP->id : null;
+
+                    // Sync files attached to this patient from the server
+                    if (!empty($remoteP['files']) && is_array($remoteP['files'])) {
+                        $this->syncPatientFilesFromRemote($remoteP['uuid'], $patientId, $remoteP['files'], $localUserId, $summary);
+                    }
+
+                    // Sync notes attached to this patient from the server
+                    if (!empty($remoteP['notes']) && is_array($remoteP['notes'])) {
+                        $this->syncPatientNotesFromRemote($remoteP['uuid'], $patientId, $remoteP['notes'], $localUserId, $summary);
+                    }
+
+                    // Sync visits attached to this patient from the server
+                    if (!empty($remoteP['visits']) && is_array($remoteP['visits'])) {
+                        $this->syncPatientVisitsFromRemote($remoteP['uuid'], $patientId, $remoteP['visits'], $localUserId, $summary);
+                    }
                 }
 
                 $lastPage = (int) ($remoteData['last_page'] ?? 1);
@@ -130,9 +147,165 @@ class DownloadSyncService
             } while ($page <= $lastPage && $page <= 50);
 
             $this->setEntityLastSync('patients_last_sync', now()->toISOString());
-            Log::info('[DownloadSyncService] Cached ' . $summary['patients'] . ' patients into local SQLite');
+            Log::info('[DownloadSyncService] Cached ' . $summary['patients'] . ' patients, ' . $summary['files'] . ' files, ' . $summary['notes'] . ' notes into local SQLite');
         } catch (Throwable $e) {
             Log::warning('[DownloadSyncService] Patient download failed: ' . $e->getMessage());
+        }
+    }
+
+    private function syncPatientFilesFromRemote(string $patientUuid, ?int $patientId, array $remoteFiles, int $localUserId, array &$summary): void
+    {
+        $validCols = Schema::getColumnListing('patient_files');
+        if (!$patientId) {
+            $patientId = DB::table('patients')->where('uuid', $patientUuid)->value('id');
+        }
+        if (!$patientId) return;
+
+        foreach ($remoteFiles as $rf) {
+            if (!is_array($rf) || empty($rf['uuid'])) continue;
+
+            $fileUuid = $rf['uuid'];
+            $existing = DB::table('patient_files')
+                ->where('uuid', $fileUuid)
+                ->orWhere('remote_uuid', $fileUuid)
+                ->first();
+
+            // Do not overwrite local pending changes
+            if ($existing && in_array($existing->sync_status, ['pending_create', 'pending_update', 'pending_delete', 'pending_sync'])) {
+                continue;
+            }
+
+            $mime = $rf['mime_type'] ?? '';
+            $type = $rf['type'] ?? match (true) {
+                str_starts_with($mime, 'image/') => 'image',
+                str_starts_with($mime, 'video/') => 'video',
+                str_starts_with($mime, 'audio/') => 'audio',
+                $mime === 'application/pdf' => 'pdf',
+                default => 'document',
+            };
+
+            $clean = [
+                'uuid'           => $fileUuid,
+                'remote_uuid'    => $fileUuid,
+                'patient_id'     => $patientId,
+                'uploaded_by_id' => $localUserId,
+                'title'          => $rf['title'] ?? $rf['file_name'] ?? 'File',
+                'desc'           => $rf['desc'] ?? null,
+                'type'           => $type,
+                'mime_type'      => $mime ?: 'application/octet-stream',
+                'size'           => (int) ($rf['size'] ?? 0),
+                'category'       => $rf['category'] ?? null,
+                'date'           => !empty($rf['date']) ? substr($rf['date'], 0, 10) : now()->toDateString(),
+                'file_name'      => $rf['file_name'] ?? 'file',
+                'file_path'      => $rf['file_path'] ?? ("patients/{$patientUuid}/{$fileUuid}"),
+                'upload_status'  => 'ready',
+                'sync_status'    => 'synced',
+                'created_at'     => $rf['created_at'] ?? now(),
+                'updated_at'     => $rf['updated_at'] ?? now(),
+            ];
+
+            $clean = array_intersect_key($clean, array_flip($validCols));
+
+            try {
+                if (!$existing) {
+                    DB::table('patient_files')->insert($clean);
+                    $summary['files']++;
+                } else {
+                    DB::table('patient_files')->where('id', $existing->id)->update($clean);
+                    $summary['files']++;
+                }
+            } catch (Throwable $e) {
+                Log::warning('[DownloadSyncService] Skipped file ' . $fileUuid . ': ' . $e->getMessage());
+            }
+        }
+    }
+
+    private function syncPatientNotesFromRemote(string $patientUuid, ?int $patientId, array $remoteNotes, int $localUserId, array &$summary): void
+    {
+        $validCols = Schema::getColumnListing('patient_notes');
+        if (!$patientId) {
+            $patientId = DB::table('patients')->where('uuid', $patientUuid)->value('id');
+        }
+        if (!$patientId) return;
+
+        foreach ($remoteNotes as $rn) {
+            if (!is_array($rn) || empty($rn['uuid'])) continue;
+
+            $noteUuid = $rn['uuid'];
+            $existing = DB::table('patient_notes')->where('uuid', $noteUuid)->first();
+            if ($existing && in_array($existing->sync_status, ['pending_create', 'pending_update', 'pending_delete'])) {
+                continue;
+            }
+
+            $clean = [
+                'uuid'         => $noteUuid,
+                'patient_id'   => $patientId,
+                'doctor_id'    => $localUserId,
+                'content'      => $rn['content'] ?? $rn['note'] ?? '',
+                'category'     => $rn['category'] ?? null,
+                'sync_status'  => 'synced',
+                'created_at'   => $rn['created_at'] ?? now(),
+                'updated_at'   => $rn['updated_at'] ?? now(),
+            ];
+
+            $clean = array_intersect_key($clean, array_flip($validCols));
+
+            try {
+                if (!$existing) {
+                    DB::table('patient_notes')->insert($clean);
+                    $summary['notes']++;
+                } else {
+                    DB::table('patient_notes')->where('id', $existing->id)->update($clean);
+                    $summary['notes']++;
+                }
+            } catch (Throwable $e) {
+                Log::warning('[DownloadSyncService] Skipped note ' . $noteUuid . ': ' . $e->getMessage());
+            }
+        }
+    }
+
+    private function syncPatientVisitsFromRemote(string $patientUuid, ?int $patientId, array $remoteVisits, int $localUserId, array &$summary): void
+    {
+        $validCols = Schema::getColumnListing('patient_visits');
+        if (!$patientId) {
+            $patientId = DB::table('patients')->where('uuid', $patientUuid)->value('id');
+        }
+        if (!$patientId) return;
+
+        foreach ($remoteVisits as $rv) {
+            if (!is_array($rv) || empty($rv['uuid'])) continue;
+
+            $visitUuid = $rv['uuid'];
+            $existing = DB::table('patient_visits')->where('uuid', $visitUuid)->first();
+            if ($existing && in_array($existing->sync_status, ['pending_create', 'pending_update', 'pending_delete'])) {
+                continue;
+            }
+
+            $clean = [
+                'uuid'         => $visitUuid,
+                'patient_id'   => $patientId,
+                'doctor_id'    => $localUserId,
+                'visit_date'   => $rv['visit_date'] ?? now()->toDateString(),
+                'type'         => $rv['type'] ?? 'follow_up',
+                'notes'        => $rv['notes'] ?? null,
+                'sync_status'  => 'synced',
+                'created_at'   => $rv['created_at'] ?? now(),
+                'updated_at'   => $rv['updated_at'] ?? now(),
+            ];
+
+            $clean = array_intersect_key($clean, array_flip($validCols));
+
+            try {
+                if (!$existing) {
+                    DB::table('patient_visits')->insert($clean);
+                    $summary['visits']++;
+                } else {
+                    DB::table('patient_visits')->where('id', $existing->id)->update($clean);
+                    $summary['visits']++;
+                }
+            } catch (Throwable $e) {
+                Log::warning('[DownloadSyncService] Skipped visit ' . $visitUuid . ': ' . $e->getMessage());
+            }
         }
     }
 
