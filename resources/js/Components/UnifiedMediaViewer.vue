@@ -205,16 +205,27 @@ const fetchSignedUrl = async () => {
   if (!props.file) return;
   loadingSignedUrl.value = true;
   try {
+    const isImage = type.value === 'image';
+    const isVideo = type.value === 'video';
+    const isAudio = type.value === 'audio';
+
     if (detectNative()) {
       const uuid = props.file.uuid;
-      const isImage = type.value === 'image';
-      const isVideo = type.value === 'video';
-      const isAudio = type.value === 'audio';
+      const remoteUuid = props.file.remote_uuid || uuid;
 
-      if (isImage || isVideo || isAudio) {
+      // 1. For Videos on Native Mobile: stream directly over HTTPS for smooth playback without memory limits
+      if (isVideo) {
+        if (props.file.sync_status === 'synced' || props.file.remote_uuid) {
+          signedUrl.value = `https://prof-hosam-fekry.online/api/v1/mobile/files/${remoteUuid}/stream`;
+          return;
+        }
+      }
+
+      // 2. For Images / Audio / small files: fetch local base64 JSON -> Data/Blob URL
+      if (isImage || isAudio || isVideo) {
         try {
           const res = await axios.get(`/_native/cache/files/${uuid}/base64`);
-          const mime = res.data.mime || props.file.mime_type || 'video/mp4';
+          const mime = res.data.mime || props.file.mime_type || 'application/octet-stream';
           if (isVideo || isAudio) {
             const binary = atob(res.data.data);
             const bytes = new Uint8Array(binary.length);
@@ -231,10 +242,12 @@ const fetchSignedUrl = async () => {
           }
           return;
         } catch (e) {
-          console.warn('Failed to fetch base64 file on native, falling back to direct URL', e);
+          console.warn('Failed to fetch base64 file on native, falling back to remote HTTPS stream URL', e);
         }
       }
-      signedUrl.value = `/_native/cache/files/${uuid}`;
+
+      // Fallback for native: use remote HTTPS stream URL
+      signedUrl.value = `https://prof-hosam-fekry.online/api/v1/mobile/files/${remoteUuid}/stream`;
       return;
     }
 

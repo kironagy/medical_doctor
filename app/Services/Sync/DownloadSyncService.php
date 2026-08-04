@@ -230,7 +230,7 @@ class DownloadSyncService
                 'type'           => $type,
                 'mime_type'      => $mime ?: 'application/octet-stream',
                 'size'           => (int) ($rf['size'] ?? 0),
-                'category'       => $rf['category'] ?? null,
+                'category'       => !empty($rf['category']) ? $rf['category'] : 'notes',
                 'date'           => !empty($rf['date']) ? substr($rf['date'], 0, 10) : now()->toDateString(),
                 'file_name'      => $rf['file_name'] ?? 'file',
                 'file_path'      => $localFilePath,
@@ -239,6 +239,9 @@ class DownloadSyncService
                 'created_at'     => $rf['created_at'] ?? now(),
                 'updated_at'     => $rf['updated_at'] ?? now(),
             ];
+
+            // Ensure category is never null in SQLite
+            DB::table('patient_files')->whereNull('category')->orWhere('category', '')->update(['category' => 'notes']);
 
             $clean = array_intersect_key($clean, array_flip($validCols));
 

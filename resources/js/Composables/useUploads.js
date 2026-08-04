@@ -329,6 +329,7 @@ export function useUploads() {
 
                 addFileLocally({
                     uuid:          fileUuid,
+                    remote_uuid:   fileUuid,
                     patient_id:    job.patientId,
                     title:         metadata.title || job.file?.name || "",
                     desc:          metadata.desc || "",
@@ -339,7 +340,7 @@ export function useUploads() {
                     created_at:    new Date().toISOString(),
                     updated_at:    new Date().toISOString(),
                     upload_status: "ready",
-                    sync_status:   "pending_sync",
+                    sync_status:   "synced",
                     url:           localUrl,
                     thumbnail_url: localThumbnailUrl,
                     type:          fileData.type || "image",

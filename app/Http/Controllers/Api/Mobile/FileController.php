@@ -161,7 +161,7 @@ class FileController extends Controller
             'title'          => $validated['title'] ?? $uploadedFile->getClientOriginalName(),
             'desc'           => $validated['desc'] ?? null,
             'type'           => $type,
-            'category'       => $validated['category'] ?? null,
+            'category'       => !empty($validated['category']) ? $validated['category'] : 'notes',
             'date'           => $validated['date'] ?? now(),
             'file_name'      => $uploadedFile->getClientOriginalName(),
             'file_path'      => $path,

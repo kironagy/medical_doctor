@@ -614,6 +614,9 @@ class FileAccessController extends Controller
             // 1. Check direct file_path
             $absolutePath = $file->file_path ? Storage::disk('local')->path($file->file_path) : null;
             if ($absolutePath && file_exists($absolutePath)) {
+                if (filesize($absolutePath) > 5 * 1024 * 1024) {
+                    abort(413, 'File too large for base64 JSON payload.');
+                }
                 return response()->json([
                     'mime' => $file->mime_type ?: 'application/octet-stream',
                     'data' => base64_encode(file_get_contents($absolutePath)),
