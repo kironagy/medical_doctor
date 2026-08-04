@@ -42,6 +42,12 @@ class FileCacheService
             $fp = fopen($absolutePath, 'rb');
 
             return new StreamedResponse(function () use ($fp) {
+                @ini_set('output_handler', '');
+                @ini_set('zlib.output_compression', 0);
+                while (ob_get_level() > 0) {
+                    @ob_end_clean();
+                }
+
                 $buf = 1024 * 1024;
                 while (!feof($fp)) {
                     echo fread($fp, $buf);
@@ -94,13 +100,21 @@ class FileCacheService
         }
 
         return new StreamedResponse(function () use ($fp, $length) {
+            @ini_set('output_handler', '');
+            @ini_set('zlib.output_compression', 0);
+            while (ob_get_level() > 0) {
+                @ob_end_clean();
+            }
+
             $remaining = $length;
             $buf = 1024 * 1024;
             while (!feof($fp) && $remaining > 0) {
                 $read = min($buf, $remaining);
-                echo fread($fp, $read);
-                $remaining -= $read;
+                $data = fread($fp, $read);
+                if ($data === false) break;
+                echo $data;
                 fflush($fp);
+                $remaining -= strlen($data);
             }
             fclose($fp);
         }, 206, $headers);
