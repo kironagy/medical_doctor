@@ -99,8 +99,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (\Throwable $e, Request $request) {
             $isUploadOrApi = $request->is('*upload*', '*chunk*', 'patients/*/files', '_native/*', 'api/*') ||
                 $request->expectsJson() ||
-                $request->wantsJson() ||
-                env('APP_DEBUG', false);
+                $request->wantsJson();
 
             if ($isUploadOrApi) {
                 $sqlState = null;
