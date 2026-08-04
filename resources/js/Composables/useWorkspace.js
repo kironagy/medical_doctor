@@ -635,17 +635,20 @@ async function refreshPatientList(page = 1) {
         console.log('[INSTRUMENT] refreshPatientList STEP 1: Skipped (sync handled by SyncEngineService)');
 
         // ═══════════════════════════════════════════════════════════════
-        //  STEP 1b: Refresh category cache from production API
+        //  STEP 1b + STEP 2: Refresh category cache + load pending patients
+        //  from local SQLite — run in PARALLEL, not sequentially.
         // ═══════════════════════════════════════════════════════════════
-        await refreshCategoryCache();
-
-        // ═══════════════════════════════════════════════════════════════
-        //  STEP 2: Load pending patients from local SQLite
-        // ═══════════════════════════════════════════════════════════════
-        // After app restart, patients.value is empty. The merge logic below
-        // checks patients.value for pending patients — but they're empty on
-        // restart. We need to query the local SQLite to find them.
+        // Previously refreshCategoryCache() was awaited before the pending-
+        // patients fetch even started, adding several seconds of pure
+        // latency to the critical "show my patients" path on every cold
+        // start. During that window, patients.value only reflects the
+        // Inertia-hydrated snapshot (which may be stale/miss recent local
+        // creates — see STEP 3/4 below), so a locally-created, not-yet-
+        // synced patient appears to have "disappeared" until this finally
+        // resolves. Category cache refresh doesn't gate patient list
+        // correctness, so it no longer blocks STEP 2.
         let sqlitePending = [];
+        const categoryCachePromise = refreshCategoryCache().catch(() => {});
         try {
             console.log('[INSTRUMENT] refreshPatientList STEP 2: GET /_native/api/patients/pending starting...');
             const pendingRes = await axios.get('/_native/api/patients/pending');
@@ -654,6 +657,7 @@ async function refreshPatientList(page = 1) {
         } catch (e) {
             console.log('[INSTRUMENT] refreshPatientList STEP 2 FAILED:', e.message);
         }
+        await categoryCachePromise;
 
         // ═══════════════════════════════════════════════════════════════
         //  STEP 3: Fetch patient list from API
