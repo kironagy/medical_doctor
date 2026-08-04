@@ -40,7 +40,7 @@ class ParseMobileMultipartMiddleware
         // Embedded Laravel runtime on Android is single-user native mobile app.
         // Auto-logging in the local doctor user when guest ensures that offline
         // page requests (/workspace, /dashboard) NEVER redirect to /login or fail with 404.
-        if (config('database.default') === 'sqlite' && \Illuminate\Support\Facades\Auth::guest()) {
+        if (config('database.default') === 'sqlite' && \Illuminate\Support\Facades\Auth::guest() && \App\Http\Controllers\AuthController::deviceIsAuthenticated()) {
             $localUser = \App\Domains\Users\Models\User::first();
             if ($localUser) {
                 \Illuminate\Support\Facades\Auth::login($localUser);
