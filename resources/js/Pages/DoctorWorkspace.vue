@@ -358,6 +358,15 @@ const ptrContentStyle = computed(() => ({
 let refreshPromise = null
 
 onMounted(async () => {
+  // Open the mobile patient-list overlay SYNCHRONOUSLY, first thing — before
+  // any async work below. It covers the full screen (fixed inset, w-full),
+  // so as long as this fires on the very first tick, the "select a patient"
+  // placeholder underneath is never visible; the user sees the patient list
+  // immediately instead of waiting for the boot merge to finish.
+  if (isMobile.value && !selectedPatientId.value) {
+    mobilePatientListOpen.value = true
+  }
+
   // Hydrate categories from props immediately to avoid transient empty categories UI states
   if (props.categories && props.categories.length > 0) {
     setCategories(props.categories);
@@ -413,9 +422,6 @@ onMounted(async () => {
   // the server list, etc.) — runs after the correct list is already on
   // screen, so it can only add/update, never cause a visible regression.
   refreshPatientList()
-  if (isMobile.value && !selectedPatientId.value) {
-    mobilePatientListOpen.value = true
-  }
 })
 
 const summaryRef = ref(null)
