@@ -73,7 +73,7 @@ class FileSyncService
                     $remoteUuid = $this->checkServerSha256Deduplication($sha256);
 
                     // ── Task 1: Upload execution (Resumable vs Normal) ──────
-                    // Video always goes through the resumable/chunked path
+                // Video always goes through the resumable/chunked path
                     // regardless of size — matches SyncEngineService's gate and
                     // avoids single-shot multipart uploads for video files.
                     $mimeType = $file?->mime_type ?? $offFile?->mime_type ?? '';
