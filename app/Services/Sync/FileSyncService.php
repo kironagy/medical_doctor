@@ -233,6 +233,6 @@ class FileSyncService
             'upload_id' => $uploadId,
         ]);
 
-        return $completeRes['uuid'] ?? $completeRes['remote_uuid'] ?? null;
+        return $completeRes['uuid'] ?? $completeRes['data']['uuid'] ?? $completeRes['remote_uuid'] ?? null;
     }
 }

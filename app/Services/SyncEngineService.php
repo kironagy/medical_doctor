@@ -519,11 +519,15 @@ class SyncEngineService
                         $uploadParams
                     );
 
-                    $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
+                    $remoteUuid = $response['uuid'] 
+                        ?? $response['data']['uuid'] 
+                        ?? $response['file']['uuid'] 
+                        ?? $response['data']['file']['uuid'] 
+                        ?? null;
                 }
 
                 if (!$remoteUuid) {
-                    throw new \RuntimeException('No UUID returned from production server');
+                    throw new \RuntimeException('No UUID returned from production server. Response keys: ' . implode(',', array_keys($response)));
                 }
 
                 // Store remote UUID so we skip this file in future cycles
