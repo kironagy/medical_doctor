@@ -448,9 +448,9 @@ class SyncEngineService
                   ->orWhere('remote_uuid', '');
             })
             ->where('upload_status', 'ready')
-            ->where('sync_status', '!=', 'pending_delete')
-            ->orderBy('created_at', 'asc')
-            ->limit(20) // Process in small batches to avoid memory issues
+            ->whereNotIn('sync_status', ['pending_delete', 'synced'])
+            ->orderBy('updated_at', 'asc')
+            ->limit(50) // Process in batches to avoid memory issues
             ->get();
 
         Log::info('[SyncEngine] syncLocalPatientFiles — found ' . $pendingFiles->count() . ' pending files to sync');
@@ -486,7 +486,7 @@ class SyncEngineService
                 ]);
                 // Mark as synced with self-UUID to prevent infinite retry on missing files
                 \App\Domains\Media\Models\PatientFile::where('uuid', $file->uuid)
-                    ->update(['remote_uuid' => $file->uuid, 'sync_status' => 'synced']);
+                    ->update(['remote_uuid' => $file->uuid, 'sync_status' => 'synced', 'updated_at' => now()]);
                 continue;
             }
 
@@ -537,10 +537,14 @@ class SyncEngineService
                 ]);
             } catch (\Throwable $e) {
                 $results['failed']++;
-                Log::warning('[SyncEngine] Local patient_file sync failed', [
-                    'uuid'        => $file->uuid,
-                    'error'       => $e->getMessage(),
-                    'file_name'   => $file->file_name,
+                // Push failed file to back of queue so other files process without blocking
+                \App\Domains\Media\Models\PatientFile::where('uuid', $file->uuid)
+                    ->update(['updated_at' => now()]);
+
+                Log::warning('[SyncEngine] Local patient_file sync failed (moved to back of queue for retry)', [
+                    'uuid'         => $file->uuid,
+                    'error'        => $e->getMessage(),
+                    'file_name'    => $file->file_name,
                     'patient_uuid' => $patientUuid,
                 ]);
             }
