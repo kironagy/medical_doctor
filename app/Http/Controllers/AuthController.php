@@ -11,11 +11,18 @@ use Inertia\Inertia;
 
 class AuthController extends Controller
 {
+    /**
+     * Marker file recording that the device user explicitly logged out.
+     * Prevents showLogin()'s offline auto-login from silently re-authenticating
+     * someone who just chose to sign out. Cleared on the next successful login.
+     */
+    private const LOGGED_OUT_MARKER = 'app/.explicitly_logged_out';
+
     public function showLogin(Request $request)
     {
         Log::info('[Boot] showLogin served via ' . config('database.default') . ' connection');
 
-        if (config('database.default') === 'sqlite') {
+        if (config('database.default') === 'sqlite' && !file_exists(storage_path(self::LOGGED_OUT_MARKER))) {
             $user = \App\Domains\Users\Models\User::first();
             if ($user) {
                 Log::info('[Boot] Offline-safe auto-login for local user', ['user_id' => $user->id]);
@@ -39,6 +46,7 @@ class AuthController extends Controller
 
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
+            @unlink(storage_path(self::LOGGED_OUT_MARKER));
 
             // Obtain API token for mobile API requests and sync
             try {
@@ -109,6 +117,7 @@ class AuthController extends Controller
                 // Authenticate the user session locally
                 Auth::login($localUser, $request->boolean('remember'));
                 $request->session()->regenerate();
+                @unlink(storage_path(self::LOGGED_OUT_MARKER));
 
                 // Save remote API token and store credentials for the sync engine
                 app(ApiService::class)->setToken($tokenResponse['token']);
@@ -173,6 +182,12 @@ class AuthController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+        $markerPath = storage_path(self::LOGGED_OUT_MARKER);
+        $markerDir = dirname($markerPath);
+        if (!is_dir($markerDir)) {
+            mkdir($markerDir, 0755, true);
+        }
+        file_put_contents($markerPath, '1', LOCK_EX);
 
         return redirect('/login');
     }
