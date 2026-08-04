@@ -67,8 +67,13 @@ class ApiService
      */
     public static function loginToRemote(string $email, string $password): array
     {
-        $baseUrl = rtrim(config('app.mobile_api_url'), '/');
-        $loginUrl = $baseUrl . '/api/v1/login';
+        // config('app.mobile_api_url') points at the MOBILE API namespace
+        // (e.g. https://host/api/v1/mobile). The login endpoint lives at the API
+        // root (https://host/api/v1/login), so the mobile suffix must be stripped —
+        // appending directly produced ".../api/v1/mobile/api/v1/login" and a 404.
+        $baseUrl = rtrim((string) config('app.mobile_api_url'), '/');
+        $apiRoot = preg_replace('#/api/v1/mobile$#', '', $baseUrl);
+        $loginUrl = rtrim($apiRoot, '/') . '/api/v1/login';
 
         \Illuminate\Support\Facades\Log::info('[ApiService] loginToRemote: attempting remote login at: ' . $loginUrl);
 
