@@ -70,17 +70,17 @@ class RemoteApiService
     /**
      * Send GET request to production server.
      */
-    public function get(string $endpoint, array $query = []): array
+    public function get(string $endpoint, array $query = [], int $timeoutSeconds = 30): array
     {
-        return $this->request('GET', $endpoint, ['query' => $query]);
+        return $this->request('GET', $endpoint, ['query' => $query], $timeoutSeconds);
     }
 
     /**
      * Send POST request to production server.
      */
-    public function post(string $endpoint, array $data = []): array
+    public function post(string $endpoint, array $data = [], int $timeoutSeconds = 30): array
     {
-        return $this->request('POST', $endpoint, ['json' => $data]);
+        return $this->request('POST', $endpoint, ['json' => $data], $timeoutSeconds);
     }
 
     /**
@@ -164,9 +164,9 @@ class RemoteApiService
     /**
      * Internal request builder with retry support.
      */
-    private function request(string $method, string $endpoint, array $options = []): array
+    private function request(string $method, string $endpoint, array $options = [], int $timeoutSeconds = 30): array
     {
-        $client = $this->buildClient(timeoutSeconds: 30);
+        $client = $this->buildClient(timeoutSeconds: $timeoutSeconds);
         $url = $this->resolveUrl($endpoint);
 
         $response = match (strtoupper($method)) {

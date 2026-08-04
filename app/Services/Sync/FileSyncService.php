@@ -73,18 +73,27 @@ class FileSyncService
                     $remoteUuid = $this->checkServerSha256Deduplication($sha256);
 
                     // ── Task 1: Upload execution (Resumable vs Normal) ──────
+                    // Video always goes through the resumable/chunked path
+                    // regardless of size — matches SyncEngineService's gate and
+                    // avoids single-shot multipart uploads for video files.
+                    $mimeType = $file?->mime_type ?? $offFile?->mime_type ?? '';
+                    $isVideo = str_starts_with($mimeType, 'video/');
                     if (!$remoteUuid) {
-                        if ($fileSize > self::RESUMABLE_THRESHOLD) {
+                        if ($isVideo || $fileSize > self::RESUMABLE_THRESHOLD) {
                             $remoteUuid = $this->uploadLargeFileResumable($absPath, $patientUuid, $file, $offFile);
                         } else {
                             $title = $file ? ($file->title ?? $file->file_name) : ($offFile->title ?? $offFile->original_name);
+                            $category = $file ? ($file->category ?? null) : ($offFile->category ?? null);
+                            $date = $file ? ($file->date ?? null) : ($offFile->date ?? null);
                             $response = $this->api->upload(
                                 "/patients/{$patientUuid}/files",
                                 ['file' => $absPath],
                                 [
-                                    'title' => $title,
-                                    'desc'  => $file->desc ?? ($offFile->desc ?? ''),
-                                    'sha256' => $sha256,
+                                    'title'    => $title,
+                                    'desc'     => $file->desc ?? ($offFile->desc ?? ''),
+                                    'category' => $category,
+                                    'date'     => ($date ? \Carbon\Carbon::parse($date)->format('Y-m-d') : now()->format('Y-m-d')),
+                                    'sha256'   => $sha256,
                                 ]
                             );
                             $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
@@ -172,6 +181,9 @@ class FileSyncService
         $date = $file ? ($file->date ?? null) : ($offFile->date ?? null);
 
         // Step 1: Init chunk upload session
+        // Longer timeout than the default 30s: video sessions can involve a
+        // slower remote-side setup (patient resolution, session bootstrap)
+        // than a plain JSON API call.
         $initRes = $this->api->post('/chunk/init', [
             'file_name'  => $fileName,
             'file_size'  => $fileSize,
@@ -184,7 +196,7 @@ class FileSyncService
                 'desc'     => $desc,
                 'date'     => $date,
             ],
-        ]);
+        ], 60);
 
         $uploadId = $initRes['upload_id'] ?? $initRes['uuid'] ?? null;
         if (!$uploadId) {
@@ -194,7 +206,7 @@ class FileSyncService
         // Step 2: Check uploaded chunks status (Resumable check)
         $uploadedChunks = [];
         try {
-            $statusRes = $this->api->get("/chunk/{$uploadId}/status");
+            $statusRes = $this->api->get("/chunk/{$uploadId}/status", [], 60);
             $uploadedChunks = $statusRes['uploaded_chunks'] ?? [];
         } catch (Throwable $e) {
             // New upload session
@@ -229,9 +241,12 @@ class FileSyncService
         fclose($handle);
 
         // Step 4: Complete and merge chunks
+        // Merging chunks + writing the final file on the remote server can
+        // take well over 30s for video — this is the step most likely to
+        // time out and silently fail the whole resumable upload.
         $completeRes = $this->api->post('/chunk/complete', [
             'upload_id' => $uploadId,
-        ]);
+        ], 120);
 
         return $completeRes['uuid'] ?? $completeRes['data']['uuid'] ?? $completeRes['remote_uuid'] ?? null;
     }
