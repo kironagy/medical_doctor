@@ -161,7 +161,7 @@ class FileSyncService
     /**
      * Upload large files (>25MB) using ChunkUploadController endpoints with resumable status checks.
      */
-    private function uploadLargeFileResumable(string $absPath, string $patientUuid, ?PatientFile $file, ?object $offFile): ?string
+    public function uploadLargeFileResumable(string $absPath, string $patientUuid, ?PatientFile $file, ?object $offFile): ?string
     {
         $fileName = basename($absPath);
         $fileSize = filesize($absPath);

@@ -8,6 +8,7 @@ use App\Repositories\PatientRepository;
 use App\Services\Mobile\ApiService;
 use App\Services\OfflineUploadService;
 use App\Services\Sync\DownloadSyncService;
+use App\Services\Sync\FileSyncService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -61,6 +62,7 @@ class SyncEngineService
         private readonly OfflineUploadService $offlineUploadService,
         private readonly ApiService $api,
         private readonly DownloadSyncService $downloadSync,
+        private readonly FileSyncService $fileSyncService,
     ) {}
 
     /**
@@ -488,18 +490,31 @@ class SyncEngineService
             }
 
             try {
-                $response = $this->api->upload(
-                    "/patients/{$patientUuid}/files",
-                    ['file' => $absolutePath],
-                    [
-                        'title'    => $file->title ?? $file->file_name,
-                        'desc'     => $file->desc ?? '',
-                        'category' => $file->category ?? null,
-                        'date'     => ($file->date ? \Carbon\Carbon::parse($file->date)->format('Y-m-d') : now()->format('Y-m-d')),
-                    ]
-                );
+                $fileSize = filesize($absolutePath);
+                $isLargeOrVideo = $fileSize > (5 * 1024 * 1024) || str_starts_with($file->mime_type ?? '', 'video/');
 
-                $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
+                if ($isLargeOrVideo) {
+                    Log::info('[SyncEngine] Syncing local patient_file via resumable chunk upload', [
+                        'file_uuid' => $file->uuid,
+                        'file_size' => $fileSize,
+                        'mime_type' => $file->mime_type,
+                    ]);
+                    $remoteUuid = $this->fileSyncService->uploadLargeFileResumable($absolutePath, $patientUuid, $file, null);
+                } else {
+                    $response = $this->api->upload(
+                        "/patients/{$patientUuid}/files",
+                        ['file' => $absolutePath],
+                        [
+                            'title'    => $file->title ?? $file->file_name,
+                            'desc'     => $file->desc ?? '',
+                            'category' => $file->category ?? null,
+                            'date'     => ($file->date ? \Carbon\Carbon::parse($file->date)->format('Y-m-d') : now()->format('Y-m-d')),
+                        ]
+                    );
+
+                    $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
+                }
+
                 if (!$remoteUuid) {
                     throw new \RuntimeException('No UUID returned from production server');
                 }
@@ -673,13 +688,28 @@ class SyncEngineService
             $extraParams['date'] = $file['date'];
         }
 
-        $response = $this->api->upload(
-            "/patients/{$file['patient_uuid']}/files",
-            ['file' => $absolutePath],
-            $extraParams
-        );
+        $fileSize = filesize($absolutePath);
+        $mimeType = $file['mime_type'] ?? (mime_content_type($absolutePath) ?: '');
+        $isLargeOrVideo = $fileSize > (5 * 1024 * 1024) || str_starts_with($mimeType, 'video/');
 
-        $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
+        if ($isLargeOrVideo) {
+            Log::info('[SyncEngine] Syncing offline_file via resumable chunk upload', [
+                'file_uuid' => $file['uuid'],
+                'file_size' => $fileSize,
+                'mime_type' => $mimeType,
+            ]);
+            $offFile = (object) $file;
+            $remoteUuid = $this->fileSyncService->uploadLargeFileResumable($absolutePath, $file['patient_uuid'], null, $offFile);
+        } else {
+            $response = $this->api->upload(
+                "/patients/{$file['patient_uuid']}/files",
+                ['file' => $absolutePath],
+                $extraParams
+            );
+
+            $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
+        }
+
         if (!$remoteUuid) {
             throw new \RuntimeException('No UUID in server response');
         }
