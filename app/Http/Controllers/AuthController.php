@@ -21,7 +21,13 @@ class AuthController extends Controller
      *   - after logout   → deleted    → login screen (no silent re-login)
      *   - offline restart after a real login → present → straight into the workspace
      */
-    private const DEVICE_AUTHENTICATED_MARKER = 'app/.device_authenticated';
+    public const DEVICE_AUTHENTICATED_MARKER = 'app/.device_authenticated';
+
+    /** Has a real login completed on this device (and not been logged out since)? */
+    public static function deviceIsAuthenticated(): bool
+    {
+        return file_exists(storage_path(self::DEVICE_AUTHENTICATED_MARKER));
+    }
 
     private function markerPath(): string
     {
@@ -41,7 +47,7 @@ class AuthController extends Controller
     {
         Log::info('[Boot] showLogin served via ' . config('database.default') . ' connection');
 
-        if (config('database.default') === 'sqlite' && file_exists($this->markerPath())) {
+        if (config('database.default') === 'sqlite' && self::deviceIsAuthenticated()) {
             $user = \App\Domains\Users\Models\User::first();
             if ($user) {
                 Log::info('[Boot] Offline-safe auto-login for local user', ['user_id' => $user->id]);

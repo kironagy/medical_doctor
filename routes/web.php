@@ -20,6 +20,12 @@ Route::post('/api/session/restore', function (\Illuminate\Http\Request $request)
         // This replaces the previous Sanctum token validation which required
         // a valid PersonalAccessToken in the local database. Since the local
         // application no longer uses Sanctum, we auto-login directly.
+        // Respect an explicit logout: don't silently re-authenticate a device
+        // whose local user row happens to still exist but that chose to sign out.
+        if (!\App\Http\Controllers\AuthController::deviceIsAuthenticated()) {
+            return response()->json(['error' => 'Logged out'], 401);
+        }
+
         /** @var \App\Domains\Users\Models\User|null $user */
         $user = \App\Domains\Users\Models\User::first();
 
