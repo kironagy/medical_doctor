@@ -216,6 +216,10 @@ class DownloadSyncService
                 default => 'document',
             };
 
+            $localFilePath = ($existing && !empty($existing->file_path) && file_exists(Storage::disk('local')->path($existing->file_path)))
+                ? $existing->file_path
+                : ($rf['file_path'] ?? ("patients/{$patientUuid}/{$fileUuid}"));
+
             $clean = [
                 'uuid'           => $fileUuid,
                 'remote_uuid'    => $fileUuid,
@@ -229,7 +233,7 @@ class DownloadSyncService
                 'category'       => $rf['category'] ?? null,
                 'date'           => !empty($rf['date']) ? substr($rf['date'], 0, 10) : now()->toDateString(),
                 'file_name'      => $rf['file_name'] ?? 'file',
-                'file_path'      => $rf['file_path'] ?? ("patients/{$patientUuid}/{$fileUuid}"),
+                'file_path'      => $localFilePath,
                 'upload_status'  => 'ready',
                 'sync_status'    => 'synced',
                 'created_at'     => $rf['created_at'] ?? now(),
