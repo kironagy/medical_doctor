@@ -90,6 +90,20 @@ class DownloadSyncService
                 foreach ($remotePatients as $remoteP) {
                     if (!is_array($remoteP) || empty($remoteP['uuid'])) continue;
 
+                    // ── REMOTE DELETION HANDLING ──────────────────────────
+                    if (!empty($remoteP['deleted_at'])) {
+                        $localP = Patient::withTrashed()->where('uuid', $remoteP['uuid'])->first();
+                        if ($localP) {
+                            DB::table('patient_files')->where('patient_id', $localP->id)->orWhere('patient_id', $remoteP['uuid'])->delete();
+                            DB::table('patient_notes')->where('patient_id', $localP->id)->delete();
+                            DB::table('patient_visits')->where('patient_id', $localP->id)->delete();
+                            $localP->forceDelete();
+                            $summary['deletes']++;
+                            Log::info('[DownloadSyncService] Purged remotely deleted patient locally: ' . $remoteP['uuid']);
+                        }
+                        continue;
+                    }
+
                     $localP = Patient::where('uuid', $remoteP['uuid'])->first();
 
                     // Never clobber records the device hasn't pushed yet.
@@ -175,6 +189,14 @@ class DownloadSyncService
             if (!is_array($rf) || empty($rf['uuid'])) continue;
 
             $fileUuid = $rf['uuid'];
+
+            // ── REMOTE FILE DELETION ─────────────────────────────────────
+            if (!empty($rf['deleted_at'])) {
+                DB::table('patient_files')->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid)->delete();
+                $summary['deletes']++;
+                continue;
+            }
+
             $existing = DB::table('patient_files')
                 ->where('uuid', $fileUuid)
                 ->orWhere('remote_uuid', $fileUuid)
