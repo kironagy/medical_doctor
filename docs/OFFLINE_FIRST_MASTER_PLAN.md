@@ -57,9 +57,9 @@ This document is based on three independent audits of the current codebase (Sync
 
 ### Current Problems
 
-- Incremental patient download uses `patients_last_sync` captured *after* the fetch loop completes, not before — a patient created/modified server-side mid-pagination can fall in the gap and never be re-fetched on the next sync. (`DownloadSyncService.php`)
-- Local vs. remote `updated_at` comparison is a **text/lexicographic** comparison between two different timestamp formats (`Y-m-d H:i:s` vs ISO `…T…Z`), which is unreliable for same-day comparisons on SQLite. This directly affects whether a patient is considered "changed" for cascading note/visit re-fetch.
-- No confirmed guarantee that a patient created **offline** and queued survives an app force-close before its first sync attempt (needs verification — not yet confirmed as broken, must be tested explicitly in this sprint).
+- ~~Incremental patient download uses `patients_last_sync` captured *after* the fetch loop completes, not before — a patient created/modified server-side mid-pagination can fall in the gap and never be re-fetched on the next sync.~~ **FIXED 2026-08-05** — cutover timestamp is now captured before the paginated fetch loop starts, matching the pattern already used in `downloadNotes()`/`downloadVisits()`. (`app/Services/Sync/DownloadSyncService.php:68-69,107`)
+- ~~Local vs. remote `updated_at` comparison is a **text/lexicographic** comparison between two different timestamp formats (`Y-m-d H:i:s` vs ISO `…T…Z`), which is unreliable for same-day comparisons on SQLite.~~ **FIXED 2026-08-05** — `notes_last_sync`/`visits_last_sync` cutover values are now written in `Y-m-d H:i:s` (matching `Patient::updated_at`'s storage format) instead of ISO-8601, so `eligiblePatientsSince()`'s string comparison no longer excludes same-day changes. (`app/Services/Sync/DownloadSyncService.php:131-135,169-172`) — **Note:** this fixes the *comparison bug* only. The underlying design (using the parent patient's `updated_at` as a proxy signal for "this patient's notes/visits changed") is a separate, deeper issue tracked as its own Known Issue, owned by Sprint 2/4 — not touched here.
+- Patient created offline and queued survives an app force-close before its first sync attempt: **verified by code review** — `PatientRepository::create()` (`app/Repositories/PatientRepository.php:61-71`) performs the local Eloquent write and the `sync_queue` push inside a single `DB::transaction()`, so a kill mid-write rolls back atomically (SQLite transactions are durable once committed; there is no partial-commit window). **Still requires a real device manual test** to confirm actual OS-level force-close behavior matches this analysis — see Manual Test Checklist below.
 - Reinstall/first-run download flow has not been verified end-to-end against a large real dataset (pagination correctness, partial-failure resume).
 - Blocking prerequisite discovered in the Auth layer (see Known Issues, "Auth bypass on offline builds") — this must be resolved before Sprint 1's Reinstall Recovery work can be considered safe, since reinstall flow re-enters the login screen.
 
@@ -108,10 +108,14 @@ This document is based on three independent audits of the current codebase (Sync
 4. Uninstall and reinstall the mobile app → log in → confirm full patient list matches website within one sync cycle.
 5. Run Manual Sync twice in a row with no changes in between → confirm patient count is unchanged (no duplicates).
 
+### Progress Log
+
+- **2026-08-05** — Fixed the two concretely-identified code bugs in `DownloadSyncService.php` (patient cutoff race window; notes/visits cutover timestamp-format mismatch). Verified `PatientRepository::create()` is already transaction-safe for offline force-close by code review. No automated tests exist for this service (`tests/` has no Sync or Patient test files) — all verification for this sprint is manual (see Manual Test Checklist). **Blocked from being marked Completed** by the Auth bypass prerequisite (see Known Issues, Critical) — Reinstall Recovery cannot be considered production-safe while `AuthController::showLogin` auto-logs in with no credential check. That fix was intentionally **not** made as part of this pass: it touches `app/Http/Controllers/AuthController.php`, which is outside this sprint's "Files Expected To Change" list, and is a security/auth-flow fix rather than patient-sync logic — flagging for an explicit decision rather than fixing silently, per this project's STOP-and-explain rule for out-of-scope changes.
+
 ### Sprint Status
 
 - [ ] Not Started
-- [ ] In Progress
+- [x] In Progress
 - [ ] Blocked
 - [ ] Completed
 
@@ -481,7 +485,7 @@ Every issue below was discovered during the pre-planning audits of the current c
 
 - [ ] **Auth bypass on offline/native builds.** `AuthController::showLogin` auto-logs in as the first row in the local `users` table with no password check when `database.default === 'sqlite'`. Affected: `app/Http/Controllers/AuthController.php`. Why it matters: any person with physical access to the device gets full access to patient records with no credential check; also interacts with the exception-swallowing issue below (a crash can bounce a user through this auto-login path). **Blocking prerequisite — must be fixed before Sprint 1's Reinstall Recovery work is considered done**, tracked here since it doesn't fit the lifecycle sprint shape.
 - [ ] **Global exception swallowing on offline builds.** `bootstrap/app.php` converts unhandled exceptions on non-API/non-JSON requests into silent redirects with no logging when running on sqlite with debug off. Affected: `bootstrap/app.php`. Why it matters: makes every other bug in this document harder to detect and diagnose in the field. **Owned by Sprint 5.**
-- [ ] **Timestamp text-comparison bug breaks same-day incremental sync.** `DownloadSyncService` compares differently-formatted timestamp strings lexicographically, causing same-day changes to be excluded from incremental fetch. Affected: `app/Services/Sync/DownloadSyncService.php`. Why it matters: this is a primary source of "notes/visits just don't show up" complaints. **Owned by Sprint 1 (patient-level fix), consumed by Sprints 2 and 4.**
+- [x] **Timestamp text-comparison bug breaks same-day incremental sync.** `DownloadSyncService` compares differently-formatted timestamp strings lexicographically, causing same-day changes to be excluded from incremental fetch. Affected: `app/Services/Sync/DownloadSyncService.php`. Why it matters: this is a primary source of "notes/visits just don't show up" complaints. **Owned by Sprint 1 (patient-level fix), consumed by Sprints 2 and 4.** — **FIXED 2026-08-05**, pending manual-test confirmation (see Sprint 1 Progress Log).
 - [ ] **Note/Visit incremental sync gated on the wrong signal** (parent patient's `updated_at` used as a proxy for "child records changed"). Affected: `DownloadSyncService.php`, cascades into `NoteSyncService.php` / `VisitSyncService.php` download logic. Why it matters: notes/visits added elsewhere can silently never reach a device. **Owned by Sprint 2 (notes), replicated fix in Sprint 4 (visits).**
 - [ ] **Checksum validation bypassed for direct-write (video) uploads.** Affected: `app/Services/Upload/ChunkMergeService.php`. Why it matters: corrupted/truncated video uploads can be accepted as valid, silently. **Owned by Sprint 3.**
 
@@ -497,7 +501,7 @@ Every issue below was discovered during the pre-planning audits of the current c
 
 - [ ] **A successful `/chunk/complete` can be reported as a failure** due to blanket HTTP retry policy re-sending the request after a slow-but-successful merge. Affected: `app/Services/Mobile/RemoteApiService.php`, `app/Services/Upload/ChunkMergeService.php`. Why it matters: false failures trigger wasted re-uploads. **Owned by Sprint 3** (specific fix), general retry-policy scoping **owned by Sprint 6**.
 - [ ] **File handle leak on chunk upload failure** — handle not closed if an exception occurs mid-loop. Affected: `app/Services/Sync/FileSyncService.php`. Why it matters: descriptor exhaustion under repeated failures on poor connections. **Owned by Sprint 3.**
-- [ ] **Race window in patient download cutoff** — cutoff timestamp captured after, not before, a paginated fetch loop. Affected: `app/Services/Sync/DownloadSyncService.php`. Why it matters: a patient created/modified mid-pagination can be skipped on the next sync. **Owned by Sprint 1.**
+- [x] **Race window in patient download cutoff** — cutoff timestamp captured after, not before, a paginated fetch loop. Affected: `app/Services/Sync/DownloadSyncService.php`. Why it matters: a patient created/modified mid-pagination can be skipped on the next sync. **Owned by Sprint 1.** — **FIXED 2026-08-05**, pending manual-test confirmation (see Sprint 1 Progress Log).
 - [ ] **Dashboard "synced" counter reads the wrong status value**, always showing zero. Affected: `routes/web.php`. Why it matters: hides real sync health, masking the retry-exhaustion issue until data loss is already noticed. **Owned by Sprint 5.**
 - [ ] **CSRF token-mismatch redirect loop has no cap.** Affected: `bootstrap/app.php`. Why it matters: a corrupted session can loop indefinitely with no diagnostic. **Owned by Sprint 5.**
 - [ ] **Broad `catch (Throwable)` in `AuthController::login`** lets the user proceed as "logged in" even when remote token acquisition failed, deferring the real error to a more confusing later failure. Affected: `app/Http/Controllers/AuthController.php`. Why it matters: makes auth failures harder to diagnose. **Owned by Sprint 6.**
@@ -508,7 +512,7 @@ Every issue below was discovered during the pre-planning audits of the current c
 
 | Sprint | Status | Started | Completed | Notes |
 |---|---|---|---|---|
-| Sprint 1 — Patient Lifecycle | Not Started | | | |
+| Sprint 1 — Patient Lifecycle | In Progress | 2026-08-05 | | Code fixes done (cutoff race window, timestamp format bug); blocked on Auth-bypass prerequisite decision + manual test pass |
 | Sprint 2 — Notes Lifecycle | Not Started | | | |
 | Sprint 3 — Files & Attachments Lifecycle | Not Started | | | |
 | Sprint 4 — Visits Lifecycle | Not Started | | | |

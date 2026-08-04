@@ -224,8 +224,8 @@ Beyond that, treat SQLite and MySQL schemas as **identical**. Runtime behavior d
 **Critical:**
 - `AuthController::showLogin` auto-logs in as the first `users` row with zero password check when `database.default === 'sqlite'` (`app/Http/Controllers/AuthController.php`). Full auth bypass on the offline build.
 - `bootstrap/app.php` swallows all non-API exceptions into silent redirects on SQLite builds with debug off — hides every other bug in production.
-- `DownloadSyncService` compares differently-formatted timestamp strings lexicographically (`Y-m-d H:i:s` vs ISO `…T…Z`) — same-day changes silently excluded from incremental sync.
-- Note/Visit incremental download gated on parent patient's `updated_at`, not a direct child-record signal — new notes/visits can silently never reach a device.
+- ~~`DownloadSyncService` compares differently-formatted timestamp strings lexicographically (`Y-m-d H:i:s` vs ISO `…T…Z`) — same-day changes silently excluded from incremental sync.~~ **FIXED 2026-08-05** (Sprint 1) — see `docs/OFFLINE_FIRST_MASTER_PLAN.md` Sprint 1 Progress Log.
+- Note/Visit incremental download gated on parent patient's `updated_at`, not a direct child-record signal — new notes/visits can silently never reach a device. **Comparison bug above is fixed; this deeper design issue is unrelated and still open, owned by Sprint 2/4.**
 - Checksum validation bypassed entirely for the direct-write (video) upload branch of `ChunkMergeService`.
 
 **High:**
@@ -238,7 +238,7 @@ Beyond that, treat SQLite and MySQL schemas as **identical**. Runtime behavior d
 **Medium:**
 - HTTP client blanket-retries `/chunk/complete`, which can turn a slow-but-successful merge into a reported failure.
 - File handle leak in `FileSyncService`'s chunk-upload loop on exception (never `fclose`'d on the error path).
-- Patient download cutoff captured after, not before, the paginated fetch loop — race window for mid-pagination changes.
+- ~~Patient download cutoff captured after, not before, the paginated fetch loop — race window for mid-pagination changes.~~ **FIXED 2026-08-05** (Sprint 1) — see `docs/OFFLINE_FIRST_MASTER_PLAN.md` Sprint 1 Progress Log.
 - Dashboard "synced" counter queries `status = 'completed'`, which never matches the real `'synced'` value — always shows zero.
 - CSRF-mismatch redirect has no loop cap in `bootstrap/app.php`.
 - `AuthController::login`'s broad `catch (Throwable)` around token acquisition lets a failed login proceed as if successful.
@@ -268,10 +268,11 @@ Beyond that, treat SQLite and MySQL schemas as **identical**. Runtime behavior d
 
 ## 24. Current Sprint / Current Project Status
 
-- **Phase:** Pre-implementation / planning. No sprint work has started yet.
-- **Roadmap:** `docs/OFFLINE_FIRST_MASTER_PLAN.md`, created 2026-08-05 — 6 sprints (Patient, Notes, Files & Attachments, Visits, Reliability & Sync Engine, Performance & Hardening), each Not Started.
-- **Blocking prerequisite flagged before Sprint 1 can be considered safe to close:** the AuthController auth-bypass bug (§21, §23.1).
-- Check `docs/OFFLINE_FIRST_MASTER_PLAN.md`'s "Sprint Progress Dashboard" table for the live status — it is the authoritative tracker, this file only summarizes.
+- **Phase:** Sprint 1 (Patient Lifecycle) — **In Progress**, started 2026-08-05.
+- **Roadmap:** `docs/OFFLINE_FIRST_MASTER_PLAN.md` — 6 sprints (Patient, Notes, Files & Attachments, Visits, Reliability & Sync Engine, Performance & Hardening).
+- **Sprint 1 work done 2026-08-05:** fixed the patient-download cutoff race window and the notes/visits cutover timestamp-format bug in `app/Services/Sync/DownloadSyncService.php` (both were in Sprint 1's explicit scope). Verified by code review (not yet by device test) that `PatientRepository::create()` is already transaction-safe for offline force-close.
+- **Blocking prerequisite flagged before Sprint 1 can be considered safe to close:** the AuthController auth-bypass bug (§21, §23.1) — intentionally **not** fixed as part of the Sprint 1 pass above (out of that sprint's declared file scope, and a distinct security-fix concern); awaiting an explicit decision on how to sequence it.
+- Check `docs/OFFLINE_FIRST_MASTER_PLAN.md`'s "Sprint Progress Dashboard" table and Sprint 1's "Progress Log" for the live, authoritative status — this file only summarizes.
 
 ---
 

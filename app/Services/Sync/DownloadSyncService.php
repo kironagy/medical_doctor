@@ -66,6 +66,7 @@ class DownloadSyncService
     {
         try {
             $since = $this->getEntityLastSync('patients_last_sync');
+            $cutover = now()->toISOString();
             $validCols = Schema::getColumnListing('patients');
 
             $page = 1;
@@ -103,7 +104,7 @@ class DownloadSyncService
                 $page++;
             } while ($page <= $lastPage && !empty($remotePatients));
 
-            $this->setEntityLastSync('patients_last_sync', now()->toISOString());
+            $this->setEntityLastSync('patients_last_sync', $cutover);
         } catch (Throwable $e) {
             Log::info('[DownloadSyncService] Patient download changes skipped: ' . $e->getMessage());
         }
@@ -128,7 +129,10 @@ class DownloadSyncService
     private function downloadNotes(array &$summary): void
     {
         $since = $this->getEntityLastSync('notes_last_sync');
-        $cutover = now()->toISOString();
+        // Must match the local `updated_at` storage format (Y-m-d H:i:s), not ISO-8601 —
+        // eligiblePatientsSince() compares this value against Patient::updated_at as a
+        // plain string, and a format mismatch silently excludes same-day changes.
+        $cutover = now()->format('Y-m-d H:i:s');
 
         try {
             foreach ($this->eligiblePatientsSince($since) as $patient) {
@@ -166,7 +170,9 @@ class DownloadSyncService
     private function downloadVisits(array &$summary): void
     {
         $since = $this->getEntityLastSync('visits_last_sync');
-        $cutover = now()->toISOString();
+        // Same format fix as downloadNotes() — must match Patient::updated_at's
+        // storage format so eligiblePatientsSince()'s string comparison is valid.
+        $cutover = now()->format('Y-m-d H:i:s');
 
         try {
             foreach ($this->eligiblePatientsSince($since) as $patient) {
