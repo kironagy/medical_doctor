@@ -628,10 +628,13 @@ class FileAccessController extends Controller
                 $this->cacheRepo->cache($uuid);
                 $entry = DB::table('file_cache')->where('file_uuid', $uuid)->first();
                 if ($entry) {
-                    $cacheAbsPath = Storage::disk('local')->path('cache/' . $entry->local_path);
-                    if (!file_exists($cacheAbsPath)) {
-                        $cacheAbsPath = Storage::disk('local')->path($entry->local_path);
-                    }
+                    // Cache files live under storage_path('app/cache/...') — see
+                    // FileCacheService::resolvePath(). This is NOT under the 'local'
+                    // disk root (storage_path('app/private')), so Storage::disk('local')
+                    // must not be used here; doing so pointed at a path one directory
+                    // off from where the file actually is, making every cache hit
+                    // report "File not found" even though the file was on disk.
+                    $cacheAbsPath = storage_path('app/cache/' . $entry->local_path);
                     if (file_exists($cacheAbsPath)) {
                         return response()->json([
                             'mime' => $entry->mime_type ?: ($file->mime_type ?: 'application/octet-stream'),
