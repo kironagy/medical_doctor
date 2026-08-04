@@ -62,10 +62,18 @@ case $PLATFORM in
         fi
         
         # Build Android
-        php artisan native:build android $BUILD_TYPE --no-tty | tee "$BUILD_LOG"
+        if [ "$BUILD_TYPE" == "release" ]; then
+            php artisan native:build android --release --no-tty | tee "$BUILD_LOG"
+        else
+            php artisan native:build android --no-tty | tee "$BUILD_LOG"
+        fi
         ;;
     ios)
-        php artisan native:build ios $BUILD_TYPE --no-tty | tee "$BUILD_LOG"
+        if [ "$BUILD_TYPE" == "release" ]; then
+            php artisan native:build ios --release --no-tty | tee "$BUILD_LOG"
+        else
+            php artisan native:build ios --no-tty | tee "$BUILD_LOG"
+        fi
         ;;
     *)
         echo "❌ Unsupported platform: $PLATFORM"
@@ -96,13 +104,13 @@ else
 fi
 
 # Ready for distribution
-OUTPUT_FILE="nativephp/build-outputs/$(ls nativephp/android/app/build/outputs/apk/$BUILD_TYPE/ -t | grep '\.apk$' | head -1)"
+OUTPUT_FILE="nativephp/android/app/build/outputs/apk/$BUILD_TYPE/$(ls -t nativephp/android/app/build/outputs/apk/$BUILD_TYPE/ 2>/dev/null | grep '\.apk$' | head -1)"
 if [ -f "$OUTPUT_FILE" ]; then
     echo ""
-    echo "🎉 Production build ready:"
+    echo "🎉 Build ready:"
     echo "    APK: $OUTPUT_FILE"
     echo "    Size: $(du -sh "$OUTPUT_FILE" | cut -f1)"
-    echo "    MD5: $(md5sum "$OUTPUT_FILE" | cut -d' ' -f1)"
+    echo "    MD5: $( (md5sum "$OUTPUT_FILE" 2>/dev/null || md5 -q "$OUTPUT_FILE" || echo "N/A") | cut -d' ' -f1)"
     echo ""
     echo "📤 This build is production-ready for distribution"
 else

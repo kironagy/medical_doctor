@@ -13,6 +13,12 @@ use App\Http\Controllers\Admin\DoctorController;
 // endpoint to auto-establish the web session using the local database user.
 // The production API token (from localStorage) is restored via ApiService.
 Route::post('/api/session/restore', function (\Illuminate\Http\Request $request) {
+    // [BUG-TRACE] Confirms whether this endpoint is ever hit on app startup.
+    \Illuminate\Support\Facades\Log::info('[BUG-TRACE][session/restore] ENTRY', [
+        'has_authorization_header' => $request->hasHeader('Authorization'),
+        'has_api_token_field' => $request->filled('api_token'),
+        'database_default' => config('database.default'),
+    ]);
     try {
         // ── Auto-login the local user ──────────────────────────────────
         // The embedded Laravel is a single-user device. Find the first
@@ -23,6 +29,12 @@ Route::post('/api/session/restore', function (\Illuminate\Http\Request $request)
         /** @var \App\Domains\Users\Models\User|null $user */
         $user = \App\Domains\Users\Models\User::first();
 
+        // [BUG-TRACE]
+        \Illuminate\Support\Facades\Log::info('[BUG-TRACE][session/restore] user lookup', [
+            'user_found' => (bool) $user,
+            'user_id' => $user?->id,
+        ]);
+
         if (!$user) {
             \Illuminate\Support\Facades\Log::warning('Session restore failed: no user found in local database');
             return response()->json(['error' => 'No user configured'], 401);
@@ -31,6 +43,12 @@ Route::post('/api/session/restore', function (\Illuminate\Http\Request $request)
         // Log the user in via web session
         \Illuminate\Support\Facades\Auth::login($user);
         $request->session()->regenerate();
+
+        // [BUG-TRACE]
+        \Illuminate\Support\Facades\Log::info('[BUG-TRACE][session/restore] Auth::login() done', [
+            'auth_check_after_login' => \Illuminate\Support\Facades\Auth::check(),
+            'session_id' => $request->session()->getId(),
+        ]);
 
         // ── Restore the production API token if provided ─────────────────
         // On app restart, the frontend sends the persisted api_token from
@@ -46,6 +64,9 @@ Route::post('/api/session/restore', function (\Illuminate\Http\Request $request)
             }
         }
 
+        // [BUG-TRACE]
+        \Illuminate\Support\Facades\Log::info('[BUG-TRACE][session/restore] SUCCESS RESPONSE returning 200');
+
         return response()->json([
             'success' => true,
             'user' => array_merge($user->toArray(), [
@@ -54,17 +75,36 @@ Route::post('/api/session/restore', function (\Illuminate\Http\Request $request)
             ]),
         ]);
     } catch (\Throwable $e) {
+        // [BUG-TRACE]
+        \Illuminate\Support\Facades\Log::warning('[BUG-TRACE][session/restore] EXCEPTION', [
+            'exception' => get_class($e),
+            'message' => $e->getMessage(),
+        ]);
         \Illuminate\Support\Facades\Log::warning('Session restore failed: ' . $e->getMessage());
         return response()->json(['error' => 'Session restore failed'], 500);
     }
 });
 
 Route::get('/', function () {
+    // [BUG-TRACE] Confirms whether the root route is the first request Laravel receives on app open.
+    \Illuminate\Support\Facades\Log::info('[BUG-TRACE][GET /] ENTRY', [
+        'database_default' => config('database.default'),
+        'auth_check' => auth()->check(),
+    ]);
+
     if (config('database.default') === 'sqlite') {
         $user = \App\Domains\Users\Models\User::first();
+        // [BUG-TRACE]
+        \Illuminate\Support\Facades\Log::info('[BUG-TRACE][GET /] sqlite branch', [
+            'user_found' => (bool) $user,
+        ]);
         if ($user) {
             auth()->login($user);
         }
+        // [BUG-TRACE]
+        \Illuminate\Support\Facades\Log::info('[BUG-TRACE][GET /] redirecting to workspace', [
+            'auth_check_after' => auth()->check(),
+        ]);
         return redirect()->route('workspace');
     }
     if (auth()->check() && (auth()->user()->hasRole('super-admin') || auth()->user()->role === 'super-admin')) {
@@ -73,7 +113,14 @@ Route::get('/', function () {
     return redirect('/dashboard');
 });
 
-Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
+Route::get('/login', function (\Illuminate\Http\Request $request) {
+    // [BUG-TRACE] Confirms whether GET /login is ever actually reached.
+    \Illuminate\Support\Facades\Log::info('[BUG-TRACE][GET /login] ENTRY (route matched, before controller)', [
+        'database_default' => config('database.default'),
+        'auth_check' => auth()->check(),
+    ]);
+    return app(AuthController::class)->showLogin($request);
+})->name('login');
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 

@@ -12,17 +12,44 @@ class AuthController extends Controller
 {
     public function showLogin(Request $request)
     {
+        // [BUG-TRACE] Entry point + the exact state before any decision is made.
+        Log::info('[BUG-TRACE][AuthController::showLogin] ENTRY', [
+            'database_default' => config('database.default'),
+            'user_count' => \App\Domains\Users\Models\User::count(),
+            'auth_check_before' => Auth::check(),
+        ]);
+
         if (config('database.default') === 'sqlite') {
             $user = \App\Domains\Users\Models\User::first();
+            // [BUG-TRACE]
+            Log::info('[BUG-TRACE][AuthController::showLogin] sqlite branch', [
+                'user_found' => (bool) $user,
+                'user_id' => $user?->id,
+            ]);
             if ($user) {
+                // [BUG-TRACE]
+                Log::info('[BUG-TRACE][AuthController::showLogin] before Auth::login()');
                 Auth::login($user);
+                // [BUG-TRACE]
+                Log::info('[BUG-TRACE][AuthController::showLogin] after Auth::login()', [
+                    'auth_check_after' => Auth::check(),
+                ]);
                 return redirect('/workspace');
             }
         }
 
         if (Auth::check()) {
+            // [BUG-TRACE]
+            Log::info('[BUG-TRACE][AuthController::showLogin] already authenticated -> redirect /dashboard');
             return redirect('/dashboard');
         }
+
+        // [BUG-TRACE] Reaching this line means the Login page WILL be rendered.
+        Log::info('[BUG-TRACE][AuthController::showLogin] FALLTHROUGH -> rendering Auth/Login page', [
+            'database_default' => config('database.default'),
+            'user_count' => \App\Domains\Users\Models\User::count(),
+            'auth_check' => Auth::check(),
+        ]);
         return Inertia::render('Auth/Login');
     }
 

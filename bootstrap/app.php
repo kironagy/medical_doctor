@@ -61,6 +61,19 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
         ]);
+        // [BUG-TRACE] There is no custom Authenticate middleware in this app —
+        // the framework's default `auth` middleware handles guest redirects.
+        // This hook fires at the exact moment it decides to redirect an
+        // unauthenticated request to /login, so we can see WHICH route
+        // triggered the redirect to the login page.
+        $middleware->redirectGuestsTo(function (\Illuminate\Http\Request $request) {
+            \Illuminate\Support\Facades\Log::info('[BUG-TRACE][AuthMiddleware] Guest redirected to login', [
+                'path' => $request->path(),
+                'method' => $request->method(),
+                'database_default' => config('database.default'),
+            ]);
+            return route('login');
+        });
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->report(function (\Throwable $e) {
@@ -145,6 +158,10 @@ return Application::configure(basePath: dirname(__DIR__))
             // app crashed. Bounce back into the SPA instead so it keeps running.
             if (config('database.default') === 'sqlite') {
                 if ($e instanceof \Illuminate\Session\TokenMismatchException) {
+                    // [BUG-TRACE]
+                    \Illuminate\Support\Facades\Log::info('[BUG-TRACE][ExceptionHandler] TokenMismatchException -> retry same URL', [
+                        'url' => $request->fullUrl(),
+                    ]);
                     // Stale CSRF token from a cached page — just retry the same URL.
                     return redirect($request->fullUrl());
                 }
@@ -153,10 +170,29 @@ return Application::configure(basePath: dirname(__DIR__))
                     $e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException ||
                     $e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException
                 ) {
+                    // [BUG-TRACE]
+                    \Illuminate\Support\Facades\Log::info('[BUG-TRACE][ExceptionHandler] NotFound/ModelNotFound -> redirect', [
+                        'exception' => get_class($e),
+                        'url' => $request->fullUrl(),
+                        'auth_check' => \Illuminate\Support\Facades\Auth::check(),
+                        'redirect_to' => \Illuminate\Support\Facades\Auth::check() ? '/workspace' : '/login',
+                    ]);
                     return redirect()->to(\Illuminate\Support\Facades\Auth::check() ? '/workspace' : '/login');
                 }
 
                 if (!app()->hasDebugModeEnabled()) {
+                    // [BUG-TRACE] This is the broad catch-all — if the login page is
+                    // "stuck", this log will show what exception is firing on every
+                    // subsequent request and why it keeps landing back on /login.
+                    \Illuminate\Support\Facades\Log::info('[BUG-TRACE][ExceptionHandler] Generic catch-all -> redirect', [
+                        'exception' => get_class($e),
+                        'message' => $e->getMessage(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
+                        'url' => $request->fullUrl(),
+                        'auth_check' => \Illuminate\Support\Facades\Auth::check(),
+                        'redirect_to' => \Illuminate\Support\Facades\Auth::check() ? '/workspace' : '/login',
+                    ]);
                     return redirect()->to(\Illuminate\Support\Facades\Auth::check() ? '/workspace' : '/login');
                 }
             }

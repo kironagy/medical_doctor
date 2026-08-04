@@ -34,11 +34,25 @@
               var persistFlag = localStorage.getItem('np_persist_login');
               var currentPath = window.location.pathname;
 
+              // [BUG-TRACE] State at the moment the inline boot script runs.
+              console.log('[BUG-TRACE][app.blade] boot script ENTRY', {
+                currentPath: currentPath,
+                hasAuthToken: !!authToken,
+                persistFlag: persistFlag,
+                online: navigator.onLine,
+              });
+
               // If we're on the login page but the user was previously logged in,
               // the session was lost. Try to restore it using the stored token.
               if ((currentPath === '/login' || currentPath === '/') && authToken) {
                 // Read the persisted production API token (may be null on first login)
                 var apiToken = localStorage.getItem('np_api_token');
+
+                // [BUG-TRACE]
+                console.log('[BUG-TRACE][app.blade] calling /api/session/restore', {
+                  hasApiToken: !!apiToken,
+                  online: navigator.onLine,
+                });
 
                 // Make a synchronous-style restore attempt via fetch
                 fetch('/api/session/restore', {
@@ -52,21 +66,41 @@
                   body: JSON.stringify({ api_token: apiToken || '' }),
                 })
                 .then(function(res) {
+                  // [BUG-TRACE]
+                  console.log('[BUG-TRACE][app.blade] /api/session/restore response', {
+                    ok: res.ok,
+                    status: res.status,
+                    pathAtResponseTime: window.location.pathname,
+                  });
                   if (res.ok && window.location.pathname === '/login') {
                     // Session restored successfully — navigate to dashboard
+                    console.log('[BUG-TRACE][app.blade] restore OK -> replacing location with /dashboard');
                     window.location.replace('/dashboard');
                   } else if (res.status === 401) {
                     // Token expired or invalid — clean up
+                    console.log('[BUG-TRACE][app.blade] restore 401 -> clearing localStorage tokens');
                     localStorage.removeItem('np_auth_token');
                     localStorage.removeItem('np_persist_login');
                     localStorage.removeItem('np_auth_user');
                   }
                   // Other errors — stay on login page
                 })
-                .catch(function() {
+                .catch(function(err) {
+                  // [BUG-TRACE] This branch fires when fetch itself fails (offline,
+                  // DNS/connection refused, etc.) — distinct from an HTTP error response.
+                  console.log('[BUG-TRACE][app.blade] /api/session/restore FETCH FAILED (network-level)', {
+                    error: String(err),
+                    online: navigator.onLine,
+                  });
                   // Server unreachable — stay on login page.
                   // Don't remove the token; it may be valid for the next
                   // attempt when the server comes back or the app restarts.
+                });
+              } else {
+                // [BUG-TRACE] Explains why the restore call was skipped entirely.
+                console.log('[BUG-TRACE][app.blade] session/restore SKIPPED', {
+                  reason: !authToken ? 'no np_auth_token in localStorage' : 'currentPath not / or /login',
+                  currentPath: currentPath,
                 });
               }
 
@@ -74,6 +108,8 @@
               // page will show the login page on next navigation. The stored token
               // ensures we can restore from there.
             } catch(e) {
+              // [BUG-TRACE]
+              console.log('[BUG-TRACE][app.blade] boot script threw', String(e));
               // localStorage not available — do nothing
             }
 
