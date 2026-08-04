@@ -151,6 +151,9 @@ const loadingSignedUrl = ref(false);
 
 const fileUrl = computed(() => {
   if (!props.file) return '';
+  if (detectNative() && signedUrl.value) {
+    return signedUrl.value;
+  }
   if (detectNative()) {
     return `/_native/cache/files/${props.file.uuid}`;
   }
@@ -195,14 +198,46 @@ const textLanguage = computed(() => {
 });
 
 /**
- * Fetch a temporary signed URL from the server so the browser can load
- * the file directly (video, image, PDF, audio) without needing a session
- * cookie on the media request itself.
+ * Fetch a temporary signed URL or base64 Blob URL on NativePHP so the browser can load
+ * the file directly (video, image, PDF, audio).
  */
 const fetchSignedUrl = async () => {
-  if (!props.file || detectNative()) return;
+  if (!props.file) return;
   loadingSignedUrl.value = true;
   try {
+    if (detectNative()) {
+      const uuid = props.file.uuid;
+      const isImage = type.value === 'image';
+      const isVideo = type.value === 'video';
+      const isAudio = type.value === 'audio';
+
+      if (isImage || isVideo || isAudio) {
+        try {
+          const res = await axios.get(`/_native/cache/files/${uuid}/base64`);
+          const mime = res.data.mime || props.file.mime_type || 'video/mp4';
+          if (isVideo || isAudio) {
+            const binary = atob(res.data.data);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+              bytes[i] = binary.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: mime });
+            if (signedUrl.value && signedUrl.value.startsWith('blob:')) {
+              URL.revokeObjectURL(signedUrl.value);
+            }
+            signedUrl.value = URL.createObjectURL(blob);
+          } else {
+            signedUrl.value = `data:${mime};base64,${res.data.data}`;
+          }
+          return;
+        } catch (e) {
+          console.warn('Failed to fetch base64 file on native, falling back to direct URL', e);
+        }
+      }
+      signedUrl.value = `/_native/cache/files/${uuid}`;
+      return;
+    }
+
     const res = await axios.get(`/api/v1/files/${props.file.uuid}/signed-url`);
     signedUrl.value = res.data.url;
   } catch (e) {
@@ -236,7 +271,7 @@ const initText = async () => {
 watch(() => props.show, async (newVal) => {
   if (newVal && props.file) {
     // For types that the browser fetches natively (video, audio, image, pdf),
-    // get a signed URL first so the request succeeds without a session cookie.
+    // get a signed URL or base64 Blob URL first.
     if (type.value !== 'text' && type.value !== 'unknown') {
       await fetchSignedUrl();
     }
@@ -245,6 +280,9 @@ watch(() => props.show, async (newVal) => {
       initText();
     }
   } else {
+    if (signedUrl.value && signedUrl.value.startsWith('blob:')) {
+      URL.revokeObjectURL(signedUrl.value);
+    }
     signedUrl.value = '';
   }
 });
