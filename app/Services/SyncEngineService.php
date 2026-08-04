@@ -442,10 +442,11 @@ class SyncEngineService
     {
         $results = ['uploaded' => 0, 'failed' => 0];
 
-        $pendingFiles = \App\Domains\Media\Models\PatientFile::withoutGlobalScope(
-                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-            )
-            ->whereNull('remote_uuid')
+        $pendingFiles = \App\Domains\Media\Models\PatientFile::withoutGlobalScopes()
+            ->where(function ($q) {
+                $q->whereNull('remote_uuid')
+                  ->orWhere('remote_uuid', '');
+            })
             ->where('upload_status', 'ready')
             ->where('sync_status', '!=', 'pending_delete')
             ->orderBy('created_at', 'asc')
@@ -455,27 +456,27 @@ class SyncEngineService
         Log::info('[SyncEngine] syncLocalPatientFiles — found ' . $pendingFiles->count() . ' pending files to sync');
 
         foreach ($pendingFiles as $file) {
-            // ── BUG FIX: Re-query patient directly from DB to avoid stale Eloquent
-            // relationship cache. When syncPendingPatients() runs in the same cycle,
-            // the patient's sync_status changes from 'pending_create' → 'synced' in
-            // the DB but $file->patient uses the cached Eloquent model which still
-            // holds the old status. A fresh DB::table query bypasses that cache.
+            // ── BUG FIX: Re-query patient directly from DB by id OR uuid ──
             $patientRecord = \Illuminate\Support\Facades\DB::table('patients')
-                ->where('id', $file->patient_id)
+                ->where(function ($q) use ($file) {
+                    $q->where('id', $file->patient_id)
+                      ->orWhere('uuid', $file->patient_id);
+                })
                 ->first();
 
-            // Skip if patient not synced to production yet
-            if (!$patientRecord || ($patientRecord->sync_status ?? 'synced') !== 'synced') {
-                Log::debug('[SyncEngine] Skipping file — patient not synced yet', [
-                    'file_uuid'      => $file->uuid,
-                    'patient_id'     => $file->patient_id,
-                    'patient_status' => $patientRecord ? ($patientRecord->sync_status ?? 'null') : 'NOT_FOUND',
-                ]);
-                continue;
+            if ($patientRecord) {
+                if (($patientRecord->sync_status ?? 'synced') !== 'synced') {
+                    Log::info('[SyncEngine] Skipping file — parent patient not synced yet', [
+                        'file_uuid'      => $file->uuid,
+                        'patient_id'     => $file->patient_id,
+                        'patient_status' => $patientRecord->sync_status ?? 'unknown',
+                    ]);
+                    continue;
+                }
+                $patientUuid = $patientRecord->uuid;
+            } else {
+                $patientUuid = (string) $file->patient_id;
             }
-
-            // Use the patient UUID from the fresh DB record (may differ after sync)
-            $patientUuid = $patientRecord->uuid;
 
             $absolutePath = Storage::disk('local')->path($file->file_path);
             if (!file_exists($absolutePath)) {
@@ -1339,11 +1340,14 @@ class SyncEngineService
             ->count();
 
         // ═══ SYNC-008 FIX: Include patient_files in summary ═══════════════
-        $patientFilesPending = \App\Domains\Media\Models\PatientFile::whereIn(
-            'sync_status', ['pending_delete', 'pending_update']
-        )->orWhere(function ($q) {
-            $q->whereNull('remote_uuid')->where('upload_status', 'ready');
-        })->count();
+        $patientFilesPending = \App\Domains\Media\Models\PatientFile::withoutGlobalScopes()
+            ->where(function ($q) {
+                $q->whereNull('remote_uuid')
+                  ->orWhere('remote_uuid', '');
+            })
+            ->where('upload_status', 'ready')
+            ->where('sync_status', '!=', 'pending_delete')
+            ->count();
 
         return [
             'patients' => $patientCreate + $patientUpdate,
