@@ -167,6 +167,9 @@ class FileSyncService
         $fileSize = filesize($absPath);
         $mimeType = ($file?->mime_type ?? $offFile?->mime_type) ?: (mime_content_type($absPath) ?: 'application/octet-stream');
         $title = $file ? ($file->title ?? $file->file_name) : ($offFile->title ?? $offFile->original_name);
+        $category = $file ? ($file->category ?? null) : ($offFile->category ?? null);
+        $desc = $file ? ($file->desc ?? '') : ($offFile->desc ?? '');
+        $date = $file ? ($file->date ?? null) : ($offFile->date ?? null);
 
         // Step 1: Init chunk upload session
         $initRes = $this->api->post('/chunk/init', [
@@ -175,7 +178,12 @@ class FileSyncService
             'mime_type'  => $mimeType,
             'patient_id' => $patientUuid,
             'chunk_size' => self::CHUNK_SIZE,
-            'metadata'   => ['title' => $title],
+            'metadata'   => [
+                'title'    => $title,
+                'category' => $category,
+                'desc'     => $desc,
+                'date'     => $date,
+            ],
         ]);
 
         $uploadId = $initRes['upload_id'] ?? $initRes['uuid'] ?? null;
