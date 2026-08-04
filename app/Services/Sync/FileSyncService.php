@@ -79,7 +79,7 @@ class FileSyncService
                         } else {
                             $title = $file ? ($file->title ?? $file->file_name) : ($offFile->title ?? $offFile->original_name);
                             $response = $this->api->upload(
-                                "/mobile/patients/{$patientUuid}/files",
+                                "/patients/{$patientUuid}/files",
                                 ['file' => $absPath],
                                 [
                                     'title' => $title,
@@ -110,7 +110,7 @@ class FileSyncService
 
                 case 'update':
                     if ($file && $file->remote_uuid) {
-                        $this->api->put("/mobile/files/{$file->remote_uuid}", [
+                        $this->api->put("/files/{$file->remote_uuid}", [
                             'title'    => $file->title,
                             'desc'     => $file->desc,
                             'category' => $file->category,
@@ -122,7 +122,7 @@ class FileSyncService
                 case 'delete':
                     $remoteUuid = $file?->remote_uuid ?? $item->entity_uuid;
                     try {
-                        $this->api->delete("/mobile/files/{$remoteUuid}");
+                        $this->api->delete("/files/{$remoteUuid}");
                     } catch (Throwable $e) {
                         if (!str_contains($e->getMessage(), '404')) throw $e;
                     }
@@ -147,7 +147,7 @@ class FileSyncService
     private function checkServerSha256Deduplication(string $sha256): ?string
     {
         try {
-            $response = $this->api->get('/mobile/files/check-hash', ['hash' => $sha256]);
+            $response = $this->api->get('/files/check-hash', ['hash' => $sha256]);
             if (!empty($response['exists']) && !empty($response['remote_uuid'])) {
                 Log::info("[FileSyncService] SHA256 match found on server! Deduplicating binary upload for hash {$sha256}");
                 return $response['remote_uuid'];
@@ -169,7 +169,7 @@ class FileSyncService
         $title = $file ? ($file->title ?? $file->file_name) : ($offFile->title ?? $offFile->original_name);
 
         // Step 1: Init chunk upload session
-        $initRes = $this->api->post('/mobile/chunk/init', [
+        $initRes = $this->api->post('/chunk/init', [
             'file_name'  => $fileName,
             'file_size'  => $fileSize,
             'mime_type'  => $mimeType,
@@ -186,7 +186,7 @@ class FileSyncService
         // Step 2: Check uploaded chunks status (Resumable check)
         $uploadedChunks = [];
         try {
-            $statusRes = $this->api->get("/mobile/chunk/{$uploadId}/status");
+            $statusRes = $this->api->get("/chunk/{$uploadId}/status");
             $uploadedChunks = $statusRes['uploaded_chunks'] ?? [];
         } catch (Throwable $e) {
             // New upload session
@@ -210,7 +210,7 @@ class FileSyncService
             file_put_contents($tmpChunkPath, $chunkData);
 
             try {
-                $this->api->upload('/mobile/chunk/chunk', ['chunk' => $tmpChunkPath], [
+                $this->api->upload('/chunk/chunk', ['chunk' => $tmpChunkPath], [
                     'upload_id'   => $uploadId,
                     'chunk_index' => $chunkIndex,
                 ]);
@@ -221,7 +221,7 @@ class FileSyncService
         fclose($handle);
 
         // Step 4: Complete and merge chunks
-        $completeRes = $this->api->post('/mobile/chunk/complete', [
+        $completeRes = $this->api->post('/chunk/complete', [
             'upload_id' => $uploadId,
         ]);
 
