@@ -8,6 +8,7 @@ use App\Repositories\PatientRepository;
 use App\Services\Mobile\ApiService;
 use App\Services\OfflineUploadService;
 use App\Services\Sync\FileSyncService;
+use App\Services\Sync\DownloadSyncService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -61,6 +62,7 @@ class SyncEngineService
         private readonly OfflineUploadService $offlineUploadService,
         private readonly ApiService $api,
         private readonly FileSyncService $fileSyncService,
+        private readonly DownloadSyncService $downloadSyncService,
     ) {}
 
     /**
@@ -168,6 +170,17 @@ class SyncEngineService
             $results['file_updates'] = $this->processPendingFileUpdates();
         } catch (\Throwable $e) {
             Log::error('[SyncEngine] File update sync failed: ' . $e->getMessage());
+        }
+
+        // ── STEP 7: Pull remote changes down into local SQLite ──────────
+        // Everything above only pushes local changes up. Without this step,
+        // patients/notes/visits created or edited on OTHER devices (or via
+        // the web dashboard) never reach this device's offline cache, and
+        // the app has nothing to show once it goes offline.
+        try {
+            $results['downloads'] = $this->downloadSyncService->downloadChanges();
+        } catch (\Throwable $e) {
+            Log::error('[SyncEngine] Download sync failed: ' . $e->getMessage());
         }
 
         Log::info('[SyncEngine] Sync cycle complete', $results);

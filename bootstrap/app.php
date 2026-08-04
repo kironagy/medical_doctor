@@ -137,6 +137,29 @@ return Application::configure(basePath: dirname(__DIR__))
                     'trace'        => $e->getTraceAsString(),
                 ], 500);
             }
+
+            // ── Embedded/offline app: never show a bare 404/419/500 page ──
+            // On the packaged NativePHP build (APP_DEBUG=false) an unhandled
+            // web-route exception would otherwise render Laravel's blank
+            // production error page inside the WebView, which looks like the
+            // app crashed. Bounce back into the SPA instead so it keeps running.
+            if (config('database.default') === 'sqlite') {
+                if ($e instanceof \Illuminate\Session\TokenMismatchException) {
+                    // Stale CSRF token from a cached page — just retry the same URL.
+                    return redirect($request->fullUrl());
+                }
+
+                if (
+                    $e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException ||
+                    $e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException
+                ) {
+                    return redirect()->to(\Illuminate\Support\Facades\Auth::check() ? '/workspace' : '/login');
+                }
+
+                if (!app()->hasDebugModeEnabled()) {
+                    return redirect()->to(\Illuminate\Support\Facades\Auth::check() ? '/workspace' : '/login');
+                }
+            }
         });
     })
     ->withSchedule(function (\Illuminate\Console\Scheduling\Schedule $schedule): void {

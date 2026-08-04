@@ -147,6 +147,26 @@ const submit = () => {
             // Non-fatal: offline or server unreachable — will retry later
             console.warn('[Login] Remote bootstrap cache failed (non-fatal):', bootstrapErr.message);
           }
+
+          // 3. Pull ALL patients/notes/visits down into local SQLite so the
+          // app is fully usable offline the moment the user closes it —
+          // without this, closing the app before ever pressing "Sync Now"
+          // leaves the offline cache empty. Fire-and-forget: non-fatal if
+          // the network drops mid-request, next sync will pick it back up.
+          try {
+            await fetch('/_native/api/sync/manual', {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + apiToken,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+            });
+            console.log('[Login] Full offline data sync primed successfully');
+          } catch (syncErr) {
+            console.warn('[Login] Full offline data sync failed (non-fatal):', syncErr.message);
+          }
         }
       } catch(e) {}
     },
