@@ -7,6 +7,7 @@ use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Repositories\PatientRepository;
 use App\Services\Mobile\ApiService;
 use App\Services\OfflineUploadService;
+use App\Services\Sync\DownloadSyncService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -59,6 +60,7 @@ class SyncEngineService
         private readonly OfflineFileRepositoryInterface $offlineFileRepo,
         private readonly OfflineUploadService $offlineUploadService,
         private readonly ApiService $api,
+        private readonly DownloadSyncService $downloadSync,
     ) {}
 
     /**
@@ -166,6 +168,17 @@ class SyncEngineService
             $results['file_updates'] = $this->processPendingFileUpdates();
         } catch (\Throwable $e) {
             Log::error('[SyncEngine] File update sync failed: ' . $e->getMessage());
+        }
+
+        // ── STEP 7: Download remote changes (patients/notes/visits) ────
+        // Pulls records created/updated on the server (by this doctor on
+        // another device, or seeded before the app was ever installed)
+        // down into local SQLite. Runs last so local pushes above always
+        // win over a concurrent remote copy of the same record.
+        try {
+            $results['downloads'] = $this->downloadSync->downloadChanges();
+        } catch (\Throwable $e) {
+            Log::error('[SyncEngine] Download sync failed: ' . $e->getMessage());
         }
 
         Log::info('[SyncEngine] Sync cycle complete', $results);

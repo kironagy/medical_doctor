@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\Mobile\ApiService;
+use App\Services\Sync\DownloadSyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -62,6 +63,8 @@ class AuthController extends Controller
                         'email'    => $credentials['email'],
                         'password' => $credentials['password'],
                     ]))]);
+
+                    $this->pullInitialData();
                 }
             } catch (\Throwable $e) {
                 Log::warning('API token acquisition failed: ' . $e->getMessage());
@@ -116,6 +119,8 @@ class AuthController extends Controller
 
                 Log::info('Successfully authenticated via remote fallback and synced user locally.');
 
+                $this->pullInitialData();
+
                 if ($localUser->role === 'super-admin' || $localUser->hasRole('super-admin')) {
                     return redirect('/admin/doctors');
                 }
@@ -128,6 +133,26 @@ class AuthController extends Controller
         return back()->withErrors([
             'email' => 'The provided credentials do not match our records.',
         ])->onlyInput('email');
+    }
+
+    /**
+     * Pull the doctor's existing patients/notes/visits down from the
+     * production server into local SQLite right after login, so the
+     * workspace isn't empty before the user ever taps "Sync Now".
+     * Best-effort — a failure here must not block login.
+     */
+    private function pullInitialData(): void
+    {
+        if (config('database.default') !== 'sqlite') {
+            return;
+        }
+
+        try {
+            $summary = app(DownloadSyncService::class)->downloadChanges();
+            Log::info('[Boot] Initial data pull after login', $summary);
+        } catch (\Throwable $e) {
+            Log::warning('[Boot] Initial data pull after login failed: ' . $e->getMessage());
+        }
     }
 
     public function logout(Request $request)
