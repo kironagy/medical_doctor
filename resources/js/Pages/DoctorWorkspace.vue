@@ -283,6 +283,7 @@ selectedPatientId,
 closePatient,
 workspaceData,
 loadingPatient,
+loadingPatients,
 isMobile,
 sidebarOpen,
 mobilePatientListOpen,
@@ -356,23 +357,61 @@ const ptrContentStyle = computed(() => ({
 
 let refreshPromise = null
 
-onMounted(() => {
+onMounted(async () => {
   // Hydrate categories from props immediately to avoid transient empty categories UI states
   if (props.categories && props.categories.length > 0) {
     setCategories(props.categories);
   }
 
-  // ── 🔥 FIX: Hydrate patients.value from Inertia props IMMEDIATELY ──
-  // This MUST run BEFORE refreshPatientList() so offline-created patients
-  // are visible on the FIRST render cycle. Without this, patients.value is
-  // [] on mount and stays empty until the async API call completes.
-  if (props.patients && props.patients.length > 0) {
-    setPatients(props.patients);
-    console.log('[Hydrate] Seeded', props.patients.length, 'patients from Inertia props (includes pending):',
-      props.patients.filter(p => p.sync_status && p.sync_status !== 'synced').length, 'pending');
-  }
+  // ═══════════════════════════════════════════════════════════════════
+  //  ROOT-CAUSE FIX — first render must already contain local pending
+  //  patients, not just the Inertia-hydrated server list.
+  // ═══════════════════════════════════════════════════════════════════
+  // WHY the Inertia `patients` prop alone is not enough:
+  // NativePHP's RequestRouter (Rule 3) sends GET page navigations to the
+  // PRODUCTION server whenever the device is online. That means
+  // WorkspaceController@index — and therefore this page's initial
+  // `patients` prop — is rendered by the remote server against MySQL,
+  // which has no knowledge of a patient that only exists in this
+  // device's local SQLite and hasn't synced yet. Only `_native/*`
+  // routes are guaranteed local (Rule 2), so the local-pending merge
+  // MUST happen client-side, and it must complete BEFORE the first
+  // `setPatients()` call — otherwise the user briefly sees a
+  // server-only list that then "gains" a patient a second later,
+  // which reads as the patient having disappeared.
+  const bootStart = performance.now();
+  loadingPatients.value = true;
 
-  // Now refresh asynchronously — will merge with already-seeded data
+  const inertiaPatients = props.patients || [];
+  const inertiaPendingCount = inertiaPatients.filter(p => p.sync_status && p.sync_status !== 'synced').length;
+  console.log('[Boot] Initial patients from Inertia:', inertiaPatients.length, '(', inertiaPendingCount, 'pending)');
+
+  let localPending = [];
+  try {
+    const pendingRes = await axios.get('/_native/api/patients/pending');
+    localPending = pendingRes.data?.data || [];
+  } catch (e) {
+    console.warn('[Boot] Failed to fetch local pending patients on boot:', e.message);
+  }
+  console.log('[Boot] Local pending patients from SQLite:', localPending.length);
+
+  const inertiaUuids = new Set(inertiaPatients.map(p => p.uuid));
+  const localOnlyPending = localPending.filter(p =>
+    p.sync_status !== 'pending_delete' && !inertiaUuids.has(p.uuid)
+  );
+  const firstRenderPatients = [...localOnlyPending, ...inertiaPatients];
+
+  if (firstRenderPatients.length > 0) {
+    setPatients(firstRenderPatients);
+  }
+  loadingPatients.value = false;
+
+  console.log('[Boot] Final first-render patients count:', firstRenderPatients.length,
+    '— merged state ready in', Math.round(performance.now() - bootStart), 'ms');
+
+  // Background refresh (categories, full sync-aware reconciliation with
+  // the server list, etc.) — runs after the correct list is already on
+  // screen, so it can only add/update, never cause a visible regression.
   refreshPatientList()
   if (isMobile.value && !selectedPatientId.value) {
     mobilePatientListOpen.value = true
