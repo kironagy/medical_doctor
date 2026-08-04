@@ -579,6 +579,51 @@ class FileAccessController extends Controller
     }
 
     /**
+     * Same lookup as streamCached(), but returns the file as base64 inside
+     * JSON instead of a raw binary stream. Raw binary responses served
+     * through the NativePHP WebView bridge fail to decode on-device even
+     * though the HTTP layer delivers them intact (confirmed via device
+     * logs: identical 200 OK + correct content-length on every retry, yet
+     * the <img>/<video> never renders). JSON/base64 is plain text and
+     * survives the same bridge path reliably.
+     *
+     * Route: GET /_native/cache/files/{uuid}/base64
+     */
+    public function streamCachedBase64(string $uuid)
+    {
+        $file = PatientFile::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )
+            ->where(function ($q) use ($uuid) {
+                $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+            })
+            ->first();
+
+        if ($file && $file->file_path) {
+            $absolutePath = Storage::disk('local')->path($file->file_path);
+            if (file_exists($absolutePath)) {
+                return response()->json([
+                    'mime' => $file->mime_type ?: 'application/octet-stream',
+                    'data' => base64_encode(file_get_contents($absolutePath)),
+                ]);
+            }
+        }
+
+        $offlineFile = DB::table('offline_files')->where('uuid', $uuid)->first();
+        if ($offlineFile) {
+            $absolutePath = $this->offlineUploadService->absolutePath($offlineFile->local_path);
+            if (file_exists($absolutePath)) {
+                return response()->json([
+                    'mime' => $offlineFile->mime_type ?: 'application/octet-stream',
+                    'data' => base64_encode(file_get_contents($absolutePath)),
+                ]);
+            }
+        }
+
+        abort(404, 'File not found.');
+    }
+
+    /**
      * Cache a file locally for offline viewing.
      *
      * Route: POST /_native/cache/files/{uuid}/cache

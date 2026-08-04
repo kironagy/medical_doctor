@@ -209,16 +209,10 @@ const signedUrl = ref('')
 const signedThumbnailUrl = ref('')
 
 const fileUrl = computed(() => {
-  if (detectNative() && file.value?.uuid) {
-    return `/_native/cache/files/${file.value.uuid}`
-  }
   return signedUrl.value || file.value?.url || ''
 })
 
 const thumbnailPostUrl = computed(() => {
-  if (detectNative() && file.value?.uuid) {
-    return `/_native/cache/files/${file.value.uuid}/thumbnail`
-  }
   return signedThumbnailUrl.value || file.value?.thumbnail_url || ''
 })
 
@@ -258,7 +252,30 @@ watchEffect(() => {
 //  Signed URL
 // ---------------------------------------------------------------
 const fetchSignedUrls = async () => {
-  if (!file.value?.uuid || detectNative()) return
+  if (!file.value?.uuid) return
+
+  if (detectNative()) {
+    const uuid = file.value.uuid
+    const isImage = file.value.mime_type?.startsWith('image/')
+    // Raw binary streamed through the NativePHP WebView bridge does not
+    // reliably reach the <img> element (confirmed on-device: identical
+    // 200 OK + correct content-length on every retry, image never
+    // renders). Base64/JSON survives the same bridge intact, so fetch
+    // images that way. Video keeps the direct streamed URL (range/seek
+    // support, avoids loading a large file fully into memory).
+    if (isImage) {
+      try {
+        const res = await axios.get(`/_native/cache/files/${uuid}/base64`)
+        signedUrl.value = `data:${res.data.mime};base64,${res.data.data}`
+        return
+      } catch (e) {
+        console.warn('Failed to fetch base64 image, falling back to direct URL', e)
+      }
+    }
+    signedUrl.value = `/_native/cache/files/${uuid}`
+    return
+  }
+
   try {
     const res = await axios.get(`/api/v1/files/${file.value.uuid}/signed-url`)
     signedUrl.value = res.data.url

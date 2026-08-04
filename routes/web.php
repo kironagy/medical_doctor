@@ -488,6 +488,7 @@ Route::prefix('_native/cache')->name('cache.')->withoutMiddleware([
     \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
 ])->group(function () {
     Route::get('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'streamCached'])->name('files.stream');
+    Route::get('/files/{uuid}/base64', [\App\Http\Controllers\Api\FileAccessController::class, 'streamCachedBase64'])->name('files.stream_base64');
     Route::get('/files/{uuid}/thumbnail', [\App\Http\Controllers\Api\FileAccessController::class, 'thumbnailDirect'])->name('files.thumbnail'); // FIX: was missing
     Route::get('/files/{uuid}/status', [\App\Http\Controllers\Api\FileAccessController::class, 'cacheStatus'])->name('files.status');
     Route::post('/files/{uuid}/cache', [\App\Http\Controllers\Api\FileAccessController::class, 'cacheFile'])->name('files.cache');

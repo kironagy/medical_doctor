@@ -163,14 +163,7 @@
                       v-if="item.thumbnail_url"
                       :src="item.thumbnail_url"
                       class="object-cover w-full h-full absolute inset-0 z-0"
-                      @error="e => {
-                        const fallback = item.url || null;
-                        if (fallback && e.target.src !== fallback) {
-                          e.target.src = fallback;
-                        } else {
-                          e.target.style.display = 'none';
-                        }
-                      }"
+                      @error="onThumbError($event, item)"
                     />
 
                     <!-- Fallback / Play icon overlay for Video -->
@@ -425,7 +418,35 @@ import { useOfflineUploads } from '@/Composables/useOfflineUploads'
 import { useSyncEngine } from '@/Composables/useSyncEngine'
 import { apiUrl, getApiConfig } from '@/Utils/api'
 
-const { isCameraAvailable, isFilePickerAvailable, takePhoto, pickFiles } = useNativeBridge()
+const { isCameraAvailable, isFilePickerAvailable, takePhoto, pickFiles, detectNative } = useNativeBridge()
+
+// Raw binary streamed through the NativePHP WebView bridge does not
+// reliably reach <img> elements (confirmed on-device: identical 200 OK +
+// correct content-length on every retry, thumbnail never renders).
+// Base64/JSON survives the same bridge intact, so retry image thumbnails
+// that way before giving up.
+async function onThumbError(e, item) {
+  if (e.target.dataset.b64Tried) {
+    e.target.style.display = 'none'
+    return
+  }
+  e.target.dataset.b64Tried = '1'
+  if (detectNative() && item.mime_type?.startsWith('image/') && item.uuid) {
+    try {
+      const res = await axios.get(`/_native/cache/files/${item.uuid}/base64`)
+      e.target.src = `data:${res.data.mime};base64,${res.data.data}`
+      return
+    } catch (err) {
+      // fall through to the URL fallback below
+    }
+  }
+  const fallback = item.url || null
+  if (fallback && e.target.src !== fallback) {
+    e.target.src = fallback
+  } else {
+    e.target.style.display = 'none'
+  }
+}
 const { statusIcon: offlineStatusIcon, statusLabel: offlineStatusLabel, uploadFile: offlineUploadFile } = useOfflineUploads()
 const { isOnline: syncOnline } = useSyncEngine()
 
