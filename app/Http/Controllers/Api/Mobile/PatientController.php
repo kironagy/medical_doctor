@@ -21,7 +21,7 @@ class PatientController extends Controller
         $user = $request->user();
 
         $query = Patient::query()
-            ->with('primaryDoctor:id,name,email')
+            ->with(['primaryDoctor:id,name,email', 'files', 'notes', 'visits'])
             ->orderBy('created_at', 'desc');
 
         if ($search = $request->get('search')) {

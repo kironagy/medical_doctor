@@ -127,8 +127,18 @@ class DownloadSyncService
                     $patientId = $localP ? $localP->id : null;
 
                     // Sync files attached to this patient from the server
-                    if (!empty($remoteP['files']) && is_array($remoteP['files'])) {
-                        $this->syncPatientFilesFromRemote($remoteP['uuid'], $patientId, $remoteP['files'], $localUserId, $summary);
+                    $remoteFiles = $remoteP['files'] ?? null;
+                    if (empty($remoteFiles)) {
+                        try {
+                            $fileRes = $this->api->get("/patients/{$remoteP['uuid']}/files", ['per_page' => 100]);
+                            $remoteFiles = $fileRes['data'] ?? $fileRes ?? [];
+                        } catch (Throwable $e) {
+                            Log::debug('[DownloadSyncService] Failed to fetch remote files for patient ' . $remoteP['uuid'] . ': ' . $e->getMessage());
+                        }
+                    }
+
+                    if (!empty($remoteFiles) && is_array($remoteFiles)) {
+                        $this->syncPatientFilesFromRemote($remoteP['uuid'], $patientId, $remoteFiles, $localUserId, $summary);
                     }
 
                     // Sync notes attached to this patient from the server
