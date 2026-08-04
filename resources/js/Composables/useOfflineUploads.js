@@ -83,6 +83,11 @@ export function useOfflineUploads() {
    * This saves it to disk + SQLite with sync_status = pending_upload.
    */
   async function saveFileOffline(file, patientUuid, metadata = {}) {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null;
+    const headers = {
+      'Content-Type': 'multipart/form-data',
+      ...(token ? { 'Authorization': 'Bearer ' + token } : {})
+    };
     const fd = new FormData()
     fd.append('file', file)
     fd.append('patient_uuid', patientUuid)
@@ -91,22 +96,24 @@ export function useOfflineUploads() {
     if (metadata.category) fd.append('category', metadata.category)
 
     const res = await axios.post('/_native/api/offline/uploads', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000, // 2 minutes for large files
+      headers,
+      timeout: 120000,
     })
 
     return res.data
   }
 
   /**
-   * Save a video or large file locally using the chunked upload endpoints (/chunk/init, /chunk/chunk, /chunk/complete).
+   * Save a video or large file locally using the chunked upload endpoints (/api/v1/chunk/init, /api/v1/chunk/chunk, /api/v1/chunk/complete).
    * This avoids single giant POST requests and works cleanly with embedded Laravel.
    */
   async function saveFileChunkedOffline(file, patientUuid, metadata = {}) {
     const CHUNK_SIZE = 5 * 1024 * 1024 // 5 MB chunks
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null;
+    const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
 
     // Step 1: Initialize chunk upload session
-    const initRes = await axios.post('/chunk/init', {
+    const initRes = await axios.post('/api/v1/chunk/init', {
       file_name: file.name || 'video.mp4',
       file_size: file.size,
       mime_type: file.type || 'video/mp4',
@@ -118,7 +125,7 @@ export function useOfflineUploads() {
         category: metadata.category || '',
         date: metadata.date || new Date().toISOString(),
       },
-    })
+    }, { headers })
 
     const { upload_id, chunk_size = CHUNK_SIZE, total_chunks } = initRes.data
 
@@ -133,14 +140,17 @@ export function useOfflineUploads() {
       fd.append('chunk_index', i)
       fd.append('chunk', chunkBlob, file.name || 'chunk')
 
-      await axios.post('/chunk/chunk', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      await axios.post('/api/v1/chunk/chunk', fd, {
+        headers: { 
+          'Content-Type': 'multipart/form-data',
+          ...headers
+        },
         timeout: 120000,
       })
     }
 
     // Step 3: Complete upload and merge chunks into patient_files
-    const completeRes = await axios.post('/chunk/complete', { upload_id })
+    const completeRes = await axios.post('/api/v1/chunk/complete', { upload_id }, { headers })
 
     const resData = completeRes.data
     return {
