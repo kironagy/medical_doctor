@@ -467,15 +467,18 @@ class FileAccessController extends Controller
             // File not on local disk — attempt auto-download & cache from remote if online
             try {
                 $this->cacheRepo->cache($uuid);
+                return $this->cacheRepo->stream(
+                    $uuid,
+                    $request->header('Range'),
+                    $request->isMethod('HEAD')
+                );
             } catch (\Throwable $e) {
-                Log::warning('[streamCached] Cache download attempt failed: ' . $e->getMessage(), ['uuid' => $uuid]);
-            }
+                Log::warning('[streamCached] Cache download attempt failed, attempting remote streaming fallback: ' . $e->getMessage(), ['uuid' => $uuid]);
 
-            return $this->cacheRepo->stream(
-                $uuid,
-                $request->header('Range'),
-                $request->isMethod('HEAD')
-            );
+                $remoteId = $file->remote_uuid ?: $file->uuid;
+                $remoteUrl = rtrim(config('app.mobile_api_url'), '/') . '/files/' . $remoteId . '/stream';
+                return redirect($remoteUrl);
+            }
         }
 
         // Phase 7: Fallback to offline pending file
