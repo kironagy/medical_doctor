@@ -88,11 +88,11 @@ class FileController extends Controller
         }
 
         $validated = $request->validate([
-            'file' => 'required|file|max:512000',
-            'title' => 'sometimes|string|max:255',
-            'desc' => 'sometimes|string|nullable|max:1000',
-            'category' => 'sometimes|string|max:100',
-            'date' => 'sometimes|date',
+            'file'     => 'required|file|max:512000',
+            'title'    => 'nullable|string|max:255',
+            'desc'     => 'nullable|string|max:1000',
+            'category' => 'nullable|string|max:100',
+            'date'     => 'nullable|date',
         ]);
 
         $uploadedFile = $request->file('file');
