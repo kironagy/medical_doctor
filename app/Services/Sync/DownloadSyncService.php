@@ -62,7 +62,7 @@ class DownloadSyncService
             $since = $this->getEntityLastSync('patients_last_sync');
             $query = $since ? ['since' => $since] : [];
 
-            $remoteData = $this->api->get('/mobile/patients', $query);
+            $remoteData = $this->api->get('/patients', $query);
             $remotePatients = $remoteData['data'] ?? $remoteData ?? [];
             $validCols = Schema::getColumnListing('patients');
 
