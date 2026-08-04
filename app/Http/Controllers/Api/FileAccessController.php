@@ -610,13 +610,34 @@ class FileAccessController extends Controller
             })
             ->first();
 
-        if ($file && $file->file_path) {
-            $absolutePath = Storage::disk('local')->path($file->file_path);
-            if (file_exists($absolutePath)) {
+        if ($file) {
+            // 1. Check direct file_path
+            $absolutePath = $file->file_path ? Storage::disk('local')->path($file->file_path) : null;
+            if ($absolutePath && file_exists($absolutePath)) {
                 return response()->json([
                     'mime' => $file->mime_type ?: 'application/octet-stream',
                     'data' => base64_encode(file_get_contents($absolutePath)),
                 ]);
+            }
+
+            // 2. Check if file is in file_cache or attempt auto-download
+            try {
+                $this->cacheRepo->cache($uuid);
+                $entry = DB::table('file_cache')->where('file_uuid', $uuid)->first();
+                if ($entry) {
+                    $cacheAbsPath = Storage::disk('local')->path('cache/' . $entry->local_path);
+                    if (!file_exists($cacheAbsPath)) {
+                        $cacheAbsPath = Storage::disk('local')->path($entry->local_path);
+                    }
+                    if (file_exists($cacheAbsPath)) {
+                        return response()->json([
+                            'mime' => $entry->mime_type ?: ($file->mime_type ?: 'application/octet-stream'),
+                            'data' => base64_encode(file_get_contents($cacheAbsPath)),
+                        ]);
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[streamCachedBase64] Cache download attempt failed: ' . $e->getMessage(), ['uuid' => $uuid]);
             }
         }
 
