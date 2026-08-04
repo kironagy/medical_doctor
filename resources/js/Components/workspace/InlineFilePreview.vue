@@ -203,6 +203,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  if (signedUrl.value?.startsWith('blob:')) {
+    URL.revokeObjectURL(signedUrl.value)
+  }
 })
 
 const signedUrl = ref('')
@@ -257,19 +260,28 @@ const fetchSignedUrls = async () => {
   if (detectNative()) {
     const uuid = file.value.uuid
     const isImage = file.value.mime_type?.startsWith('image/')
+    const isVideo = file.value.mime_type?.startsWith('video/')
     // Raw binary streamed through the NativePHP WebView bridge does not
-    // reliably reach the <img> element (confirmed on-device: identical
-    // 200 OK + correct content-length on every retry, image never
-    // renders). Base64/JSON survives the same bridge intact, so fetch
-    // images that way. Video keeps the direct streamed URL (range/seek
-    // support, avoids loading a large file fully into memory).
-    if (isImage) {
+    // reliably reach <img>/<video> elements (confirmed on-device: identical
+    // 200 OK + correct content-length on every retry, media never renders).
+    // Base64/JSON survives the same bridge intact. Images become a data:
+    // URI directly; video is converted to a Blob + object URL instead of a
+    // huge inline data: URI (lighter on the DOM/renderer for larger files).
+    if (isImage || isVideo) {
       try {
         const res = await axios.get(`/_native/cache/files/${uuid}/base64`)
-        signedUrl.value = `data:${res.data.mime};base64,${res.data.data}`
+        if (isVideo) {
+          const binary = atob(res.data.data)
+          const bytes = new Uint8Array(binary.length)
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+          const blob = new Blob([bytes], { type: res.data.mime })
+          signedUrl.value = URL.createObjectURL(blob)
+        } else {
+          signedUrl.value = `data:${res.data.mime};base64,${res.data.data}`
+        }
         return
       } catch (e) {
-        console.warn('Failed to fetch base64 image, falling back to direct URL', e)
+        console.warn('Failed to fetch base64 file, falling back to direct URL', e)
       }
     }
     signedUrl.value = `/_native/cache/files/${uuid}`
@@ -295,6 +307,9 @@ function cachedFileUrl(uuid) {
 }
 
 watch(file, async (newFile) => {
+  if (signedUrl.value?.startsWith('blob:')) {
+    URL.revokeObjectURL(signedUrl.value)
+  }
   signedUrl.value = ''
   signedThumbnailUrl.value = ''
   if (newFile) {
