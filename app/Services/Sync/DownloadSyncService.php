@@ -5,6 +5,7 @@ namespace App\Services\Sync;
 use App\Services\Mobile\RemoteApiService;
 use App\Domains\Patients\Models\Patient;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Log;
@@ -16,6 +17,25 @@ class DownloadSyncService
     public function __construct(
         private readonly RemoteApiService $api
     ) {}
+
+    /**
+     * Normalize a remote timestamp to Eloquent's storage format ('Y-m-d H:i:s').
+     *
+     * Remote API responses serialize timestamps as ISO-8601 ('...T...Z'), while
+     * locally-created rows are saved by Eloquent as 'Y-m-d H:i:s'. SQLite stores
+     * both as plain TEXT, so mixing the two formats corrupts `ORDER BY created_at`
+     * (lexicographic comparison: ' ' < 'T', so ISO-format rows always sort as
+     * "newer" regardless of actual date) — this made freshly uploaded files
+     * vanish from the "newest first" category listing after a sync/refresh.
+     */
+    private function normalizeTimestamp(mixed $value): string
+    {
+        try {
+            return $value ? Carbon::parse($value)->format('Y-m-d H:i:s') : now()->format('Y-m-d H:i:s');
+        } catch (Throwable) {
+            return now()->format('Y-m-d H:i:s');
+        }
+    }
 
     /**
      * Perform incremental download of server changes using independent per-entity timestamps.
@@ -258,8 +278,8 @@ class DownloadSyncService
                     'file_path'      => $localFilePath,
                     'upload_status'  => 'ready',
                     'sync_status'    => 'synced',
-                    'created_at'     => $rf['created_at'] ?? now(),
-                    'updated_at'     => $rf['updated_at'] ?? now(),
+                    'created_at'     => $this->normalizeTimestamp($rf['created_at'] ?? null),
+                    'updated_at'     => $this->normalizeTimestamp($rf['updated_at'] ?? null),
                 ];
 
                 $clean = array_intersect_key($clean, array_flip($validCols));
@@ -303,8 +323,8 @@ class DownloadSyncService
                 'content'      => $rn['content'] ?? $rn['note'] ?? '',
                 'category'     => $rn['category'] ?? null,
                 'sync_status'  => 'synced',
-                'created_at'   => $rn['created_at'] ?? now(),
-                'updated_at'   => $rn['updated_at'] ?? now(),
+                'created_at'   => $this->normalizeTimestamp($rn['created_at'] ?? null),
+                'updated_at'   => $this->normalizeTimestamp($rn['updated_at'] ?? null),
             ];
 
             $clean = array_intersect_key($clean, array_flip($validCols));
@@ -348,8 +368,8 @@ class DownloadSyncService
                 'type'         => $rv['type'] ?? 'follow_up',
                 'notes'        => $rv['notes'] ?? null,
                 'sync_status'  => 'synced',
-                'created_at'   => $rv['created_at'] ?? now(),
-                'updated_at'   => $rv['updated_at'] ?? now(),
+                'created_at'   => $this->normalizeTimestamp($rv['created_at'] ?? null),
+                'updated_at'   => $this->normalizeTimestamp($rv['updated_at'] ?? null),
             ];
 
             $clean = array_intersect_key($clean, array_flip($validCols));
