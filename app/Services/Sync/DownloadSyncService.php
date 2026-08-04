@@ -8,6 +8,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 class DownloadSyncService
@@ -151,18 +152,34 @@ class DownloadSyncService
                         }
                     }
 
+                    // Each sub-sync is isolated: a bad file/note/visit record for this
+                    // patient must not abort the download for every other patient still
+                    // queued in this loop (previously an uncaught error here silently
+                    // killed the entire downloadPatients() run for the whole account).
                     if (!empty($remoteFiles) && is_array($remoteFiles)) {
-                        $this->syncPatientFilesFromRemote($remoteP['uuid'], $patientId, $remoteFiles, $localUserId, $summary);
+                        try {
+                            $this->syncPatientFilesFromRemote($remoteP['uuid'], $patientId, $remoteFiles, $localUserId, $summary);
+                        } catch (Throwable $e) {
+                            Log::warning('[DownloadSyncService] File sync failed for patient ' . $remoteP['uuid'] . ': ' . $e->getMessage());
+                        }
                     }
 
                     // Sync notes attached to this patient from the server
                     if (!empty($remoteP['notes']) && is_array($remoteP['notes'])) {
-                        $this->syncPatientNotesFromRemote($remoteP['uuid'], $patientId, $remoteP['notes'], $localUserId, $summary);
+                        try {
+                            $this->syncPatientNotesFromRemote($remoteP['uuid'], $patientId, $remoteP['notes'], $localUserId, $summary);
+                        } catch (Throwable $e) {
+                            Log::warning('[DownloadSyncService] Note sync failed for patient ' . $remoteP['uuid'] . ': ' . $e->getMessage());
+                        }
                     }
 
                     // Sync visits attached to this patient from the server
                     if (!empty($remoteP['visits']) && is_array($remoteP['visits'])) {
-                        $this->syncPatientVisitsFromRemote($remoteP['uuid'], $patientId, $remoteP['visits'], $localUserId, $summary);
+                        try {
+                            $this->syncPatientVisitsFromRemote($remoteP['uuid'], $patientId, $remoteP['visits'], $localUserId, $summary);
+                        } catch (Throwable $e) {
+                            Log::warning('[DownloadSyncService] Visit sync failed for patient ' . $remoteP['uuid'] . ': ' . $e->getMessage());
+                        }
                     }
                 }
 
@@ -185,67 +202,68 @@ class DownloadSyncService
         }
         if (!$patientId) return;
 
+        // Ensure category is never null in SQLite — run once per batch rather
+        // than once per file (this is an unconditional full-table statement).
+        DB::table('patient_files')->whereNull('category')->orWhere('category', '')->update(['category' => 'notes']);
+
         foreach ($remoteFiles as $rf) {
             if (!is_array($rf) || empty($rf['uuid'])) continue;
 
             $fileUuid = $rf['uuid'];
 
-            // ── REMOTE FILE DELETION ─────────────────────────────────────
-            if (!empty($rf['deleted_at'])) {
-                DB::table('patient_files')->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid)->delete();
-                $summary['deletes']++;
-                continue;
-            }
-
-            $existing = DB::table('patient_files')
-                ->where('uuid', $fileUuid)
-                ->orWhere('remote_uuid', $fileUuid)
-                ->first();
-
-            // Do not overwrite local pending changes
-            if ($existing && in_array($existing->sync_status, ['pending_create', 'pending_update', 'pending_delete', 'pending_sync'])) {
-                continue;
-            }
-
-            $mime = $rf['mime_type'] ?? '';
-            $type = $rf['type'] ?? match (true) {
-                str_starts_with($mime, 'image/') => 'image',
-                str_starts_with($mime, 'video/') => 'video',
-                str_starts_with($mime, 'audio/') => 'audio',
-                $mime === 'application/pdf' => 'pdf',
-                default => 'document',
-            };
-
-            $localFilePath = ($existing && !empty($existing->file_path) && file_exists(Storage::disk('local')->path($existing->file_path)))
-                ? $existing->file_path
-                : ($rf['file_path'] ?? ("patients/{$patientUuid}/{$fileUuid}"));
-
-            $clean = [
-                'uuid'           => $existing ? $existing->uuid : $fileUuid,
-                'remote_uuid'    => $fileUuid,
-                'patient_id'     => $patientId,
-                'uploaded_by_id' => $localUserId,
-                'title'          => $rf['title'] ?? $rf['file_name'] ?? 'File',
-                'desc'           => $rf['desc'] ?? null,
-                'type'           => $type,
-                'mime_type'      => $mime ?: 'application/octet-stream',
-                'size'           => (int) ($rf['size'] ?? 0),
-                'category'       => !empty($rf['category']) ? $rf['category'] : 'notes',
-                'date'           => !empty($rf['date']) ? substr($rf['date'], 0, 10) : now()->toDateString(),
-                'file_name'      => $rf['file_name'] ?? 'file',
-                'file_path'      => $localFilePath,
-                'upload_status'  => 'ready',
-                'sync_status'    => 'synced',
-                'created_at'     => $rf['created_at'] ?? now(),
-                'updated_at'     => $rf['updated_at'] ?? now(),
-            ];
-
-            // Ensure category is never null in SQLite
-            DB::table('patient_files')->whereNull('category')->orWhere('category', '')->update(['category' => 'notes']);
-
-            $clean = array_intersect_key($clean, array_flip($validCols));
-
             try {
+                // ── REMOTE FILE DELETION ─────────────────────────────────────
+                if (!empty($rf['deleted_at'])) {
+                    DB::table('patient_files')->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid)->delete();
+                    $summary['deletes']++;
+                    continue;
+                }
+
+                $existing = DB::table('patient_files')
+                    ->where('uuid', $fileUuid)
+                    ->orWhere('remote_uuid', $fileUuid)
+                    ->first();
+
+                // Do not overwrite local pending changes
+                if ($existing && in_array($existing->sync_status, ['pending_create', 'pending_update', 'pending_delete', 'pending_sync'])) {
+                    continue;
+                }
+
+                $mime = $rf['mime_type'] ?? '';
+                $type = $rf['type'] ?? match (true) {
+                    str_starts_with($mime, 'image/') => 'image',
+                    str_starts_with($mime, 'video/') => 'video',
+                    str_starts_with($mime, 'audio/') => 'audio',
+                    $mime === 'application/pdf' => 'pdf',
+                    default => 'document',
+                };
+
+                $localFilePath = ($existing && !empty($existing->file_path) && file_exists(Storage::disk('local')->path($existing->file_path)))
+                    ? $existing->file_path
+                    : ($rf['file_path'] ?? ("patients/{$patientUuid}/{$fileUuid}"));
+
+                $clean = [
+                    'uuid'           => $existing ? $existing->uuid : $fileUuid,
+                    'remote_uuid'    => $fileUuid,
+                    'patient_id'     => $patientId,
+                    'uploaded_by_id' => $localUserId,
+                    'title'          => $rf['title'] ?? $rf['file_name'] ?? 'File',
+                    'desc'           => $rf['desc'] ?? null,
+                    'type'           => $type,
+                    'mime_type'      => $mime ?: 'application/octet-stream',
+                    'size'           => (int) ($rf['size'] ?? 0),
+                    'category'       => !empty($rf['category']) ? $rf['category'] : 'notes',
+                    'date'           => !empty($rf['date']) ? substr($rf['date'], 0, 10) : now()->toDateString(),
+                    'file_name'      => $rf['file_name'] ?? 'file',
+                    'file_path'      => $localFilePath,
+                    'upload_status'  => 'ready',
+                    'sync_status'    => 'synced',
+                    'created_at'     => $rf['created_at'] ?? now(),
+                    'updated_at'     => $rf['updated_at'] ?? now(),
+                ];
+
+                $clean = array_intersect_key($clean, array_flip($validCols));
+
                 if (!$existing) {
                     DB::table('patient_files')->insert($clean);
                     $summary['files']++;
@@ -254,6 +272,8 @@ class DownloadSyncService
                     $summary['files']++;
                 }
             } catch (Throwable $e) {
+                // One bad file must not abort the rest of this patient's files,
+                // nor (via the caller's isolation) every other patient's download.
                 Log::warning('[DownloadSyncService] Skipped file ' . $fileUuid . ': ' . $e->getMessage());
             }
         }
