@@ -24,8 +24,12 @@ class DownloadSyncService
         $summary = ['patients' => 0, 'files' => 0, 'notes' => 0, 'visits' => 0, 'categories' => 0];
 
         $this->downloadPatients($summary);
-        $this->downloadNotes($summary);
-        $this->downloadVisits($summary);
+
+        // downloadNotes()/downloadVisits() are intentionally NOT called: they target
+        // endpoints that don't exist on the server (notes and visits are exposed
+        // per-patient, not globally) and they persist nothing locally. Calling them
+        // only added two guaranteed-failing HTTP requests — each able to burn the
+        // full 30s timeout — to every login and every "Sync Now".
 
         return $summary;
     }
@@ -60,40 +64,75 @@ class DownloadSyncService
     {
         try {
             $since = $this->getEntityLastSync('patients_last_sync');
-            $query = $since ? ['since' => $since] : [];
-
-            $remoteData = $this->api->get('/patients', $query);
-            $remotePatients = $remoteData['data'] ?? $remoteData ?? [];
             $validCols = Schema::getColumnListing('patients');
 
-            foreach ($remotePatients as $remoteP) {
-                if (!is_array($remoteP) || empty($remoteP['uuid'])) continue;
+            // Remote user IDs are meaningless on-device: local SQLite only ever
+            // holds this device's own user row, and patients.primary_doctor_id
+            // carries an enforced FK to users. Inserting the server's doctor id
+            // raises a constraint violation and the whole download is lost, so
+            // ownership columns are remapped to the local user.
+            $localUserId = auth()->id() ?: optional(\App\Domains\Users\Models\User::first())->id;
 
-                $localP = Patient::where('uuid', $remoteP['uuid'])->first();
-                if (!$localP) {
-                    $clean = Arr::except($remoteP, ['id', 'primary_doctor', 'visits', 'shares', 'files', 'notes']);
-                    $clean['sync_status'] = 'synced';
-                    $clean = array_intersect_key($clean, array_flip($validCols));
+            $page = 1;
+            do {
+                $query = array_filter([
+                    'since'    => $since,
+                    'per_page' => 100,
+                    'page'     => $page,
+                ]);
 
-                    Patient::unguard();
-                    Patient::create($clean);
-                    Patient::reguard();
-                    $summary['patients']++;
-                } else if (($remoteP['version'] ?? 1) > ($localP->version ?? 1) && $localP->sync_status === 'synced') {
-                    $clean = Arr::except($remoteP, ['id', 'primary_doctor', 'visits', 'shares', 'files', 'notes']);
-                    $clean['sync_status'] = 'synced';
-                    $clean = array_intersect_key($clean, array_flip($validCols));
-
-                    Patient::unguard();
-                    $localP->update($clean);
-                    Patient::reguard();
-                    $summary['patients']++;
+                $remoteData = $this->api->get('/patients', $query);
+                $remotePatients = $remoteData['data'] ?? [];
+                if (!is_array($remotePatients)) {
+                    break;
                 }
-            }
+
+                foreach ($remotePatients as $remoteP) {
+                    if (!is_array($remoteP) || empty($remoteP['uuid'])) continue;
+
+                    $localP = Patient::where('uuid', $remoteP['uuid'])->first();
+
+                    // Never clobber records the device hasn't pushed yet.
+                    if ($localP && $localP->sync_status !== 'synced') {
+                        continue;
+                    }
+
+                    $clean = Arr::except($remoteP, ['id', 'primary_doctor', 'visits', 'shares', 'files', 'notes']);
+                    $clean['sync_status'] = 'synced';
+                    $clean = array_intersect_key($clean, array_flip($validCols));
+
+                    if (array_key_exists('primary_doctor_id', $clean) || !$localP) {
+                        $clean['primary_doctor_id'] = $localUserId;
+                    }
+                    if (array_key_exists('created_by_id', $clean)) {
+                        $clean['created_by_id'] = $localUserId;
+                    }
+
+                    try {
+                        Patient::unguard();
+                        if (!$localP) {
+                            Patient::create($clean);
+                            $summary['patients']++;
+                        } elseif (($remoteP['version'] ?? 1) > ($localP->version ?? 1)) {
+                            $localP->update($clean);
+                            $summary['patients']++;
+                        }
+                    } catch (Throwable $e) {
+                        // One bad record must not abort the whole download.
+                        Log::warning('[DownloadSyncService] Skipped patient ' . $remoteP['uuid'] . ': ' . $e->getMessage());
+                    } finally {
+                        Patient::reguard();
+                    }
+                }
+
+                $lastPage = (int) ($remoteData['last_page'] ?? 1);
+                $page++;
+            } while ($page <= $lastPage && $page <= 50);
 
             $this->setEntityLastSync('patients_last_sync', now()->toISOString());
+            Log::info('[DownloadSyncService] Cached ' . $summary['patients'] . ' patients into local SQLite');
         } catch (Throwable $e) {
-            Log::info('[DownloadSyncService] Patient download changes skipped: ' . $e->getMessage());
+            Log::warning('[DownloadSyncService] Patient download failed: ' . $e->getMessage());
         }
     }
 

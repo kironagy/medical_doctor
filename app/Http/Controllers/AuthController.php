@@ -12,17 +12,36 @@ use Inertia\Inertia;
 class AuthController extends Controller
 {
     /**
-     * Marker file recording that the device user explicitly logged out.
-     * Prevents showLogin()'s offline auto-login from silently re-authenticating
-     * someone who just chose to sign out. Cleared on the next successful login.
+     * Marker file recording that a real login against the production server has
+     * completed on this device. Offline auto-login is allowed ONLY when it exists.
+     *
+     * Written on successful login, deleted on logout. This is what makes the three
+     * required behaviours hold simultaneously:
+     *   - fresh install  → no marker  → login screen (internet required, by design)
+     *   - after logout   → deleted    → login screen (no silent re-login)
+     *   - offline restart after a real login → present → straight into the workspace
      */
-    private const LOGGED_OUT_MARKER = 'app/.explicitly_logged_out';
+    private const DEVICE_AUTHENTICATED_MARKER = 'app/.device_authenticated';
+
+    private function markerPath(): string
+    {
+        return storage_path(self::DEVICE_AUTHENTICATED_MARKER);
+    }
+
+    private function markDeviceAuthenticated(): void
+    {
+        $path = $this->markerPath();
+        if (!is_dir(dirname($path))) {
+            mkdir(dirname($path), 0755, true);
+        }
+        file_put_contents($path, '1', LOCK_EX);
+    }
 
     public function showLogin(Request $request)
     {
         Log::info('[Boot] showLogin served via ' . config('database.default') . ' connection');
 
-        if (config('database.default') === 'sqlite' && !file_exists(storage_path(self::LOGGED_OUT_MARKER))) {
+        if (config('database.default') === 'sqlite' && file_exists($this->markerPath())) {
             $user = \App\Domains\Users\Models\User::first();
             if ($user) {
                 Log::info('[Boot] Offline-safe auto-login for local user', ['user_id' => $user->id]);
@@ -46,7 +65,7 @@ class AuthController extends Controller
 
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
             $request->session()->regenerate();
-            @unlink(storage_path(self::LOGGED_OUT_MARKER));
+            $this->markDeviceAuthenticated();
 
             // Obtain API token for mobile API requests and sync
             try {
@@ -117,7 +136,7 @@ class AuthController extends Controller
                 // Authenticate the user session locally
                 Auth::login($localUser, $request->boolean('remember'));
                 $request->session()->regenerate();
-                @unlink(storage_path(self::LOGGED_OUT_MARKER));
+                $this->markDeviceAuthenticated();
 
                 // Save remote API token and store credentials for the sync engine
                 app(ApiService::class)->setToken($tokenResponse['token']);
@@ -182,12 +201,9 @@ class AuthController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
-        $markerPath = storage_path(self::LOGGED_OUT_MARKER);
-        $markerDir = dirname($markerPath);
-        if (!is_dir($markerDir)) {
-            mkdir($markerDir, 0755, true);
-        }
-        file_put_contents($markerPath, '1', LOCK_EX);
+        // Revoke offline auto-login so the next launch shows the login screen.
+        @unlink($this->markerPath());
+        Log::info('[Auth] Logout complete — token cleared, offline auto-login revoked');
 
         return redirect('/login');
     }
