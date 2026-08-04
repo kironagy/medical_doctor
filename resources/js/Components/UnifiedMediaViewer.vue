@@ -151,6 +151,9 @@ const loadingSignedUrl = ref(false);
 
 const fileUrl = computed(() => {
   if (!props.file) return '';
+  if (detectNative() && signedUrl.value) {
+    return signedUrl.value;
+  }
   if (detectNative()) {
     return `/_native/cache/files/${props.file.uuid}`;
   }
@@ -195,14 +198,55 @@ const textLanguage = computed(() => {
 });
 
 /**
- * Fetch a temporary signed URL from the server so the browser can load
- * the file directly (video, image, PDF, audio) without needing a session
- * cookie on the media request itself.
+ * Fetch a temporary signed URL so the browser can load the file directly
+ * (video, image, PDF, audio) without needing a session cookie on the media
+ * request itself. On native, video gets a dedicated blob/HTTPS-stream path
+ * so playback works around WebView limitations that don't affect images.
  */
 const fetchSignedUrl = async () => {
-  if (!props.file || detectNative()) return;
+  if (!props.file) return;
   loadingSignedUrl.value = true;
   try {
+    if (detectNative()) {
+      if (type.value !== 'video') {
+        // Images/audio/other native types keep using the existing
+        // direct `/_native/cache/files/{uuid}` binary URL — unchanged.
+        return;
+      }
+
+      const uuid = props.file.uuid;
+      const remoteUuid = props.file.remote_uuid || uuid;
+
+      // 1. For Videos on Native Mobile: stream directly over HTTPS for smooth playback without memory limits
+      if (props.file.sync_status === 'synced' || props.file.remote_uuid) {
+        signedUrl.value = `https://prof-hosam-fekry.online/api/v1/mobile/files/${remoteUuid}/stream`;
+        return;
+      }
+
+      // 2. Not yet synced: fetch local base64 JSON -> Blob URL
+      try {
+        const res = await axios.get(`/_native/cache/files/${uuid}/base64`);
+        const mime = res.data.mime || props.file.mime_type || 'application/octet-stream';
+        const binary = atob(res.data.data);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mime });
+        if (signedUrl.value && signedUrl.value.startsWith('blob:')) {
+          URL.revokeObjectURL(signedUrl.value);
+        }
+        signedUrl.value = URL.createObjectURL(blob);
+        return;
+      } catch (e) {
+        console.warn('Failed to fetch base64 video on native, falling back to remote HTTPS stream URL', e);
+      }
+
+      // Fallback for native video: use remote HTTPS stream URL
+      signedUrl.value = `https://prof-hosam-fekry.online/api/v1/mobile/files/${remoteUuid}/stream`;
+      return;
+    }
+
     const res = await axios.get(`/api/v1/files/${props.file.uuid}/signed-url`);
     signedUrl.value = res.data.url;
   } catch (e) {
@@ -245,6 +289,9 @@ watch(() => props.show, async (newVal) => {
       initText();
     }
   } else {
+    if (signedUrl.value && signedUrl.value.startsWith('blob:')) {
+      URL.revokeObjectURL(signedUrl.value);
+    }
     signedUrl.value = '';
   }
 });

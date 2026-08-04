@@ -252,18 +252,15 @@ async function submit() {
     try {
       // ── BUG-015 FIX: Use SyncEngine's isOnline instead of navigator.onLine ──
       const online = syncIsOnline.value
-      const patientId = props.patient.id
-      const patientUuid = props.patient.uuid
+      const targetPatientUuid = props.patient?.uuid || props.patient?.id || props.patient
       for (const file of selectedFiles.value) {
-        if (online) {
-          // Online: use chunked upload composable
-          onlineUploadFile(file, patientUuid, { 
+        if (online && typeof onlineUploadFile === 'function') {
+          onlineUploadFile(file, targetPatientUuid, {
             category: props.categorySlug,
             desc: notes.value
           })
         } else {
-          // Offline: save file locally via offline upload composable
-          await offlineUploadFile(file, patientUuid, { 
+          await offlineUploadFile(file, targetPatientUuid, {
             category: props.categorySlug,
             desc: notes.value
           })

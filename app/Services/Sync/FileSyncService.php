@@ -79,7 +79,7 @@ class FileSyncService
                         } else {
                             $title = $file ? ($file->title ?? $file->file_name) : ($offFile->title ?? $offFile->original_name);
                             $response = $this->api->upload(
-                                "/mobile/patients/{$patientUuid}/files",
+                                "/patients/{$patientUuid}/files",
                                 ['file' => $absPath],
                                 [
                                     'title' => $title,
@@ -110,7 +110,7 @@ class FileSyncService
 
                 case 'update':
                     if ($file && $file->remote_uuid) {
-                        $this->api->put("/mobile/files/{$file->remote_uuid}", [
+                        $this->api->put("/files/{$file->remote_uuid}", [
                             'title'    => $file->title,
                             'desc'     => $file->desc,
                             'category' => $file->category,
@@ -122,7 +122,7 @@ class FileSyncService
                 case 'delete':
                     $remoteUuid = $file?->remote_uuid ?? $item->entity_uuid;
                     try {
-                        $this->api->delete("/mobile/files/{$remoteUuid}");
+                        $this->api->delete("/files/{$remoteUuid}");
                     } catch (Throwable $e) {
                         if (!str_contains($e->getMessage(), '404')) throw $e;
                     }
@@ -147,7 +147,7 @@ class FileSyncService
     private function checkServerSha256Deduplication(string $sha256): ?string
     {
         try {
-            $response = $this->api->get('/mobile/files/check-hash', ['hash' => $sha256]);
+            $response = $this->api->get('/files/check-hash', ['hash' => $sha256]);
             if (!empty($response['exists']) && !empty($response['remote_uuid'])) {
                 Log::info("[FileSyncService] SHA256 match found on server! Deduplicating binary upload for hash {$sha256}");
                 return $response['remote_uuid'];
@@ -161,21 +161,29 @@ class FileSyncService
     /**
      * Upload large files (>25MB) using ChunkUploadController endpoints with resumable status checks.
      */
-    private function uploadLargeFileResumable(string $absPath, string $patientUuid, ?PatientFile $file, ?object $offFile): ?string
+    public function uploadLargeFileResumable(string $absPath, string $patientUuid, ?PatientFile $file, ?object $offFile): ?string
     {
         $fileName = basename($absPath);
         $fileSize = filesize($absPath);
         $mimeType = ($file?->mime_type ?? $offFile?->mime_type) ?: (mime_content_type($absPath) ?: 'application/octet-stream');
         $title = $file ? ($file->title ?? $file->file_name) : ($offFile->title ?? $offFile->original_name);
+        $category = $file ? ($file->category ?? null) : ($offFile->category ?? null);
+        $desc = $file ? ($file->desc ?? '') : ($offFile->desc ?? '');
+        $date = $file ? ($file->date ?? null) : ($offFile->date ?? null);
 
         // Step 1: Init chunk upload session
-        $initRes = $this->api->post('/mobile/chunk/init', [
+        $initRes = $this->api->post('/chunk/init', [
             'file_name'  => $fileName,
             'file_size'  => $fileSize,
             'mime_type'  => $mimeType,
             'patient_id' => $patientUuid,
             'chunk_size' => self::CHUNK_SIZE,
-            'metadata'   => ['title' => $title],
+            'metadata'   => [
+                'title'    => $title,
+                'category' => $category,
+                'desc'     => $desc,
+                'date'     => $date,
+            ],
         ]);
 
         $uploadId = $initRes['upload_id'] ?? $initRes['uuid'] ?? null;
@@ -186,7 +194,7 @@ class FileSyncService
         // Step 2: Check uploaded chunks status (Resumable check)
         $uploadedChunks = [];
         try {
-            $statusRes = $this->api->get("/mobile/chunk/{$uploadId}/status");
+            $statusRes = $this->api->get("/chunk/{$uploadId}/status");
             $uploadedChunks = $statusRes['uploaded_chunks'] ?? [];
         } catch (Throwable $e) {
             // New upload session
@@ -210,7 +218,7 @@ class FileSyncService
             file_put_contents($tmpChunkPath, $chunkData);
 
             try {
-                $this->api->upload('/mobile/chunk/chunk', ['chunk' => $tmpChunkPath], [
+                $this->api->upload('/chunk/chunk', ['chunk' => $tmpChunkPath], [
                     'upload_id'   => $uploadId,
                     'chunk_index' => $chunkIndex,
                 ]);
@@ -221,10 +229,10 @@ class FileSyncService
         fclose($handle);
 
         // Step 4: Complete and merge chunks
-        $completeRes = $this->api->post('/mobile/chunk/complete', [
+        $completeRes = $this->api->post('/chunk/complete', [
             'upload_id' => $uploadId,
         ]);
 
-        return $completeRes['uuid'] ?? $completeRes['remote_uuid'] ?? null;
+        return $completeRes['uuid'] ?? $completeRes['data']['uuid'] ?? $completeRes['remote_uuid'] ?? null;
     }
 }

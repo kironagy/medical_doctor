@@ -79,6 +79,11 @@ export function useOfflineUploads() {
    * This saves it to disk + SQLite with sync_status = pending_upload.
    */
   async function saveFileOffline(file, patientUuid, metadata = {}) {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null;
+    const headers = {
+      'Content-Type': 'multipart/form-data',
+      ...(token ? { 'Authorization': 'Bearer ' + token } : {})
+    };
     const fd = new FormData()
     fd.append('file', file)
     fd.append('patient_uuid', patientUuid)
@@ -87,11 +92,76 @@ export function useOfflineUploads() {
     if (metadata.category) fd.append('category', metadata.category)
 
     const res = await axios.post('/_native/api/offline/uploads', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000, // 2 minutes for large files
+      headers,
+      timeout: 120000,
     })
 
     return res.data
+  }
+
+  /**
+   * Save a video or large file locally using the chunked upload endpoints (/api/v1/chunk/init, /api/v1/chunk/chunk, /api/v1/chunk/complete).
+   * This avoids single giant POST requests and works cleanly with embedded Laravel.
+   */
+  async function saveFileChunkedOffline(file, patientUuid, metadata = {}) {
+    const CHUNK_SIZE = 5 * 1024 * 1024 // 5 MB chunks
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null;
+    const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+
+    // Step 1: Initialize chunk upload session
+    const initRes = await axios.post('/api/v1/chunk/init', {
+      file_name: file.name || 'video.mp4',
+      file_size: file.size,
+      mime_type: file.type || 'video/mp4',
+      patient_id: patientUuid,
+      chunk_size: CHUNK_SIZE,
+      metadata: {
+        title: metadata.title || file.name || '',
+        desc: metadata.desc || '',
+        category: metadata.category || '',
+        date: metadata.date || new Date().toISOString(),
+      },
+    }, { headers })
+
+    const { upload_id, chunk_size = CHUNK_SIZE, total_chunks } = initRes.data
+
+    // Step 2: Upload chunks sequentially
+    for (let i = 0; i < total_chunks; i++) {
+      const start = i * chunk_size
+      const end = Math.min(file.size, (i + 1) * chunk_size)
+      const chunkBlob = file.slice(start, end)
+
+      const fd = new FormData()
+      fd.append('upload_id', upload_id)
+      fd.append('chunk_index', i)
+      fd.append('chunk', chunkBlob, file.name || 'chunk')
+
+      await axios.post('/api/v1/chunk/chunk', fd, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          ...headers
+        },
+        timeout: 120000,
+      })
+    }
+
+    // Step 3: Complete upload and merge chunks into patient_files
+    const completeRes = await axios.post('/api/v1/chunk/complete', { upload_id }, { headers })
+
+    const resData = completeRes.data
+    return {
+      uuid: resData.uuid,
+      local_path: resData.file_path || `patients/${patientUuid}/${resData.uuid}`,
+      original_name: file.name,
+      mime_type: file.type || 'video/mp4',
+      extension: file.name?.split('.').pop() || '',
+      size: file.size,
+      sync_status: 'pending_sync',
+      type: resData.type || (file.type?.startsWith('video/') ? 'video' : 'document'),
+      created_at: new Date().toISOString(),
+      url: resData.url,
+      thumbnail_url: resData.thumbnail_url,
+    }
   }
 
   /**
@@ -110,7 +180,7 @@ export function useOfflineUploads() {
       mime_type: response.mime_type,
       extension: response.extension,
       size: response.size,
-      sync_status: response.sync_status || 'pending_upload',
+      sync_status: response.sync_status || 'pending_sync',
       type: response.type || 'document',
       created_at: response.created_at || new Date().toISOString(),
       error_message: null,
@@ -122,63 +192,51 @@ export function useOfflineUploads() {
   // ── Main public API ────────────────────────────────────────────────
 
   /**
-   * Upload a file while offline — saves locally via the Phase 7 offline endpoint.
+   * Upload a file while offline — saves locally via the Phase 7 offline endpoint
+   * or via local chunked upload for videos / large files.
    *
-   * This function is STRICTLY offline-only. For online uploads, use the
-   * existing chunked upload system from useUploads directly.
-   *
-   * Returns a reactive job object with sync_status = 'pending_upload'.
+   * Returns a reactive job object with sync_status = 'pending_sync'.
    * The file appears immediately in the UI via addFileLocally().
    */
   async function uploadFile(file, patientUuid, metadata = {}) {
-    if (isOnline()) {
-      throw new Error(
-        '[OfflineUpload] Cannot use offline upload while online. ' +
-        'Use useUploads().uploadFile() for online uploads.'
-      )
-    }
-
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('patient_uuid', patientUuid)
-    if (metadata.title) fd.append('title', metadata.title)
-    if (metadata.desc) fd.append('desc', metadata.desc)
-    if (metadata.category) fd.append('category', metadata.category)
+    const isVideo = !!(file.type && file.type.startsWith('video/'))
 
     try {
-      const res = await axios.post('/_native/api/offline/uploads', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 120000,
-      })
+      let fileData
+      if (isVideo) {
+        fileData = await saveFileChunkedOffline(file, patientUuid, metadata)
+      } else {
+        fileData = await saveFileOffline(file, patientUuid, metadata)
+      }
 
-      const job = createJob(file, patientUuid, metadata, res.data)
+      const job = createJob(file, patientUuid, metadata, fileData)
 
       // Add to workspace immediately so the user sees it
       const { addFileLocally } = useWorkspace()
-      const fallbackUrl = `/_native/cache/files/${res.data.uuid}`
-      const fallbackThumb = res.data.mime_type?.startsWith('image/')
+      const fallbackUrl = `/_native/cache/files/${fileData.uuid}`
+      const fallbackThumb = fileData.mime_type?.startsWith('image/')
         ? fallbackUrl
-        : (res.data.mime_type?.startsWith('video/')
-            ? `/_native/cache/files/${res.data.uuid}/thumbnail`
+        : (fileData.mime_type?.startsWith('video/')
+            ? `/_native/cache/files/${fileData.uuid}/thumbnail`
             : null)
       addFileLocally({
-        uuid:          res.data.uuid,
+        uuid:          fileData.uuid,
         patient_id:    patientUuid,
         title:         metadata.title || file.name || '',
         desc:          metadata.desc || '',
         category:      metadata.category || '',
-        file_name:     res.data.original_name,
-        mime_type:     res.data.mime_type,
-        size:          res.data.size,
-        sync_status:   'pending_upload',
-        type:          res.data.type || 'document',
-        extension:     res.data.extension,
-        created_at:    res.data.created_at,
-        updated_at:    res.data.created_at,
-        local_path:    res.data.local_path,
-        upload_status: 'pending_upload',
-        url:           res.data.url || fallbackUrl,
-        thumbnail_url: res.data.thumbnail_url || fallbackThumb,
+        file_name:     fileData.original_name || file.name,
+        mime_type:     fileData.mime_type,
+        size:          fileData.size,
+        sync_status:   fileData.sync_status || 'pending_sync',
+        type:          fileData.type || 'document',
+        extension:     fileData.extension,
+        created_at:    fileData.created_at,
+        updated_at:    fileData.created_at,
+        local_path:    fileData.local_path,
+        upload_status: 'ready',
+        url:           fileData.url || fallbackUrl,
+        thumbnail_url: fileData.thumbnail_url || fallbackThumb,
       })
 
       return job

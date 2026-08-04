@@ -90,10 +90,11 @@ class FileCacheRepository implements FileCacheRepositoryInterface
         $this->ensureQuota($file->size);
 
         // Download via ApiService (streams to disk, no memory load)
+        // RemoteApiService prepends mobile_api_url (https://.../api/v1/mobile)
         $remoteId = $file->remote_uuid ?: $fileUuid;
-        $success = $this->api->download('/api/v1/files/' . $remoteId . '/stream', $destination);
+        $success = $this->api->download('/files/' . $remoteId . '/stream', $destination);
         if (!$success) {
-            $success = $this->api->download('/api/v1/files/' . $remoteId, $destination);
+            $success = $this->api->download('/files/' . $remoteId, $destination);
         }
 
         if (!$success) {

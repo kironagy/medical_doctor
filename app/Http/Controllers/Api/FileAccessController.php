@@ -467,15 +467,18 @@ class FileAccessController extends Controller
             // File not on local disk — attempt auto-download & cache from remote if online
             try {
                 $this->cacheRepo->cache($uuid);
+                return $this->cacheRepo->stream(
+                    $uuid,
+                    $request->header('Range'),
+                    $request->isMethod('HEAD')
+                );
             } catch (\Throwable $e) {
-                Log::warning('[streamCached] Cache download attempt failed: ' . $e->getMessage(), ['uuid' => $uuid]);
-            }
+                Log::warning('[streamCached] Cache download attempt failed, attempting remote streaming fallback: ' . $e->getMessage(), ['uuid' => $uuid]);
 
-            return $this->cacheRepo->stream(
-                $uuid,
-                $request->header('Range'),
-                $request->isMethod('HEAD')
-            );
+                $remoteId = $file->remote_uuid ?: $file->uuid;
+                $remoteUrl = rtrim(config('app.mobile_api_url'), '/') . '/files/' . $remoteId . '/stream';
+                return redirect($remoteUrl);
+            }
         }
 
         // Phase 7: Fallback to offline pending file
@@ -566,13 +569,21 @@ class FileAccessController extends Controller
         $this->logStream($uuid, 'GET', $rangeHeader, 206, $length);
 
         return new StreamedResponse(function () use ($fp, $length) {
+            @ini_set('output_handler', '');
+            @ini_set('zlib.output_compression', 0);
+            while (ob_get_level() > 0) {
+                @ob_end_clean();
+            }
+
             $remaining = $length;
             $buf = 1024 * 1024;
             while (!feof($fp) && $remaining > 0) {
                 $read = min($buf, $remaining);
-                echo fread($fp, $read);
-                $remaining -= $read;
+                $data = fread($fp, $read);
+                if ($data === false) break;
+                echo $data;
                 fflush($fp);
+                $remaining -= strlen($data);
             }
             fclose($fp);
         }, 206, $headers);
@@ -599,13 +610,40 @@ class FileAccessController extends Controller
             })
             ->first();
 
-        if ($file && $file->file_path) {
-            $absolutePath = Storage::disk('local')->path($file->file_path);
-            if (file_exists($absolutePath)) {
+        if ($file) {
+            // 1. Check direct file_path
+            $absolutePath = $file->file_path ? Storage::disk('local')->path($file->file_path) : null;
+            if ($absolutePath && file_exists($absolutePath)) {
+                if (filesize($absolutePath) > 5 * 1024 * 1024) {
+                    abort(413, 'File too large for base64 JSON payload.');
+                }
                 return response()->json([
                     'mime' => $file->mime_type ?: 'application/octet-stream',
                     'data' => base64_encode(file_get_contents($absolutePath)),
                 ]);
+            }
+
+            // 2. Check if file is in file_cache or attempt auto-download
+            try {
+                $this->cacheRepo->cache($uuid);
+                $entry = DB::table('file_cache')->where('file_uuid', $uuid)->first();
+                if ($entry) {
+                    // Cache files live under storage_path('app/cache/...') — see
+                    // FileCacheService::resolvePath(). This is NOT under the 'local'
+                    // disk root (storage_path('app/private')), so Storage::disk('local')
+                    // must not be used here; doing so pointed at a path one directory
+                    // off from where the file actually is, making every cache hit
+                    // report "File not found" even though the file was on disk.
+                    $cacheAbsPath = storage_path('app/cache/' . $entry->local_path);
+                    if (file_exists($cacheAbsPath)) {
+                        return response()->json([
+                            'mime' => $entry->mime_type ?: ($file->mime_type ?: 'application/octet-stream'),
+                            'data' => base64_encode(file_get_contents($cacheAbsPath)),
+                        ]);
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[streamCachedBase64] Cache download attempt failed: ' . $e->getMessage(), ['uuid' => $uuid]);
             }
         }
 
