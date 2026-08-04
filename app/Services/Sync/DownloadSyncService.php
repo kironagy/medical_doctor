@@ -221,7 +221,7 @@ class DownloadSyncService
                 : ($rf['file_path'] ?? ("patients/{$patientUuid}/{$fileUuid}"));
 
             $clean = [
-                'uuid'           => $fileUuid,
+                'uuid'           => $existing ? $existing->uuid : $fileUuid,
                 'remote_uuid'    => $fileUuid,
                 'patient_id'     => $patientId,
                 'uploaded_by_id' => $localUserId,
