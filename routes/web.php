@@ -543,6 +543,20 @@ Route::prefix('_native/cache')->name('cache.')->withoutMiddleware([
     Route::delete('/patient/{patientUuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'removePatientCached'])->name('patient.remove');
 });
 
+// ── ⚠️ TEMPORARY — Phase 0 media transport diagnostic. DELETE AFTER USE ⚠️ ──
+// Serves the same file four ways (StreamedResponse / BinaryFileResponse /
+// static public file / base64) so we can see on-device which one the WebView
+// actually renders, instead of guessing. Outside auth + CSRF like the other
+// _native routes so it works before login is restored.
+Route::prefix('_native/diag')->withoutMiddleware([
+    \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+])->group(function () {
+    Route::get('/', [\App\Http\Controllers\Diag\MediaTransportDiagController::class, 'index']);
+    Route::post('/report', [\App\Http\Controllers\Diag\MediaTransportDiagController::class, 'report']);
+    Route::get('/{uuid}', [\App\Http\Controllers\Diag\MediaTransportDiagController::class, 'show']);
+    Route::get('/{uuid}/{mode}', [\App\Http\Controllers\Diag\MediaTransportDiagController::class, 'serve']);
+});
+
 
 // ── Phase 8 — Offline Notes routes merged above into _native/api/offline ──
 // (BUG-018 FIX: Was a duplicate prefix group here, now consolidated above)
