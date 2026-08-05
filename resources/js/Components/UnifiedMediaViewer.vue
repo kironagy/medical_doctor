@@ -155,7 +155,7 @@ const fileUrl = computed(() => {
     return signedUrl.value;
   }
   if (detectNative()) {
-    return `/_native/cache/files/${props.file.uuid}`;
+    return props.file.url || `/_native/cache/files/${props.file.uuid}`;
   }
   // For text files we use axios (which sends cookies), so direct URL is fine.
   // For everything else we use a signed URL fetched below.
@@ -165,7 +165,7 @@ const fileUrl = computed(() => {
 const posterUrl = computed(() => {
   if (!props.file) return '';
   if (detectNative()) {
-    return `/_native/cache/files/${props.file.uuid}/thumbnail`;
+    return props.file.thumbnail_url || `/_native/cache/files/${props.file.uuid}/thumbnail`;
   }
   return props.file.thumbnail_url || `/api/v1/files/${props.file.uuid}/thumbnail`;
 });
@@ -208,13 +208,14 @@ const fetchSignedUrl = async () => {
   loadingSignedUrl.value = true;
   try {
     if (detectNative()) {
-      // Everything on device goes through the local streaming endpoint, video
-      // included. It returns a BinaryFileResponse, so the WebView gets real
-      // Range support instead of a fully-buffered blob. The previous video
-      // path fetched base64 (413 for anything over 5MB) and then fell back to
-      // a hardcoded https:// stream URL that an <video> element can never
-      // authenticate against — a guaranteed 401.
-      signedUrl.value = `/_native/cache/files/${props.file.uuid}`;
+      // Trust the model's own url attribute — PatientFile::getUrlAttribute()
+      // already points a synced file straight at production and only falls
+      // back to the local endpoint for a file that hasn't synced yet.
+      // Forcing the local endpoint unconditionally here (as before) sent
+      // every synced file's video/image through the local per-request
+      // PHP-boot path (~650ms per Range chunk), which is what produced the
+      // infinite reload loop videos got stuck in.
+      signedUrl.value = props.file.url || `/_native/cache/files/${props.file.uuid}`;
       return;
     }
 

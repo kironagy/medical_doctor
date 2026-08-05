@@ -258,11 +258,15 @@ const fetchSignedUrls = async () => {
   if (!file.value?.uuid) return
 
   if (detectNative()) {
-    // Serve straight from the on-device endpoint. It hands the file to the
-    // SAPI as a real file (BinaryFileResponse), so Range/seeking works and
-    // nothing is buffered in JS. The old base64 detour 413'd on anything
-    // over 5MB and had to decode megabytes through atob() char by char.
-    signedUrl.value = `/_native/cache/files/${file.value.uuid}`
+    // Trust the model's own url attribute: PatientFile::getUrlAttribute()
+    // already points a synced file straight at production (confirmed live —
+    // GET /api/v1/files/{uuid} there returns 200 with no auth) and only
+    // falls back to /_native/cache/files/{uuid} for a file that hasn't
+    // synced yet. Hardcoding the local endpoint here bypassed that entirely
+    // — every synced file's preview kept hitting the local per-request
+    // PHP-boot path (~650ms per Range chunk), which is what produced the
+    // infinite reload loop videos got stuck in.
+    signedUrl.value = file.value.url || `/_native/cache/files/${file.value.uuid}`
     return
   }
 
