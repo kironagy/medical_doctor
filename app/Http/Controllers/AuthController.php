@@ -104,11 +104,16 @@ class AuthController extends Controller
         // If local authentication fails, attempt authentication against remote production API
         // (essential for clean installs where the local SQLite database contains 0 users)
         try {
-            Log::info('Local auth failed. Attempting remote fallback login for: ' . $credentials['email']);
+            Log::error('[LOGIN-DIAG] Local auth failed, attempting remote fallback', ['email' => $credentials['email']]);
             $tokenResponse = ApiService::loginToRemote($credentials['email'], $credentials['password']);
+            Log::error('[LOGIN-DIAG] loginToRemote result', [
+                'has_token' => isset($tokenResponse['token']),
+                'has_user'  => isset($tokenResponse['user']),
+                'keys'      => is_array($tokenResponse) ? array_keys($tokenResponse) : gettype($tokenResponse),
+            ]);
             if (isset($tokenResponse['token']) && isset($tokenResponse['user'])) {
                 $remoteUser = $tokenResponse['user'];
-                
+
                 // Create or update the user record locally in SQLite
                 \App\Domains\Users\Models\User::unguard();
                 $localUser = \App\Domains\Users\Models\User::updateOrCreate(
@@ -126,6 +131,11 @@ class AuthController extends Controller
                     ]
                 );
                 \App\Domains\Users\Models\User::reguard();
+                Log::error('[LOGIN-DIAG] local user upserted', [
+                    'id' => $localUser->id,
+                    'exists_in_db' => \App\Domains\Users\Models\User::where('id', $localUser->id)->exists(),
+                    'total_users_now' => \App\Domains\Users\Models\User::count(),
+                ]);
 
                 // Authenticate the user session locally
                 Auth::login($localUser, $request->boolean('remember'));
@@ -146,7 +156,19 @@ class AuthController extends Controller
                 return redirect()->intended('/dashboard');
             }
         } catch (\Throwable $e) {
-            Log::warning('Remote fallback authentication failed: ' . $e->getMessage());
+            // Log::error (not warning): device LOG_LEVEL=error filters warning
+            // out entirely. This is the only place that explains why a device
+            // stays on 0 local users despite the doctor reporting a working
+            // login — something inside the remote-fallback block (the API
+            // login call itself, or the local User::updateOrCreate() upsert)
+            // is throwing and getting swallowed here.
+            Log::error('Remote fallback authentication failed', [
+                'email'     => $credentials['email'] ?? null,
+                'exception' => get_class($e),
+                'message'   => $e->getMessage(),
+                'file'      => $e->getFile(),
+                'line'      => $e->getLine(),
+            ]);
         }
 
         return back()->withErrors([
