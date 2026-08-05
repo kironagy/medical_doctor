@@ -1047,22 +1047,37 @@ async function handleNativeFileResult(fileData) {
   if (!patientId) return
 
   let file = fileData
-  if (!(fileData instanceof File) && fileData.uri) {
-    try {
-      const blob = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        xhr.open('GET', fileData.uri, true)
-        xhr.responseType = 'blob'
-        xhr.onload = () => {
-          if (xhr.status === 200 || xhr.status === 0) resolve(xhr.response)
-          else reject(new Error(`HTTP ${xhr.status}`))
-        }
-        xhr.onerror = () => reject(new Error('Network error'))
-        xhr.send()
-      })
-      file = new File([blob], fileData.name || 'file', { type: fileData.type || blob.type })
-    } catch (e) {
-      console.warn('[CategoryBlock] Failed to read native file:', e)
+  if (!(fileData instanceof File)) {
+    // The NativePHP camera/gallery plugins (CameraCoordinator.kt) resolve
+    // with { path, mimeType, ... } — an absolute on-device filesystem path,
+    // NOT a `uri` field. Reading `fileData.uri` here always missed (it's
+    // undefined), so the raw plugin object silently fell through as `file`
+    // and got appended to FormData as-is — Laravel then saw no real upload
+    // part for the `file` field and rejected it with a 422.
+    const rawPath = fileData.uri || fileData.path
+    if (rawPath) {
+      try {
+        const readUri = /^[a-z][a-z0-9+.-]*:\/\//i.test(rawPath) ? rawPath : `file://${rawPath}`
+        const blob = await new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest()
+          xhr.open('GET', readUri, true)
+          xhr.responseType = 'blob'
+          xhr.onload = () => {
+            if (xhr.status === 200 || xhr.status === 0) resolve(xhr.response)
+            else reject(new Error(`HTTP ${xhr.status}`))
+          }
+          xhr.onerror = () => reject(new Error('Network error'))
+          xhr.send()
+        })
+        const mime = fileData.mimeType || fileData.type || blob.type
+        const name = fileData.name || rawPath.split('/').pop() || 'file'
+        file = new File([blob], name, { type: mime })
+      } catch (e) {
+        console.warn('[CategoryBlock] Failed to read native file:', e)
+        return
+      }
+    } else {
+      console.warn('[CategoryBlock] Native file result had no uri/path, skipping:', fileData)
       return
     }
   }
