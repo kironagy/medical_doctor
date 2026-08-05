@@ -175,12 +175,14 @@ class BootstrapController extends Controller
             Log::warning('[Bootstrap] Failed to cache categories: ' . $e->getMessage());
         }
 
-        // ── 3. Hydrate the local patient cache ─────────────────────────────
-        // Without this, SQLite's `patients` table stays empty until the user
-        // explicitly presses "Sync Now" — meaning a fresh login (or any app
-        // boot before that happens) has nothing to show once offline.
+        // ── 3. Hydrate the local patient cache (first page only) ───────────
+        // Intentionally NOT a full sync — only the first patient page (same
+        // page size the workspace UI uses) is fetched and merged as a delta
+        // (insert new / update changed, local pending_* always wins). Without
+        // this, SQLite's `patients` table stays empty until the user
+        // explicitly presses "Sync Now".
         try {
-            $patientCounts = app(\App\Services\Sync\DownloadSyncService::class)->downloadPatients();
+            $patientCounts = app(\App\Services\Sync\DownloadSyncService::class)->cacheFirstPage(10);
             $cached['patients'] = $patientCounts;
         } catch (\Throwable $e) {
             $cached['errors'][] = 'patients: ' . $e->getMessage();

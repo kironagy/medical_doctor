@@ -88,25 +88,11 @@ class DownloadSyncService
                     if (!is_array($remoteP) || empty($remoteP['uuid'])) continue;
 
                     $counts['downloaded']++;
-                    $localP = Patient::where('uuid', $remoteP['uuid'])->first();
-                    if (!$localP) {
-                        $clean = Arr::except($remoteP, ['id', 'primary_doctor', 'visits', 'shares', 'files', 'notes']);
-                        $clean['sync_status'] = 'synced';
-                        $clean = array_intersect_key($clean, array_flip($validCols));
-
-                        Patient::unguard();
-                        Patient::create($clean);
-                        Patient::reguard();
+                    $result = $this->upsertRemotePatient($remoteP, $validCols);
+                    if ($result === 'inserted') {
                         $counts['inserted']++;
                         if ($summary !== null) $summary['patients']++;
-                    } else if (($remoteP['version'] ?? 1) > ($localP->version ?? 1) && $localP->sync_status === 'synced') {
-                        $clean = Arr::except($remoteP, ['id', 'primary_doctor', 'visits', 'shares', 'files', 'notes']);
-                        $clean['sync_status'] = 'synced';
-                        $clean = array_intersect_key($clean, array_flip($validCols));
-
-                        Patient::unguard();
-                        $localP->update($clean);
-                        Patient::reguard();
+                    } elseif ($result === 'updated') {
                         $counts['updated']++;
                         if ($summary !== null) $summary['patients']++;
                     }
@@ -127,6 +113,81 @@ class DownloadSyncService
         }
 
         return $counts;
+    }
+
+    /**
+     * Lightweight startup/refresh hydration — fetches ONLY the first patient
+     * page (same page size the workspace UI uses), not the full patient list.
+     * Intentionally separate from downloadPatients() (used by the full
+     * SyncEngineService pipeline): this is for cheap, frequent app-boot
+     * background hydration, not full sync. Never deletes local rows and
+     * never overwrites a patient with unsynced local (pending_*) changes —
+     * local edits always win until they've synced up.
+     *
+     * @return array{downloaded:int,inserted:int,updated:int}
+     */
+    public function cacheFirstPage(int $perPage = 10): array
+    {
+        $counts = ['downloaded' => 0, 'inserted' => 0, 'updated' => 0];
+        Log::info('[PatientCache] cache started');
+
+        try {
+            $validCols = Schema::getColumnListing('patients');
+            $remoteData = $this->api->get('/mobile/patients', ['per_page' => $perPage, 'page' => 1]);
+            $remotePatients = $remoteData['data'] ?? $remoteData ?? [];
+
+            foreach ($remotePatients as $remoteP) {
+                if (!is_array($remoteP) || empty($remoteP['uuid'])) continue;
+
+                $counts['downloaded']++;
+                $result = $this->upsertRemotePatient($remoteP, $validCols);
+                if ($result === 'inserted') $counts['inserted']++;
+                elseif ($result === 'updated') $counts['updated']++;
+            }
+
+            Log::info('[PatientCache] downloaded page count=' . $counts['downloaded']);
+            Log::info('[PatientCache] delta updates count=' . ($counts['inserted'] + $counts['updated']));
+            Log::info('[PatientCache] SQLite patient count after cache: ' . Patient::count());
+        } catch (Throwable $e) {
+            Log::warning('[PatientCache] failed reason=' . $e->getMessage());
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Insert-or-update a single remote patient into local SQLite by UUID.
+     * Local pending changes (unsynced create/update/delete) always take
+     * priority and are left untouched — never overwritten by a remote pull.
+     *
+     * @return string 'inserted'|'updated'|'skipped'
+     */
+    private function upsertRemotePatient(array $remoteP, array $validCols): string
+    {
+        $localP = Patient::where('uuid', $remoteP['uuid'])->first();
+        $clean = Arr::except($remoteP, ['id', 'primary_doctor', 'visits', 'shares', 'files', 'notes']);
+        $clean['sync_status'] = 'synced';
+        $clean = array_intersect_key($clean, array_flip($validCols));
+
+        if (!$localP) {
+            Patient::unguard();
+            Patient::create($clean);
+            Patient::reguard();
+            return 'inserted';
+        }
+
+        if ($localP->sync_status !== 'synced') {
+            return 'skipped'; // local pending_create/pending_update/pending_delete takes priority
+        }
+
+        if (($remoteP['version'] ?? 1) > ($localP->version ?? 1)) {
+            Patient::unguard();
+            $localP->update($clean);
+            Patient::reguard();
+            return 'updated';
+        }
+
+        return 'skipped';
     }
 
     /**
