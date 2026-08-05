@@ -174,7 +174,17 @@ class FileCacheRepository implements FileCacheRepositoryInterface
                     \App\Domains\Patients\Models\Patient::reguard();
                 }
             } catch (\Throwable $pErr) {
-                Log::warning('[FileCache] Could not fetch remote patient for missing file', ['patient_uuid' => $patientUuid, 'error' => $pErr->getMessage()]);
+                // Log::error (not warning): device LOG_LEVEL=error strips
+                // warning out entirely. This is the other unverified branch in
+                // Bug #10's chain — a fresh device has 0 local users, so
+                // User::first()?->id falls back to a literal 1; if no local
+                // user with id=1 exists, the Patient::create() below could be
+                // failing on a foreign-key violation, silently, right here.
+                Log::error('[FileCache] Could not fetch/create remote patient for missing file', [
+                    'patient_uuid' => $patientUuid,
+                    'exception'    => get_class($pErr),
+                    'error'        => $pErr->getMessage(),
+                ]);
                 return null;
             }
         }

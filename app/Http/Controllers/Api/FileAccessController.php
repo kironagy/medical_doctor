@@ -479,7 +479,13 @@ class FileAccessController extends Controller
             try {
                 $this->cacheRepo->cache($uuid);
             } catch (\Throwable $e) {
-                Log::info('[streamCachedBase64] Remote fetch failed: ' . $e->getMessage(), ['uuid' => $uuid]);
+                // Log::error (not info): device LOG_LEVEL=error strips info out
+                // entirely — this is the only line that explains why cache()
+                // couldn't resolve the file for Bug #10's E2E trace.
+                Log::error('[streamCachedBase64] Remote fetch failed: ' . $e->getMessage(), [
+                    'uuid'      => $uuid,
+                    'exception' => get_class($e),
+                ]);
             }
             $absolutePath = $this->resolveAbsolutePath($file, $uuid);
         }
