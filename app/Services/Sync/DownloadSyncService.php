@@ -156,6 +156,60 @@ class DownloadSyncService
     }
 
     /**
+     * Lightweight delta sync — fetches only patients changed (created/updated/
+     * deleted) since the last successful delta sync, using a dedicated
+     * `patients_delta_last_sync` cursor (kept separate from downloadPatients()'s
+     * `patients_last_sync` so the two don't interfere with each other). Single
+     * page only (no "download everything" loop) — a delta set is expected to
+     * be small; a huge delta will simply be picked up incrementally on the
+     * next call. Local pending_create/pending_update/pending_delete records
+     * are never overwritten or removed (see upsertRemotePatient()).
+     *
+     * @return array{new:int,updated:int,deleted:int}
+     */
+    public function deltaSyncPatients(int $perPage = 100): array
+    {
+        $counts = ['new' => 0, 'updated' => 0, 'deleted' => 0];
+        $since = $this->getEntityLastSync('patients_delta_last_sync');
+        Log::info('[PatientDeltaSync] started last_sync=' . ($since ?? 'none'));
+
+        try {
+            $cutover = now()->toISOString();
+            $validCols = Schema::getColumnListing('patients');
+
+            $remoteData = $this->api->get('/patients', array_filter(['since' => $since, 'per_page' => $perPage]));
+            $remotePatients = $remoteData['data'] ?? [];
+            $deletedUuids = $remoteData['deleted'] ?? [];
+
+            foreach ($remotePatients as $remoteP) {
+                if (!is_array($remoteP) || empty($remoteP['uuid'])) continue;
+
+                $result = $this->upsertRemotePatient($remoteP, $validCols);
+                if ($result === 'inserted') $counts['new']++;
+                elseif ($result === 'updated') $counts['updated']++;
+            }
+
+            foreach ($deletedUuids as $uuid) {
+                $local = Patient::where('uuid', $uuid)->first();
+                if ($local && $local->sync_status === 'synced') {
+                    $local->forceDelete();
+                    $counts['deleted']++;
+                }
+                // else: missing locally, or has unsynced local pending_* changes — leave as-is.
+            }
+
+            $this->setEntityLastSync('patients_delta_last_sync', $cutover);
+
+            Log::info('[PatientDeltaSync] received new=' . $counts['new'] . ' updated=' . $counts['updated'] . ' deleted=' . $counts['deleted']);
+            Log::info('[PatientDeltaSync] SQLite count after sync=' . Patient::count());
+        } catch (Throwable $e) {
+            Log::warning('[PatientDeltaSync] failed reason=' . $e->getMessage());
+        }
+
+        return $counts;
+    }
+
+    /**
      * Insert-or-update a single remote patient into local SQLite by UUID.
      * Local pending changes (unsynced create/update/delete) always take
      * priority and are left untouched — never overwritten by a remote pull.

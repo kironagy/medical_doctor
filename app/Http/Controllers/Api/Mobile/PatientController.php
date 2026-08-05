@@ -33,9 +33,20 @@ class PatientController extends Controller
             });
         }
 
+        // Delta-sync support: only applies when `since` is passed, so existing
+        // callers (full list, no `since`) are unaffected.
+        $since = $request->get('since');
+        $deleted = [];
+        if ($since) {
+            $query->where('updated_at', '>', $since);
+            $deleted = Patient::onlyTrashed()
+                ->where('deleted_at', '>', $since)
+                ->pluck('uuid');
+        }
+
         $patients = $query->paginate($perPage);
 
-        return response()->json($patients);
+        return response()->json($patients->toArray() + ['deleted' => $deleted]);
     }
 
     public function show(string $uuid)

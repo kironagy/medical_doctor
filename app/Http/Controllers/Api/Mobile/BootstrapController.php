@@ -182,8 +182,14 @@ class BootstrapController extends Controller
         // this, SQLite's `patients` table stays empty until the user
         // explicitly presses "Sync Now".
         try {
-            $patientCounts = app(\App\Services\Sync\DownloadSyncService::class)->cacheFirstPage(10);
-            $cached['patients'] = $patientCounts;
+            $downloadSync = app(\App\Services\Sync\DownloadSyncService::class);
+            $cached['patients'] = $downloadSync->cacheFirstPage(10);
+
+            // ── 3b. Delta sync: catch changes/deletes outside the first page ──
+            // cacheFirstPage() above only ever looks at page 1. This picks up
+            // anything changed or deleted anywhere else since the last delta
+            // sync, without re-downloading the whole patient list.
+            $cached['patients_delta'] = $downloadSync->deltaSyncPatients();
         } catch (\Throwable $e) {
             $cached['errors'][] = 'patients: ' . $e->getMessage();
             Log::warning('[Bootstrap] Failed to cache patients: ' . $e->getMessage());
