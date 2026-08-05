@@ -53,8 +53,16 @@ class PatientFile extends Model
         // synced yet (still local-only, pending upload) has bytes ONLY on this
         // device, so that's the one case that must use the local endpoint.
         if (config('database.default') === 'sqlite') {
-            if ($this->sync_status === 'synced' && $this->remote_uuid) {
-                return $this->remoteOrigin() . '/api/v1/files/' . $this->remote_uuid;
+            // remote_uuid ?: uuid — same fallback already used throughout
+            // FileAccessController/FileCacheRepository/FileSyncService. Files
+            // synced before the $fillable fix (remote_uuid, sha256, hls_path
+            // were missing from it) have sync_status=synced but a null
+            // remote_uuid, even though the server accepted the client-
+            // generated uuid as its own id. Without this fallback those files
+            // fell back to the local endpoint and hit the same hydration path
+            // Bug #10 just fixed away.
+            if ($this->sync_status === 'synced') {
+                return $this->remoteOrigin() . '/api/v1/files/' . ($this->remote_uuid ?: $this->uuid);
             }
             return '/_native/cache/files/' . $this->uuid;
         }
@@ -65,8 +73,8 @@ class PatientFile extends Model
     public function getThumbnailUrlAttribute()
     {
         if (config('database.default') === 'sqlite') {
-            if ($this->sync_status === 'synced' && $this->remote_uuid) {
-                $remoteBase = $this->remoteOrigin() . '/api/v1/files/' . $this->remote_uuid;
+            if ($this->sync_status === 'synced') {
+                $remoteBase = $this->remoteOrigin() . '/api/v1/files/' . ($this->remote_uuid ?: $this->uuid);
                 if ($this->mime_type && str_starts_with($this->mime_type, 'image/')) {
                     return $remoteBase;
                 }
