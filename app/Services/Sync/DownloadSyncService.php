@@ -118,9 +118,10 @@ class DownloadSyncService
 
             $this->setEntityLastSync('patients_last_sync', $cutover);
 
-            Log::info('[PatientCache] downloaded count=' . $counts['downloaded']);
+            Log::info('[PatientCache] downloaded ' . $counts['downloaded'] . ' patients');
             Log::info('[PatientCache] inserted count=' . $counts['inserted']);
             Log::info('[PatientCache] updated count=' . $counts['updated']);
+            Log::info('[PatientCache] SQLite patients count after sync: ' . Patient::count());
         } catch (Throwable $e) {
             Log::warning('[PatientCache] failed reason=' . $e->getMessage());
         }
