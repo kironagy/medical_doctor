@@ -81,7 +81,7 @@ class DownloadSyncService
             $page = 1;
             do {
                 $query = array_filter(['since' => $since, 'per_page' => 100, 'page' => $page]);
-                $remoteData = $this->api->get('/mobile/patients', $query);
+                $remoteData = $this->api->get('/patients', $query);
                 $remotePatients = $remoteData['data'] ?? $remoteData ?? [];
 
                 foreach ($remotePatients as $remoteP) {
@@ -133,7 +133,7 @@ class DownloadSyncService
 
         try {
             $validCols = Schema::getColumnListing('patients');
-            $remoteData = $this->api->get('/mobile/patients', ['per_page' => $perPage, 'page' => 1]);
+            $remoteData = $this->api->get('/patients', ['per_page' => $perPage, 'page' => 1]);
             $remotePatients = $remoteData['data'] ?? $remoteData ?? [];
 
             foreach ($remotePatients as $remoteP) {
