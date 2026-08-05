@@ -620,9 +620,12 @@ async function handleArchive() {
     workspaceData.value = null
     expandedCategories.value = {}
     showActionMenu.value = false
+    if (isMobile.value) {
+      mobilePatientListOpen.value = true
+    }
     await refreshPatientList()
     await fetchArchivedPatients()
-    if (patients.value.length > 0) {
+    if (!isMobile.value && patients.value.length > 0) {
       selectPatient(patients.value[0].uuid)
     }
     toast.success(t('common.success'))
@@ -676,9 +679,12 @@ async function handleDelete() {
     workspaceData.value = null
     expandedCategories.value = {}
     showActionMenu.value = false
+    if (isMobile.value) {
+      mobilePatientListOpen.value = true
+    }
     await refreshPatientList()
     await fetchArchivedPatients()
-    if (patients.value.length > 0) {
+    if (!isMobile.value && patients.value.length > 0) {
       selectPatient(patients.value[0].uuid)
     }
     toast.success(t('common.success'))

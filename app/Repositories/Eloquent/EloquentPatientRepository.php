@@ -115,7 +115,23 @@ class EloquentPatientRepository implements PatientRepositoryInterface
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
         );
         $patient = $this->applyUuidQuery($query, $uuid)->first();
-        if ($patient) {
+        if (!$patient) {
+            return;
+        }
+
+        // Same SYNC-002 pattern as Mobile\PatientController::destroy(): on the
+        // embedded SQLite device, mark pending_delete instead of soft-deleting
+        // immediately, so SyncEngineService::processPendingDeletes() pushes the
+        // delete to the production server before removing the local row.
+        // Soft-deleting straight away here left sync_status untouched at
+        // 'synced', which processPendingDeletes() never queries for — the
+        // delete silently never reached the server.
+        if (config('database.default') === 'sqlite') {
+            $patient->update([
+                'sync_status' => 'pending_delete',
+                'client_updated_at' => now(),
+            ]);
+        } else {
             $patient->delete();
         }
     }
@@ -165,6 +181,22 @@ class EloquentPatientRepository implements PatientRepositoryInterface
 
     public function forceDelete(string $uuid): void
     {
-        Patient::withTrashed()->where('uuid', $uuid)->firstOrFail()->forceDelete();
+        $patient = Patient::withTrashed()->where('uuid', $uuid)->firstOrFail();
+
+        // Force-deleting immediately on the embedded SQLite device removes the
+        // row with no API call to production at all — the delete never reaches
+        // the server, and the very next download-sync cycle sees the patient
+        // still active remotely, finds no local row, and re-inserts it (the
+        // "deleted patient comes back" bug). Mark pending_delete instead so
+        // SyncEngineService::processPendingDeletes() deletes it on the server
+        // first, then force-deletes the local row.
+        if (config('database.default') === 'sqlite') {
+            $patient->update([
+                'sync_status' => 'pending_delete',
+                'client_updated_at' => now(),
+            ]);
+        } else {
+            $patient->forceDelete();
+        }
     }
 }

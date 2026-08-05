@@ -762,16 +762,12 @@ class SyncEngineService
                     }
                 }
 
-                // Remove from local SQLite entirely
-                // On SQLite (non-trashed): use delete() since forceDelete()
-                // is designed for trashed models and may behave unexpectedly
-                // on non-trashed records.
-                // On MySQL (trashed): use forceDelete() as before.
-                if ($patient->trashed()) {
-                    $patient->forceDelete();
-                } else {
-                    $patient->delete();
-                }
+                // Remove from local SQLite entirely. forceDelete() always
+                // issues a real permanent delete regardless of trashed state —
+                // calling delete() here only sets deleted_at (Patient uses
+                // SoftDeletes), leaving a zombie row that later collides with
+                // a UUID re-insert the next time downloadChanges() runs.
+                $patient->forceDelete();
 
                 $deletedCount++;
 
@@ -781,11 +777,7 @@ class SyncEngineService
             } catch (\Throwable $e) {
                 if ($e->getCode() === 404 || str_contains($e->getMessage(), '404') || str_contains($e->getMessage(), 'Not Found')) {
                     // Already deleted on server, or never existed. Delete locally.
-                    if ($patient->trashed()) {
-                        $patient->forceDelete();
-                    } else {
-                        $patient->delete();
-                    }
+                    $patient->forceDelete();
                     $deletedCount++;
                     Log::info('[SyncEngine] Assumed already deleted remotely (404)', ['uuid' => $patient->uuid]);
                 } else {
