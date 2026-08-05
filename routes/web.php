@@ -7,6 +7,38 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\DoctorController;
 
+// ⚠️ TEMPORARY — one-shot diagnostic: log the actual resolved DB connection
+// on every request. Local `users`/`patients`/`patient_files` tables read back
+// empty on-device despite a working login and successful API calls, which
+// only makes sense if Laravel is writing to a SQLite file other than the one
+// being inspected via adb. This settles which file/path is really in use —
+// remove once confirmed.
+if (config('database.default') === 'sqlite') {
+    static $loggedDbPath = false;
+    if (!$loggedDbPath) {
+        $loggedDbPath = true;
+        \Illuminate\Support\Facades\Log::error('[DB-PATH-DIAG]', [
+            'config_db_default'    => config('database.default'),
+            'config_sqlite_database' => config('database.connections.sqlite.database'),
+            'env_DB_DATABASE'      => env('DB_DATABASE'),
+            'getenv_DB_DATABASE'   => getenv('DB_DATABASE'),
+            'pdo_connection_test'  => (function () {
+                try {
+                    return \Illuminate\Support\Facades\DB::connection()->getPdo()
+                        ? \Illuminate\Support\Facades\DB::connection()->getDatabaseName()
+                        : 'no-pdo';
+                } catch (\Throwable $e) {
+                    return 'connection-failed: ' . $e->getMessage();
+                }
+            })(),
+            'users_count'          => (function () {
+                try { return \Illuminate\Support\Facades\DB::table('users')->count(); }
+                catch (\Throwable $e) { return 'query-failed: ' . $e->getMessage(); }
+            })(),
+        ]);
+    }
+}
+
 // ── Session Restore (auto-login for Embedded Laravel) ────────────────
 // The embedded Laravel application does NOT use Sanctum tokens for local
 // authentication. When the WebView restarts, the frontend calls this
