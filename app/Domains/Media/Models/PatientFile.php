@@ -12,10 +12,16 @@ class PatientFile extends Model
 {
     use SoftDeletes;
 
+    // ⚠️ remote_uuid / sha256 / hls_path must stay listed here. They were
+    // missing while FileSyncService::processItem() writes them through a plain
+    // ->update(), so every value was silently dropped: files came back from a
+    // successful upload marked sync_status=synced but with no remote_uuid, the
+    // next delta sync failed to match them and inserted a second, empty-path
+    // row for the same file — which then rendered as a broken tile in the app.
     protected $fillable = [
-        'uuid', 'patient_id', 'uploaded_by_id', 'title', 'desc', 'notes', 'tags', 'type', 'category',
-        'date', 'file_name', 'file_path', 'thumbnail_path', 'upload_status', 'sync_status',
-        'client_updated_at', 'mime_type', 'size',
+        'uuid', 'remote_uuid', 'patient_id', 'uploaded_by_id', 'title', 'desc', 'notes', 'tags', 'type', 'category',
+        'date', 'file_name', 'file_path', 'thumbnail_path', 'hls_path', 'upload_status', 'sync_status',
+        'client_updated_at', 'mime_type', 'size', 'sha256',
     ];
 
     protected $casts = [

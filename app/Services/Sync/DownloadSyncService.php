@@ -263,6 +263,22 @@ class DownloadSyncService
         return $query->get(['id', 'uuid']);
     }
 
+    /**
+     * Every patient this device has synced, with no recency filter.
+     *
+     * Files must NOT use eligiblePatientsSince(): that gate compares the LOCAL
+     * patient row's updated_at, and uploading a file to a patient on the
+     * website never touches the local patient row. So after the first sync set
+     * files_last_sync, every existing patient became permanently "not
+     * eligible" and its new website files were never requested from the
+     * server — the file showed up in the UI (which lists from the API) with no
+     * local row behind it, and previewing it 404'd.
+     */
+    private function syncedPatients()
+    {
+        return Patient::where('sync_status', 'synced')->get(['id', 'uuid']);
+    }
+
     private function downloadNotes(array &$summary): void
     {
         $since = $this->getEntityLastSync('notes_last_sync');
@@ -357,84 +373,133 @@ class DownloadSyncService
         $cutover = now()->format('Y-m-d H:i:s');
 
         try {
-            foreach ($this->eligiblePatientsSince($since) as $patient) {
-                $page = 1;
-                do {
-                    $remoteData = $this->api->get("/patients/{$patient->uuid}/files", ['per_page' => 100, 'page' => $page]);
-                    $files = $remoteData['data'] ?? $remoteData ?? [];
-
-                    foreach ($files as $remoteFile) {
-                        if (!is_array($remoteFile) || empty($remoteFile['uuid'])) continue;
-
-                        try {
-                            $fileUuid = $remoteFile['uuid'];
-
-                            $localFile = PatientFile::withoutGlobalScope(
-                                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-                            )->where(function ($q) use ($fileUuid) {
-                                $q->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid);
-                            })->first();
-
-                            if ($localFile && $localFile->sync_status !== 'synced') {
-                                continue;
-                            }
-
-                            $uploadedById = $patient->primary_doctor_id
-                                ?? \App\Domains\Users\Models\User::first()?->id
-                                ?? 1;
-
-                            $clean = [
-                                'patient_id'     => $patient->id,
-                                'uploaded_by_id' => $localFile->uploaded_by_id ?? $uploadedById,
-                                'title'          => $remoteFile['title'] ?? ($remoteFile['file_name'] ?? 'File'),
-                                'desc'           => $remoteFile['description'] ?? ($remoteFile['desc'] ?? null),
-                                'type'           => $remoteFile['type'] ?? 'document',
-                                'category'       => !empty($remoteFile['category']) ? $remoteFile['category'] : 'notes',
-                                'date'           => $remoteFile['date'] ?? now()->format('Y-m-d'),
-                                'file_name'      => $remoteFile['file_name'] ?? 'file',
-                                'mime_type'      => $remoteFile['mime_type'] ?? 'application/octet-stream',
-                                'size'           => $remoteFile['size'] ?? 0,
-                                'upload_status'  => 'ready',
-                                'sync_status'    => 'synced',
-                                'remote_uuid'    => $fileUuid,
-                            ];
-
-                            if (!$localFile) {
-                                PatientFile::unguard();
-                                $localFile = PatientFile::create(array_merge(['uuid' => $fileUuid, 'file_path' => ''], $clean));
-                                PatientFile::reguard();
-                            } else {
-                                PatientFile::unguard();
-                                $localFile->update($clean);
-                                PatientFile::reguard();
-                            }
-
-                            if ($summary !== null) {
-                                $summary['files']++;
-                            }
-
-                            // Auto-cache physical file locally for offline access
-                            try {
-                                if (app()->bound(FileCacheRepositoryInterface::class)) {
-                                    app(FileCacheRepositoryInterface::class)->cache($fileUuid);
-                                }
-                            } catch (Throwable $cacheE) {
-                                Log::debug('[DownloadSyncService] Auto-cache file binary skipped: ' . $cacheE->getMessage(), ['uuid' => $fileUuid]);
-                            }
-
-                        } catch (Throwable $e) {
-                            Log::info('[DownloadSyncService] Skipped file ' . ($remoteFile['uuid'] ?? 'unknown') . ': ' . $e->getMessage());
-                        }
-                    }
-
-                    $lastPage = (int) ($remoteData['last_page'] ?? 1);
-                    $page++;
-                } while ($page <= $lastPage && !empty($files));
+            foreach ($this->syncedPatients() as $patient) {
+                $this->pullPatientFiles($patient, $summary);
             }
 
             $this->setEntityLastSync('files_last_sync', $cutover);
         } catch (Throwable $e) {
             Log::info('[DownloadSyncService] File download changes skipped: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Pull one patient's files from the server right now.
+     *
+     * Opening a patient calls this so a file added on the website is present
+     * locally by the time its thumbnail is requested, instead of waiting for
+     * the next full sync pass.
+     *
+     * @return int number of remote files seen
+     */
+    public function downloadFilesForPatient(string $patientUuid, ?array &$summary = null): int
+    {
+        $patient = Patient::where('uuid', $patientUuid)->first();
+        if (!$patient) {
+            return 0;
+        }
+
+        try {
+            return $this->pullPatientFiles($patient, $summary);
+        } catch (Throwable $e) {
+            Log::info('[DownloadSyncService] On-demand file pull failed for ' . $patientUuid . ': ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Walk every page of a patient's remote file list and upsert each entry.
+     */
+    private function pullPatientFiles(Patient $patient, ?array &$summary = null): int
+    {
+        $seen = 0;
+        $page = 1;
+
+        do {
+            $remoteData = $this->api->get("/patients/{$patient->uuid}/files", ['per_page' => 100, 'page' => $page]);
+            $files = $remoteData['data'] ?? $remoteData ?? [];
+
+            foreach ($files as $remoteFile) {
+                if (!is_array($remoteFile) || empty($remoteFile['uuid'])) continue;
+
+                $seen++;
+
+                try {
+                    $this->upsertRemoteFile($remoteFile, $patient, $summary);
+                } catch (Throwable $e) {
+                    Log::info('[DownloadSyncService] Skipped file ' . ($remoteFile['uuid'] ?? 'unknown') . ': ' . $e->getMessage());
+                }
+            }
+
+            $lastPage = (int) ($remoteData['last_page'] ?? 1);
+            $page++;
+        } while ($page <= $lastPage && !empty($files));
+
+        return $seen;
+    }
+
+    private function upsertRemoteFile(array $remoteFile, Patient $patient, ?array &$summary = null): void
+    {
+        $fileUuid = $remoteFile['uuid'];
+
+        $localFile = PatientFile::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($fileUuid) {
+            $q->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid);
+        })->first();
+
+        // A local row still waiting to be pushed wins — don't let the server's
+        // older copy overwrite edits that haven't been uploaded yet.
+        if ($localFile && $localFile->sync_status !== 'synced') {
+            return;
+        }
+
+        $uploadedById = $patient->primary_doctor_id
+            ?? \App\Domains\Users\Models\User::first()?->id
+            ?? 1;
+
+        // Only fall back to a default when there is no local value to preserve.
+        // Blindly defaulting category to 'notes' rewrote the category of every
+        // file the remote payload happened to omit it for, which is what
+        // silently moved freshly uploaded files out of the category they were
+        // uploaded into.
+        $clean = [
+            'patient_id'     => $patient->id,
+            'uploaded_by_id' => $localFile->uploaded_by_id ?? $uploadedById,
+            'title'          => $remoteFile['title'] ?? ($localFile->title ?? ($remoteFile['file_name'] ?? 'File')),
+            'desc'           => $remoteFile['description'] ?? ($remoteFile['desc'] ?? $localFile->desc ?? null),
+            'type'           => $remoteFile['type'] ?? ($localFile->type ?? 'document'),
+            'category'       => !empty($remoteFile['category'])
+                ? $remoteFile['category']
+                : ($localFile->category ?? 'notes'),
+            'date'           => $remoteFile['date'] ?? ($localFile->date ?? now()->format('Y-m-d')),
+            'file_name'      => $remoteFile['file_name'] ?? ($localFile->file_name ?? 'file'),
+            'mime_type'      => $remoteFile['mime_type'] ?? ($localFile->mime_type ?? 'application/octet-stream'),
+            'size'           => $remoteFile['size'] ?? ($localFile->size ?? 0),
+            'upload_status'  => 'ready',
+            'sync_status'    => 'synced',
+            'remote_uuid'    => $fileUuid,
+        ];
+
+        PatientFile::unguard();
+        if (!$localFile) {
+            $localFile = PatientFile::create(array_merge(['uuid' => $fileUuid, 'file_path' => ''], $clean));
+        } else {
+            $localFile->update($clean);
+        }
+        PatientFile::reguard();
+
+        if ($summary !== null) {
+            $summary['files']++;
+        }
+
+        // Auto-cache physical file locally for offline access
+        try {
+            if (app()->bound(FileCacheRepositoryInterface::class)) {
+                app(FileCacheRepositoryInterface::class)->cache($fileUuid);
+            }
+        } catch (Throwable $cacheE) {
+            Log::debug('[DownloadSyncService] Auto-cache file binary skipped: ' . $cacheE->getMessage(), ['uuid' => $fileUuid]);
         }
     }
 }

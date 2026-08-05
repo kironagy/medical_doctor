@@ -253,6 +253,21 @@ class WorkspaceController extends Controller
             return response()->json(['message' => 'Patient not found'], 404);
         }
 
+        // On device, pull this patient's remote file list before reading the
+        // local one. A file uploaded on the website has no local row until it
+        // is synced, and the periodic pass can lag behind — without this the
+        // file renders in the list (which the API feeds) but its bytes 404,
+        // which is exactly the "shows up but won't preview" case. Best-effort:
+        // offline or a failing server just falls through to local data.
+        if (config('database.default') === 'sqlite') {
+            try {
+                app(\App\Services\Sync\DownloadSyncService::class)
+                    ->downloadFilesForPatient($uuid);
+            } catch (\Throwable $e) {
+                Log::debug('[Workspace] on-demand file pull skipped: ' . $e->getMessage());
+            }
+        }
+
         // PERF: Load only the newest 200 files (enough for the UI window + stats)
         // and count the rest cheaply. Previously this loaded EVERY file (with
         // appended url/thumbnail_url) for the patient on every open.

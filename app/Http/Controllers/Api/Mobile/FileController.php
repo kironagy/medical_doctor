@@ -95,6 +95,16 @@ class FileController extends Controller
             'date'     => 'nullable|date',
         ]);
 
+        // TEMPORARY (category investigation): record what the client actually
+        // sent so we can tell a dropped category apart from one the sync
+        // later overwrote. Remove once the category flow is confirmed.
+        \Illuminate\Support\Facades\Log::info('[UploadCategory] store', [
+            'patient_uuid'      => $patientUuid,
+            'category_received' => $request->input('category'),
+            'category_valid'    => $validated['category'] ?? null,
+            'all_keys'          => array_keys($request->all()),
+        ]);
+
         $uploadedFile = $request->file('file');
         $fileUuid = (string) \Illuminate\Support\Str::uuid();
         $extension = $uploadedFile->getClientOriginalExtension();

@@ -208,41 +208,13 @@ const fetchSignedUrl = async () => {
   loadingSignedUrl.value = true;
   try {
     if (detectNative()) {
-      if (type.value !== 'video') {
-        // Images/audio/other native types keep using the existing
-        // direct `/_native/cache/files/{uuid}` binary URL — unchanged.
-        return;
-      }
-
-      const uuid = props.file.uuid;
-      const remoteUuid = props.file.remote_uuid || uuid;
-
-      // 1. Try fetching local base64 JSON -> Blob URL (works offline)
-      try {
-        const res = await axios.get(`/_native/cache/files/${uuid}/base64`);
-        const mime = res.data.mime || props.file.mime_type || 'video/mp4';
-        const binary = atob(res.data.data);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        const blob = new Blob([bytes], { type: mime });
-        if (signedUrl.value && signedUrl.value.startsWith('blob:')) {
-          URL.revokeObjectURL(signedUrl.value);
-        }
-        signedUrl.value = URL.createObjectURL(blob);
-        return;
-      } catch (e) {
-        console.warn('Local base64 video fetch unavailable, falling back to remote HTTPS stream URL', e);
-      }
-
-      // 2. Fallback for native video: use remote HTTPS stream URL if synced
-      if (props.file.sync_status === 'synced' || props.file.remote_uuid) {
-        signedUrl.value = `https://prof-hosam-fekry.online/api/v1/mobile/files/${remoteUuid}/stream`;
-        return;
-      }
-
-      signedUrl.value = `/_native/cache/files/${uuid}`;
+      // Everything on device goes through the local streaming endpoint, video
+      // included. It returns a BinaryFileResponse, so the WebView gets real
+      // Range support instead of a fully-buffered blob. The previous video
+      // path fetched base64 (413 for anything over 5MB) and then fell back to
+      // a hardcoded https:// stream URL that an <video> element can never
+      // authenticate against — a guaranteed 401.
+      signedUrl.value = `/_native/cache/files/${props.file.uuid}`;
       return;
     }
 
