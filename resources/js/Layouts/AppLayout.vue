@@ -225,6 +225,35 @@ watch(lastSyncResult, (result) => {
 const LIGHT_THEME_COLOR = '#0d9488';
 const DARK_THEME_COLOR = '#030712';
 
+// Module-level (not component-level) so it survives Inertia layout re-mounts
+// across page navigations and only fires once per actual app launch.
+let patientCacheHydrated = false;
+
+// Pull patients (and other bootstrap data) from the server into local SQLite
+// on app boot when online. Login.vue already does this once at first login,
+// but that call is skipped entirely for an already-authenticated user simply
+// reopening the app — this is what covers that case. Fire-and-forget/no-op
+// safe: the endpoint itself no-ops on the web (MySQL) build.
+function hydratePatientCacheOnce() {
+  if (patientCacheHydrated) return;
+  patientCacheHydrated = true;
+
+  const apiToken = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null;
+  if (!apiToken) return;
+
+  fetch('/_native/api/bootstrap/refresh', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + apiToken,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+  }).catch((e) => {
+    console.warn('[AppLayout] Patient cache hydration failed (non-fatal):', e.message);
+  });
+}
+
 function syncStatusBar(t) {
   const isDark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const color = isDark ? DARK_THEME_COLOR : LIGHT_THEME_COLOR;
@@ -245,6 +274,7 @@ onMounted(() => {
 
   // Initial data refresh when online on startup
   if (navigator.onLine) {
+      hydratePatientCacheOnce();
       const ws = useWorkspace();
       ws.refreshPatientList();
   }

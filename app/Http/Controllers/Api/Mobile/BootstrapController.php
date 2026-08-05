@@ -175,6 +175,18 @@ class BootstrapController extends Controller
             Log::warning('[Bootstrap] Failed to cache categories: ' . $e->getMessage());
         }
 
+        // ── 3. Hydrate the local patient cache ─────────────────────────────
+        // Without this, SQLite's `patients` table stays empty until the user
+        // explicitly presses "Sync Now" — meaning a fresh login (or any app
+        // boot before that happens) has nothing to show once offline.
+        try {
+            $patientCounts = app(\App\Services\Sync\DownloadSyncService::class)->downloadPatients();
+            $cached['patients'] = $patientCounts;
+        } catch (\Throwable $e) {
+            $cached['errors'][] = 'patients: ' . $e->getMessage();
+            Log::warning('[Bootstrap] Failed to cache patients: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success'  => true,
             'cached'   => $cached,

@@ -40,6 +40,11 @@ fi
 echo "🔧 Switching to $BUILD_TYPE environment..."
 cp "$PROD_ENV" ".env"
 
+# Clear cached config NOW, before the build boots Laravel, so nothing built
+# in this run can read a stale config.php cached from a previous .env
+echo "🧹 Clearing config cache so the build picks up $PROD_ENV values..."
+php artisan config:clear --no-interaction 2>/dev/null || true
+
 # Production preview hook
 if [ -f ".nativephp/production-preload.php" ]; then
     echo "📦 Running production preload..."

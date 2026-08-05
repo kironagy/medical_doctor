@@ -61,9 +61,18 @@ class DownloadSyncService
     /**
      * Downloads ALL pages of the patient list, not just the first, so patients
      * beyond the first page are never silently missing from the offline cache.
+     *
+     * Public so it can be triggered on its own (e.g. app boot / post-login
+     * bootstrap) without running the rest of the push/pull sync pipeline —
+     * see BootstrapController::refreshCache().
+     *
+     * @return array{downloaded:int,inserted:int,updated:int}
      */
-    private function downloadPatients(array &$summary): void
+    public function downloadPatients(?array &$summary = null): array
     {
+        $counts = ['downloaded' => 0, 'inserted' => 0, 'updated' => 0];
+        Log::info('[PatientCache] started');
+
         try {
             $since = $this->getEntityLastSync('patients_last_sync');
             $cutover = now()->toISOString();
@@ -78,6 +87,7 @@ class DownloadSyncService
                 foreach ($remotePatients as $remoteP) {
                     if (!is_array($remoteP) || empty($remoteP['uuid'])) continue;
 
+                    $counts['downloaded']++;
                     $localP = Patient::where('uuid', $remoteP['uuid'])->first();
                     if (!$localP) {
                         $clean = Arr::except($remoteP, ['id', 'primary_doctor', 'visits', 'shares', 'files', 'notes']);
@@ -87,7 +97,8 @@ class DownloadSyncService
                         Patient::unguard();
                         Patient::create($clean);
                         Patient::reguard();
-                        $summary['patients']++;
+                        $counts['inserted']++;
+                        if ($summary !== null) $summary['patients']++;
                     } else if (($remoteP['version'] ?? 1) > ($localP->version ?? 1) && $localP->sync_status === 'synced') {
                         $clean = Arr::except($remoteP, ['id', 'primary_doctor', 'visits', 'shares', 'files', 'notes']);
                         $clean['sync_status'] = 'synced';
@@ -96,7 +107,8 @@ class DownloadSyncService
                         Patient::unguard();
                         $localP->update($clean);
                         Patient::reguard();
-                        $summary['patients']++;
+                        $counts['updated']++;
+                        if ($summary !== null) $summary['patients']++;
                     }
                 }
 
@@ -105,9 +117,15 @@ class DownloadSyncService
             } while ($page <= $lastPage && !empty($remotePatients));
 
             $this->setEntityLastSync('patients_last_sync', $cutover);
+
+            Log::info('[PatientCache] downloaded count=' . $counts['downloaded']);
+            Log::info('[PatientCache] inserted count=' . $counts['inserted']);
+            Log::info('[PatientCache] updated count=' . $counts['updated']);
         } catch (Throwable $e) {
-            Log::info('[DownloadSyncService] Patient download changes skipped: ' . $e->getMessage());
+            Log::warning('[PatientCache] failed reason=' . $e->getMessage());
         }
+
+        return $counts;
     }
 
     /**
