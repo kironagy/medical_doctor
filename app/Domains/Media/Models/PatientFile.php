@@ -32,12 +32,30 @@ class PatientFile extends Model
 
     protected $appends = ['url', 'thumbnail_url', 'name', 'extension'];
 
+    /**
+     * Base URL of the real production server, derived from mobile_api_url
+     * (".../api/v1/mobile") rather than a hardcoded domain — the same
+     * literal-domain pattern already caused one confirmed 401 in
+     * UnifiedMediaViewer.vue's old video fallback.
+     */
+    private function remoteOrigin(): string
+    {
+        return preg_replace('#/api/v1/mobile/?$#', '', config('app.mobile_api_url'));
+    }
+
     public function getUrlAttribute()
     {
-        // On embedded Laravel (SQLite / NativePHP Mobile App), files are stored
-        // locally on the device. Use the local streaming endpoint so the mobile
-        // app can access the file without going to the production server.
+        // A synced file's bytes live on production, not on this device — there
+        // is no way to serve them "from the app" for a file the app never
+        // stored. Point straight at the real, working URL (confirmed live:
+        // GET /api/v1/files/{uuid} on production returns 200 with no auth
+        // needed — streamDirect() there has no Gate). Only a file that hasn't
+        // synced yet (still local-only, pending upload) has bytes ONLY on this
+        // device, so that's the one case that must use the local endpoint.
         if (config('database.default') === 'sqlite') {
+            if ($this->sync_status === 'synced' && $this->remote_uuid) {
+                return $this->remoteOrigin() . '/api/v1/files/' . $this->remote_uuid;
+            }
             return '/_native/cache/files/' . $this->uuid;
         }
         $baseUrl = rtrim(config('app.url'), '/');
@@ -46,8 +64,15 @@ class PatientFile extends Model
 
     public function getThumbnailUrlAttribute()
     {
-        // On embedded Laravel (SQLite / NativePHP Mobile App), use local endpoint
         if (config('database.default') === 'sqlite') {
+            if ($this->sync_status === 'synced' && $this->remote_uuid) {
+                $remoteBase = $this->remoteOrigin() . '/api/v1/files/' . $this->remote_uuid;
+                if ($this->mime_type && str_starts_with($this->mime_type, 'image/')) {
+                    return $remoteBase;
+                }
+                return $remoteBase . '/thumbnail';
+            }
+            // Not synced yet — bytes only exist on this device.
             if ($this->thumbnail_path) {
                 return '/_native/cache/files/' . $this->uuid . '/thumbnail';
             }
