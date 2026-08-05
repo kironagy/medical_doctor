@@ -45,7 +45,7 @@ class FileController extends Controller
     {
         $file = PatientFile::withoutGlobalScope(
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-        )->where(function ($q) use ($fileUuid) {
+        )->with('patient:id,uuid')->where(function ($q) use ($fileUuid) {
             $q->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid);
         })->firstOrFail();
         if (config('database.default') !== 'sqlite' && request()->user()) {

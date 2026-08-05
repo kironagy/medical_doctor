@@ -481,6 +481,21 @@ class FileAccessController extends Controller
             }
         }
 
+        // No local PatientFile row at all — this file was uploaded/edited on the
+        // website after this device's last patient sync, so it was never
+        // hydrated locally. FileCacheRepository::cache() knows how to fetch its
+        // metadata + bytes from the remote API and create the local row itself.
+        try {
+            $this->cacheRepo->cache($uuid);
+            return $this->cacheRepo->stream(
+                $uuid,
+                $request->header('Range'),
+                $request->isMethod('HEAD')
+            );
+        } catch (\Throwable $e) {
+            Log::info('[streamCached] Remote hydration attempt failed, falling back to offline_files: ' . $e->getMessage(), ['uuid' => $uuid]);
+        }
+
         // Phase 7: Fallback to offline pending file
         $offlineFile = DB::table('offline_files')->where('uuid', $uuid)->first();
         if (!$offlineFile) {

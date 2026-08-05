@@ -77,7 +77,15 @@ class FileCacheRepository implements FileCacheRepositoryInterface
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
         )->where(function ($q) use ($fileUuid) {
             $q->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid);
-        })->firstOrFail();
+        })->first();
+
+        if (!$file) {
+            $file = $this->hydrateFileFromRemote($fileUuid);
+        }
+
+        if (!$file) {
+            abort(404, 'File not found.');
+        }
 
         if (config('database.default') !== 'sqlite') {
             Gate::authorize('view', $file->patient);
@@ -114,6 +122,66 @@ class FileCacheRepository implements FileCacheRepositoryInterface
         );
 
         return $this->status($fileUuid);
+    }
+
+    /**
+     * A file uploaded/edited on the website after this device's last patient
+     * sync has no local PatientFile row at all — nothing above this point
+     * (isCached/firstOrFail) can resolve it. Fetch its metadata from the
+     * remote API and create a local stub row so the normal cache/download
+     * flow can proceed, mirroring the same remote-metadata-hydration pattern
+     * already used for patients (DownloadSyncService::upsertRemotePatient()).
+     * Returns null (never throws) if the file or its parent patient can't be
+     * resolved remotely — caller then reports a normal 404.
+     */
+    private function hydrateFileFromRemote(string $fileUuid): ?PatientFile
+    {
+        try {
+            $remote = $this->api->get('/files/' . $fileUuid);
+        } catch (\Throwable $e) {
+            Log::warning('[FileCache] Could not fetch remote metadata for missing file', ['uuid' => $fileUuid, 'error' => $e->getMessage()]);
+            return null;
+        }
+
+        $patientUuid = $remote['patient_uuid'] ?? null;
+        if (!$patientUuid) {
+            return null;
+        }
+
+        $patient = \App\Domains\Patients\Models\Patient::where('uuid', $patientUuid)->first();
+        if (!$patient) {
+            // Parent patient hasn't synced locally yet either — nothing safe to attach this file to.
+            return null;
+        }
+
+        $uploadedById = $patient->primary_doctor_id
+            ?? \App\Domains\Users\Models\User::first()?->id
+            ?? 1;
+
+        // remote_uuid isn't in $fillable (mass-assignment guarded like the rest
+        // of the app's models) — unguard() is the existing pattern used for
+        // this same situation in DownloadSyncService::upsertRemotePatient().
+        PatientFile::unguard();
+        $file = PatientFile::create([
+            'uuid'           => $fileUuid,
+            'remote_uuid'    => $fileUuid,
+            'patient_id'     => $patient->id,
+            'uploaded_by_id' => $uploadedById,
+            'title'          => $remote['title'] ?? null,
+            'desc'           => $remote['description'] ?? null,
+            'type'           => $remote['type'] ?? 'document',
+            'category'       => $remote['category'] ?? 'notes',
+            'date'           => $remote['date'] ?? now(),
+            'file_name'      => $remote['file_name'] ?? 'file',
+            'file_path'      => '', // Bytes only exist remotely so far — signals "not on local disk" to streamCached().
+            'mime_type'      => $remote['mime_type'] ?? 'application/octet-stream',
+            'size'           => $remote['size'] ?? 0,
+            'upload_status'  => 'ready',
+            'sync_status'    => 'synced',
+        ]);
+        PatientFile::reguard();
+
+        return $file;
     }
 
     /**

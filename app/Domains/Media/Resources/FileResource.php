@@ -13,6 +13,7 @@ class FileResource extends JsonResource
             'id' => $this->id,
             'uuid' => $this->uuid,
             'patient_id' => $this->patient_id,
+            'patient_uuid' => $this->whenLoaded('patient', fn () => $this->patient->uuid),
             'title' => $this->title,
             'description' => $this->desc,
             'type' => $this->type,
