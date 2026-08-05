@@ -43,9 +43,19 @@ class FileController extends Controller
 
     public function show(string $fileUuid)
     {
+        // ⚠️ Must include primary_doctor_id: PatientPolicy::view() checks
+        // $patient->primary_doctor_id === $user->id, and a column left out of
+        // a scoped with() comes back null (not lazy-loaded). With only
+        // id/uuid selected, primary_doctor_id was always null, so the check
+        // was always false and every doctor — including a patient's own
+        // primary doctor — got a 403 here. This is what made a file uploaded
+        // on the website unreachable from the device: the on-device hydration
+        // path (FileCacheRepository::hydrateFileFromRemote()) calls this
+        // exact endpoint to fetch the file's metadata before it can cache the
+        // bytes, and it always failed before ever reaching the Storage lookup.
         $file = PatientFile::withoutGlobalScope(
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-        )->with('patient:id,uuid')->where(function ($q) use ($fileUuid) {
+        )->with('patient:id,uuid,primary_doctor_id')->where(function ($q) use ($fileUuid) {
             $q->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid);
         })->firstOrFail();
         if (config('database.default') !== 'sqlite' && request()->user()) {
