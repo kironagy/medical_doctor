@@ -58,8 +58,25 @@ class PatientRepository implements PatientRepositoryInterface
         return $result;
     }
 
+    /**
+     * True only for the embedded NativePHP mobile build (local SQLite cache).
+     * The website runs on MySQL and IS the source of truth — its writes must
+     * never be staged as pending_create/pending_update/pending_delete or
+     * pushed into sync_queue; that mechanism exists solely for offline
+     * mobile devices reconciling back up to this same server.
+     */
+    private function isOfflineDevice(): bool
+    {
+        return config('database.default') === 'sqlite';
+    }
+
     public function create(array $data): array
     {
+        if (!$this->isOfflineDevice()) {
+            $data['sync_status'] = 'synced';
+            return $this->local->create($data);
+        }
+
         return DB::transaction(function () use ($data) {
             $data['sync_status'] = 'pending_create';
             $data['client_updated_at'] = now();
@@ -72,6 +89,11 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function update(string $uuid, array $data): array
     {
+        if (!$this->isOfflineDevice()) {
+            $data['sync_status'] = 'synced';
+            return $this->local->update($uuid, $data);
+        }
+
         return DB::transaction(function () use ($uuid, $data) {
             $data['sync_status'] = 'pending_update';
             $data['client_updated_at'] = now();
@@ -84,6 +106,11 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function delete(string $uuid): void
     {
+        if (!$this->isOfflineDevice()) {
+            \App\Domains\Patients\Models\Patient::where('uuid', $uuid)->delete();
+            return;
+        }
+
         DB::transaction(function () use ($uuid) {
             $hasRemoteUuid = \Illuminate\Support\Facades\Schema::hasColumn('patients', 'remote_uuid');
             $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
@@ -141,6 +168,12 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function restore(string $uuid): void
     {
+        if (!$this->isOfflineDevice()) {
+            $this->local->restore($uuid);
+            $this->local->update($uuid, ['sync_status' => 'synced']);
+            return;
+        }
+
         DB::transaction(function () use ($uuid) {
             $this->local->restore($uuid);
             $this->local->update($uuid, ['sync_status' => 'pending_update', 'client_updated_at' => now()]);
@@ -150,6 +183,13 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function forceDelete(string $uuid): void
     {
+        if (!$this->isOfflineDevice()) {
+            \App\Domains\Patients\Models\Patient::withoutGlobalScope(
+                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+            )->withTrashed()->where('uuid', $uuid)->first()?->forceDelete();
+            return;
+        }
+
         DB::transaction(function () use ($uuid) {
             $hasRemoteUuid = \Illuminate\Support\Facades\Schema::hasColumn('patients', 'remote_uuid');
             $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(

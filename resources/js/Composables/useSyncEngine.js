@@ -88,6 +88,30 @@ async function triggerSync() {
 }
 
 /**
+ * Pull server changes (patients: new/updated/deleted) into local SQLite —
+ * same endpoint the app-boot hydration uses (BootstrapController::refreshCache
+ * -> DownloadSyncService::cacheFirstPage() + deltaSyncPatients()). Unlike the
+ * boot-time hydration this is NOT gated to "once per launch": it's meant to
+ * be called explicitly on a manual user action (pull-to-refresh), consistent
+ * with this file's "strictly manual trigger" design. Silent no-op if offline
+ * or no token — never touches local data on failure.
+ */
+async function refreshFromServer() {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return
+    const apiToken = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null
+    if (!apiToken) return
+
+    try {
+        await axios.post('/_native/api/bootstrap/refresh', {}, {
+            headers: { Authorization: 'Bearer ' + apiToken },
+            timeout: 15000,
+        })
+    } catch (e) {
+        console.warn('[SyncEngine] refreshFromServer failed (non-fatal):', e.message)
+    }
+}
+
+/**
  * Refresh the summary of pending SQLite operations.
  */
 async function refreshPendingSummary() {
@@ -127,5 +151,6 @@ export function useSyncEngine() {
         pendingSummaryText,
         triggerSync,
         refreshPendingSummary,
+        refreshFromServer,
     }
 }

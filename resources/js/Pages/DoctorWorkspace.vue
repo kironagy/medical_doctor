@@ -267,7 +267,10 @@ const showMobileSyncCenter = ref(false)
 import WorkspaceModal from '@/Components/workspace/WorkspaceModal.vue'
 import BaseButton from '@/Components/BaseButton.vue'
 import { usePullToRefresh } from '@/Composables/usePullToRefresh'
+import { useSyncEngine } from '@/Composables/useSyncEngine'
 import { apiUrl, getApiConfig } from '@/Utils/api'
+
+const { refreshFromServer } = useSyncEngine()
 
 const props = defineProps({
   patients: Array,
@@ -335,6 +338,7 @@ const {
   onRefresh: async () => {
     if (refreshPromise) return
     refreshPromise = (async () => {
+      await refreshFromServer()
       await refreshPatientList()
       await refreshWorkspaceData()
     })()

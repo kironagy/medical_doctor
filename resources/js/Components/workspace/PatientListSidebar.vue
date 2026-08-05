@@ -189,7 +189,7 @@ const {
 // ── Online/Offline Status & Sync Center ──────────────────────────────
 import SyncCenterModal from './SyncCenterModal.vue'
 import { useSyncEngine } from '@/Composables/useSyncEngine'
-const { isOnline, isSyncing, pendingSummary, triggerSync } = useSyncEngine()
+const { isOnline, isSyncing, pendingSummary, triggerSync, refreshFromServer } = useSyncEngine()
 const showSyncCenter = ref(false)
 
 async function handleSyncNow() {
@@ -213,6 +213,7 @@ const {
 } = usePullToRefresh({
   scrollContainer: sidebarScrollRef,
   onRefresh: async () => {
+    await refreshFromServer()
     await refreshPatientList()
   },
 })
