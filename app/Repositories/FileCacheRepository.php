@@ -162,7 +162,7 @@ class FileCacheRepository implements FileCacheRepositoryInterface
                 $remotePRes = $this->api->get('/patients/' . $patientUuid);
                 $pData = $remotePRes['data'] ?? $remotePRes ?? [];
                 if (!empty($pData['uuid'])) {
-                    $userId = \App\Domains\Users\Models\User::first()?->id ?? 1;
+                    $userId = $this->resolveLocalUserId();
                     \App\Domains\Patients\Models\Patient::unguard();
                     $patient = \App\Domains\Patients\Models\Patient::create([
                         'uuid'              => $pData['uuid'],
@@ -193,9 +193,7 @@ class FileCacheRepository implements FileCacheRepositoryInterface
             return null;
         }
 
-        $uploadedById = $patient->primary_doctor_id
-            ?? \App\Domains\Users\Models\User::first()?->id
-            ?? 1;
+        $uploadedById = $patient->primary_doctor_id ?? $this->resolveLocalUserId();
 
         PatientFile::unguard();
         $file = PatientFile::create([
@@ -218,6 +216,45 @@ class FileCacheRepository implements FileCacheRepositoryInterface
         PatientFile::reguard();
 
         return $file;
+    }
+
+    /**
+     * A valid local users.id to use as a foreign key when hydrating a Patient
+     * or PatientFile from remote data. A device that has never gone through
+     * AuthController's local-user-creation path (e.g. it stayed online and
+     * /login was routed straight to production — see RequestRouter's online
+     * rules) has zero local users, so the previous `User::first()?->id ?? 1`
+     * fallback pointed at a users.id that doesn't exist and every insert here
+     * failed with a foreign key violation. Same fallback chain as
+     * Mobile\FileController::resolveCurrentUserId(): auth()->user(), then any
+     * local user, then seed one so there is always a real id to reference.
+     */
+    private function resolveLocalUserId(): int
+    {
+        $user = auth()->user();
+        if ($user) {
+            return $user->id;
+        }
+
+        $localUser = \App\Domains\Users\Models\User::first();
+        if ($localUser) {
+            return $localUser->id;
+        }
+
+        \App\Domains\Users\Models\User::unguard();
+        $defaultUser = \App\Domains\Users\Models\User::firstOrCreate(
+            ['email' => 'doctor@local.test'],
+            [
+                'name'     => 'Default Doctor',
+                'password' => bcrypt('password'),
+                'role'     => 'doctor',
+                'uuid'     => (string) \Illuminate\Support\Str::uuid(),
+                'status'   => 'active',
+            ]
+        );
+        \App\Domains\Users\Models\User::reguard();
+
+        return $defaultUser->id;
     }
 
     /**

@@ -454,9 +454,10 @@ class DownloadSyncService
             return;
         }
 
-        $uploadedById = $patient->primary_doctor_id
-            ?? \App\Domains\Users\Models\User::first()?->id
-            ?? 1;
+        // Same fragile ?? 1 pattern already proven (Bug #10, FileCacheRepository)
+        // to violate patient_files.uploaded_by_id's FK on a device with 0 local
+        // users — inline the same resolve-or-seed fallback instead of a bare 1.
+        $uploadedById = $patient->primary_doctor_id ?? $this->resolveLocalUserId();
 
         // Only fall back to a default when there is no local value to preserve.
         // Blindly defaulting category to 'notes' rewrote the category of every
@@ -501,5 +502,40 @@ class DownloadSyncService
         } catch (Throwable $cacheE) {
             Log::debug('[DownloadSyncService] Auto-cache file binary skipped: ' . $cacheE->getMessage(), ['uuid' => $fileUuid]);
         }
+    }
+
+    /**
+     * Same fallback chain as Mobile\FileController::resolveCurrentUserId() and
+     * FileCacheRepository::resolveLocalUserId(): auth user, then any local
+     * user, then seed one. Needed here because a device can reach this file's
+     * sync path with zero local users (see Bug #10) and a bare `?? 1` would
+     * reference a users.id that doesn't exist, violating the FK on insert.
+     */
+    private function resolveLocalUserId(): int
+    {
+        $user = auth()->user();
+        if ($user) {
+            return $user->id;
+        }
+
+        $localUser = \App\Domains\Users\Models\User::first();
+        if ($localUser) {
+            return $localUser->id;
+        }
+
+        \App\Domains\Users\Models\User::unguard();
+        $defaultUser = \App\Domains\Users\Models\User::firstOrCreate(
+            ['email' => 'doctor@local.test'],
+            [
+                'name'     => 'Default Doctor',
+                'password' => bcrypt('password'),
+                'role'     => 'doctor',
+                'uuid'     => (string) \Illuminate\Support\Str::uuid(),
+                'status'   => 'active',
+            ]
+        );
+        \App\Domains\Users\Models\User::reguard();
+
+        return $defaultUser->id;
     }
 }
