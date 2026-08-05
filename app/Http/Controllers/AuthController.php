@@ -55,12 +55,23 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
+        // ⚠️ TEMPORARY — checkpoint instrumentation for root-cause
+        // investigation. Every branch of this method gets an unconditional
+        // Log::error checkpoint (device LOG_LEVEL=error strips info/warning)
+        // so a single login attempt shows exactly which line execution
+        // reached last, instead of inferring it from which log lines are
+        // absent. Remove once the root cause is confirmed.
+        Log::error('[LOGIN-DIAG] ENTER AuthController@login');
+
         $credentials = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required'],
         ]);
 
-        if (Auth::attempt($credentials, $request->boolean('remember'))) {
+        $attemptSuccess = Auth::attempt($credentials, $request->boolean('remember'));
+        Log::error('[LOGIN-DIAG] Auth::attempt result', ['success' => $attemptSuccess]);
+
+        if ($attemptSuccess) {
             $request->session()->regenerate();
 
             // Obtain API token for mobile API requests and sync
@@ -103,10 +114,11 @@ class AuthController extends Controller
 
         // If local authentication fails, attempt authentication against remote production API
         // (essential for clean installs where the local SQLite database contains 0 users)
+        Log::error('[LOGIN-DIAG] entering remote fallback');
         try {
-            Log::error('[LOGIN-DIAG] Local auth failed, attempting remote fallback', ['email' => $credentials['email']]);
+            Log::error('[LOGIN-DIAG] calling remote api');
             $tokenResponse = ApiService::loginToRemote($credentials['email'], $credentials['password']);
-            Log::error('[LOGIN-DIAG] loginToRemote result', [
+            Log::error('[LOGIN-DIAG] remote api success', [
                 'has_token' => isset($tokenResponse['token']),
                 'has_user'  => isset($tokenResponse['user']),
                 'keys'      => is_array($tokenResponse) ? array_keys($tokenResponse) : gettype($tokenResponse),
@@ -131,15 +143,19 @@ class AuthController extends Controller
                     ]
                 );
                 \App\Domains\Users\Models\User::reguard();
-                Log::error('[LOGIN-DIAG] local user upserted', [
-                    'id' => $localUser->id,
+                Log::error('[LOGIN-DIAG] updateOrCreate finished', [
+                    'user_id' => $localUser->id,
                     'exists_in_db' => \App\Domains\Users\Models\User::where('id', $localUser->id)->exists(),
-                    'total_users_now' => \App\Domains\Users\Models\User::count(),
+                    'count' => \App\Domains\Users\Models\User::count(),
                 ]);
 
                 // Authenticate the user session locally
                 Auth::login($localUser, $request->boolean('remember'));
                 $request->session()->regenerate();
+                Log::error('[LOGIN-DIAG] Auth::login finished', [
+                    'auth' => Auth::check(),
+                    'id'   => Auth::id(),
+                ]);
 
                 // Save remote API token and store credentials for the sync engine
                 app(ApiService::class)->setToken($tokenResponse['token']);
