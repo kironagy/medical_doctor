@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FileController extends Controller
@@ -280,7 +281,11 @@ class FileController extends Controller
         }, 200, [
             'Content-Type' => $mime,
             'Content-Length' => $size,
-            'Content-Disposition' => 'inline; filename="' . $file->file_name . '"',
+            'Content-Disposition' => HeaderUtils::makeDisposition(
+                HeaderUtils::DISPOSITION_INLINE,
+                $file->file_name,
+                preg_replace('/[^\x20-\x7E]/', '_', $file->file_name)
+            ),
             'Accept-Ranges' => 'bytes',
             'Cache-Control' => 'private, no-transform, max-age=3600',
         ]);

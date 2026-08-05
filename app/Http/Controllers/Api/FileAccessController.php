@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FileAccessController extends Controller
@@ -81,9 +82,18 @@ class FileAccessController extends Controller
             ?: ($file?->mime_type ?: (mime_content_type($absolutePath) ?: 'application/octet-stream'));
         $name = $nameOverride ?: ($file?->file_name ?: basename($absolutePath));
 
+        // Non-ASCII original filenames (e.g. Arabic titles from website uploads)
+        // must not be written raw into a header value — RFC 7230/6266 requires
+        // ASCII, and clients that validate strictly can drop the response.
+        $disposition = HeaderUtils::makeDisposition(
+            HeaderUtils::DISPOSITION_INLINE,
+            $name,
+            preg_replace('/[^\x20-\x7E]/', '_', $name)
+        );
+
         $response = response()->file($absolutePath, [
             'Content-Type'        => $mime,
-            'Content-Disposition' => 'inline; filename="' . $name . '"',
+            'Content-Disposition' => $disposition,
             'Accept-Ranges'       => 'bytes',
             'Cache-Control'       => 'private, no-transform, max-age=3600',
         ]);
