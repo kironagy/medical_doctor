@@ -137,7 +137,8 @@ class FileCacheRepository implements FileCacheRepositoryInterface
     private function hydrateFileFromRemote(string $fileUuid): ?PatientFile
     {
         try {
-            $remote = $this->api->get('/files/' . $fileUuid);
+            $remoteRes = $this->api->get('/files/' . $fileUuid);
+            $remote = $remoteRes['data'] ?? $remoteRes ?? [];
         } catch (\Throwable $e) {
             Log::warning('[FileCache] Could not fetch remote metadata for missing file', ['uuid' => $fileUuid, 'error' => $e->getMessage()]);
             return null;
@@ -150,7 +151,28 @@ class FileCacheRepository implements FileCacheRepositoryInterface
 
         $patient = \App\Domains\Patients\Models\Patient::where('uuid', $patientUuid)->first();
         if (!$patient) {
-            // Parent patient hasn't synced locally yet either — nothing safe to attach this file to.
+            try {
+                $remotePRes = $this->api->get('/patients/' . $patientUuid);
+                $pData = $remotePRes['data'] ?? $remotePRes ?? [];
+                if (!empty($pData['uuid'])) {
+                    $userId = \App\Domains\Users\Models\User::first()?->id ?? 1;
+                    \App\Domains\Patients\Models\Patient::unguard();
+                    $patient = \App\Domains\Patients\Models\Patient::create([
+                        'uuid'              => $pData['uuid'],
+                        'name'              => $pData['name'] ?? ('Patient (' . substr($pData['uuid'], 0, 8) . ')'),
+                        'primary_doctor_id' => $userId,
+                        'created_by_id'     => $userId,
+                        'sync_status'       => 'synced',
+                    ]);
+                    \App\Domains\Patients\Models\Patient::reguard();
+                }
+            } catch (\Throwable $pErr) {
+                Log::warning('[FileCache] Could not fetch remote patient for missing file', ['patient_uuid' => $patientUuid, 'error' => $pErr->getMessage()]);
+                return null;
+            }
+        }
+
+        if (!$patient) {
             return null;
         }
 
@@ -158,17 +180,14 @@ class FileCacheRepository implements FileCacheRepositoryInterface
             ?? \App\Domains\Users\Models\User::first()?->id
             ?? 1;
 
-        // remote_uuid isn't in $fillable (mass-assignment guarded like the rest
-        // of the app's models) — unguard() is the existing pattern used for
-        // this same situation in DownloadSyncService::upsertRemotePatient().
         PatientFile::unguard();
         $file = PatientFile::create([
             'uuid'           => $fileUuid,
             'remote_uuid'    => $fileUuid,
             'patient_id'     => $patient->id,
             'uploaded_by_id' => $uploadedById,
-            'title'          => $remote['title'] ?? null,
-            'desc'           => $remote['description'] ?? null,
+            'title'          => $remote['title'] ?? ($remote['file_name'] ?? 'File'),
+            'desc'           => $remote['description'] ?? ($remote['desc'] ?? null),
             'type'           => $remote['type'] ?? 'document',
             'category'       => $remote['category'] ?? 'notes',
             'date'           => $remote['date'] ?? now(),

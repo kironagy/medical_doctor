@@ -217,16 +217,10 @@ const fetchSignedUrl = async () => {
       const uuid = props.file.uuid;
       const remoteUuid = props.file.remote_uuid || uuid;
 
-      // 1. For Videos on Native Mobile: stream directly over HTTPS for smooth playback without memory limits
-      if (props.file.sync_status === 'synced' || props.file.remote_uuid) {
-        signedUrl.value = `https://prof-hosam-fekry.online/api/v1/mobile/files/${remoteUuid}/stream`;
-        return;
-      }
-
-      // 2. Not yet synced: fetch local base64 JSON -> Blob URL
+      // 1. Try fetching local base64 JSON -> Blob URL (works offline)
       try {
         const res = await axios.get(`/_native/cache/files/${uuid}/base64`);
-        const mime = res.data.mime || props.file.mime_type || 'application/octet-stream';
+        const mime = res.data.mime || props.file.mime_type || 'video/mp4';
         const binary = atob(res.data.data);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) {
@@ -239,11 +233,16 @@ const fetchSignedUrl = async () => {
         signedUrl.value = URL.createObjectURL(blob);
         return;
       } catch (e) {
-        console.warn('Failed to fetch base64 video on native, falling back to remote HTTPS stream URL', e);
+        console.warn('Local base64 video fetch unavailable, falling back to remote HTTPS stream URL', e);
       }
 
-      // Fallback for native video: use remote HTTPS stream URL
-      signedUrl.value = `https://prof-hosam-fekry.online/api/v1/mobile/files/${remoteUuid}/stream`;
+      // 2. Fallback for native video: use remote HTTPS stream URL if synced
+      if (props.file.sync_status === 'synced' || props.file.remote_uuid) {
+        signedUrl.value = `https://prof-hosam-fekry.online/api/v1/mobile/files/${remoteUuid}/stream`;
+        return;
+      }
+
+      signedUrl.value = `/_native/cache/files/${uuid}`;
       return;
     }
 

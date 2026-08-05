@@ -2,6 +2,8 @@
 
 namespace App\Services\Sync;
 
+use App\Contracts\Repositories\FileCacheRepositoryInterface;
+use App\Domains\Media\Models\PatientFile;
 use App\Services\Mobile\RemoteApiService;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Patients\Models\PatientNote;
@@ -26,6 +28,7 @@ class DownloadSyncService
         $summary = ['patients' => 0, 'files' => 0, 'notes' => 0, 'visits' => 0, 'categories' => 0];
 
         $this->downloadPatients($summary);
+        $this->downloadFiles($summary);
         $this->downloadNotes($summary);
         $this->downloadVisits($summary);
 
@@ -342,6 +345,96 @@ class DownloadSyncService
             $this->setEntityLastSync('visits_last_sync', $cutover);
         } catch (Throwable $e) {
             Log::info('[DownloadSyncService] Visit download changes skipped: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Download files metadata for eligible patients and cache their physical binaries locally.
+     */
+    public function downloadFiles(?array &$summary = null): void
+    {
+        $since = $this->getEntityLastSync('files_last_sync');
+        $cutover = now()->format('Y-m-d H:i:s');
+
+        try {
+            foreach ($this->eligiblePatientsSince($since) as $patient) {
+                $page = 1;
+                do {
+                    $remoteData = $this->api->get("/patients/{$patient->uuid}/files", ['per_page' => 100, 'page' => $page]);
+                    $files = $remoteData['data'] ?? $remoteData ?? [];
+
+                    foreach ($files as $remoteFile) {
+                        if (!is_array($remoteFile) || empty($remoteFile['uuid'])) continue;
+
+                        try {
+                            $fileUuid = $remoteFile['uuid'];
+
+                            $localFile = PatientFile::withoutGlobalScope(
+                                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+                            )->where(function ($q) use ($fileUuid) {
+                                $q->where('uuid', $fileUuid)->orWhere('remote_uuid', $fileUuid);
+                            })->first();
+
+                            if ($localFile && $localFile->sync_status !== 'synced') {
+                                continue;
+                            }
+
+                            $uploadedById = $patient->primary_doctor_id
+                                ?? \App\Domains\Users\Models\User::first()?->id
+                                ?? 1;
+
+                            $clean = [
+                                'patient_id'     => $patient->id,
+                                'uploaded_by_id' => $localFile->uploaded_by_id ?? $uploadedById,
+                                'title'          => $remoteFile['title'] ?? ($remoteFile['file_name'] ?? 'File'),
+                                'desc'           => $remoteFile['description'] ?? ($remoteFile['desc'] ?? null),
+                                'type'           => $remoteFile['type'] ?? 'document',
+                                'category'       => !empty($remoteFile['category']) ? $remoteFile['category'] : 'notes',
+                                'date'           => $remoteFile['date'] ?? now()->format('Y-m-d'),
+                                'file_name'      => $remoteFile['file_name'] ?? 'file',
+                                'mime_type'      => $remoteFile['mime_type'] ?? 'application/octet-stream',
+                                'size'           => $remoteFile['size'] ?? 0,
+                                'upload_status'  => 'ready',
+                                'sync_status'    => 'synced',
+                                'remote_uuid'    => $fileUuid,
+                            ];
+
+                            if (!$localFile) {
+                                PatientFile::unguard();
+                                $localFile = PatientFile::create(array_merge(['uuid' => $fileUuid, 'file_path' => ''], $clean));
+                                PatientFile::reguard();
+                            } else {
+                                PatientFile::unguard();
+                                $localFile->update($clean);
+                                PatientFile::reguard();
+                            }
+
+                            if ($summary !== null) {
+                                $summary['files']++;
+                            }
+
+                            // Auto-cache physical file locally for offline access
+                            try {
+                                if (app()->bound(FileCacheRepositoryInterface::class)) {
+                                    app(FileCacheRepositoryInterface::class)->cache($fileUuid);
+                                }
+                            } catch (Throwable $cacheE) {
+                                Log::debug('[DownloadSyncService] Auto-cache file binary skipped: ' . $cacheE->getMessage(), ['uuid' => $fileUuid]);
+                            }
+
+                        } catch (Throwable $e) {
+                            Log::info('[DownloadSyncService] Skipped file ' . ($remoteFile['uuid'] ?? 'unknown') . ': ' . $e->getMessage());
+                        }
+                    }
+
+                    $lastPage = (int) ($remoteData['last_page'] ?? 1);
+                    $page++;
+                } while ($page <= $lastPage && !empty($files));
+            }
+
+            $this->setEntityLastSync('files_last_sync', $cutover);
+        } catch (Throwable $e) {
+            Log::info('[DownloadSyncService] File download changes skipped: ' . $e->getMessage());
         }
     }
 }

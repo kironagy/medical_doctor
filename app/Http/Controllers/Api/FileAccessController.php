@@ -640,15 +640,12 @@ class FileAccessController extends Controller
 
             // 2. Check if file is in file_cache or attempt auto-download
             try {
-                $this->cacheRepo->cache($uuid);
                 $entry = DB::table('file_cache')->where('file_uuid', $uuid)->first();
+                if (!$entry) {
+                    $this->cacheRepo->cache($uuid);
+                    $entry = DB::table('file_cache')->where('file_uuid', $uuid)->first();
+                }
                 if ($entry) {
-                    // Cache files live under storage_path('app/cache/...') — see
-                    // FileCacheService::resolvePath(). This is NOT under the 'local'
-                    // disk root (storage_path('app/private')), so Storage::disk('local')
-                    // must not be used here; doing so pointed at a path one directory
-                    // off from where the file actually is, making every cache hit
-                    // report "File not found" even though the file was on disk.
                     $cacheAbsPath = storage_path('app/cache/' . $entry->local_path);
                     if (file_exists($cacheAbsPath)) {
                         return response()->json([
@@ -659,6 +656,23 @@ class FileAccessController extends Controller
                 }
             } catch (\Throwable $e) {
                 Log::warning('[streamCachedBase64] Cache download attempt failed: ' . $e->getMessage(), ['uuid' => $uuid]);
+            }
+        } else {
+            // No local PatientFile row — attempt remote hydration and caching
+            try {
+                $this->cacheRepo->cache($uuid);
+                $entry = DB::table('file_cache')->where('file_uuid', $uuid)->first();
+                if ($entry) {
+                    $cacheAbsPath = storage_path('app/cache/' . $entry->local_path);
+                    if (file_exists($cacheAbsPath)) {
+                        return response()->json([
+                            'mime' => $entry->mime_type ?: 'application/octet-stream',
+                            'data' => base64_encode(file_get_contents($cacheAbsPath)),
+                        ]);
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::info('[streamCachedBase64] Remote hydration attempt failed: ' . $e->getMessage(), ['uuid' => $uuid]);
             }
         }
 
