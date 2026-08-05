@@ -424,7 +424,13 @@ class FileAccessController extends Controller
         try {
             $this->cacheRepo->cache($uuid);
         } catch (\Throwable $e) {
-            Log::info('[streamCached] Remote fetch failed: ' . $e->getMessage(), ['uuid' => $uuid]);
+            // Log::error (not info/warning): device LOG_LEVEL=error, and this
+            // is the one line that explains WHY a file failed to resolve —
+            // without it every miss looks identical from the outside.
+            Log::error('[streamCached] Remote fetch failed: ' . $e->getMessage(), [
+                'uuid'      => $uuid,
+                'exception' => get_class($e),
+            ]);
 
             // Never redirect to the remote stream URL here: an <img>/<video>
             // element does not carry the Authorization header, so that

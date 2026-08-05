@@ -106,7 +106,10 @@ class FileCacheRepository implements FileCacheRepositoryInterface
         }
 
         if (!$success) {
-            Log::warning('[FileCache] Failed to download file for caching', ['uuid' => $fileUuid, 'remote_id' => $remoteId]);
+            // error, not warning: device LOG_LEVEL=error filters warning out
+            // entirely, and this line is the only place that records which
+            // remote id/endpoint was tried before giving up.
+            Log::error('[FileCache] Failed to download file for caching', ['uuid' => $fileUuid, 'remote_id' => $remoteId]);
             throw new \RuntimeException('Failed to download file for caching.');
         }
 
@@ -140,7 +143,11 @@ class FileCacheRepository implements FileCacheRepositoryInterface
             $remoteRes = $this->api->get('/files/' . $fileUuid);
             $remote = $remoteRes['data'] ?? $remoteRes ?? [];
         } catch (\Throwable $e) {
-            Log::warning('[FileCache] Could not fetch remote metadata for missing file', ['uuid' => $fileUuid, 'error' => $e->getMessage()]);
+            Log::error('[FileCache] Could not fetch remote metadata for missing file', [
+                'uuid'      => $fileUuid,
+                'exception' => get_class($e),
+                'error'     => $e->getMessage(),
+            ]);
             return null;
         }
 

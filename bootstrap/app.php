@@ -139,6 +139,18 @@ return Application::configure(basePath: dirname(__DIR__))
                     'trace'        => $e->getTraceAsString(),
                 ]);
 
+                // Preserve the exception's own HTTP status (404, 413, 503, …)
+                // instead of forcing 500 on every error. Hardcoding 500 here
+                // meant abort(404)/abort(503) calls throughout the _native/*
+                // and api/* controllers — including every file-not-found and
+                // file-not-cached-yet response — always reached the client as
+                // a 500, which is indistinguishable from a real server crash
+                // and made this exact class of bug impossible to diagnose
+                // from the network tab.
+                $status = $e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface
+                    ? $e->getStatusCode()
+                    : 500;
+
                 return response()->json([
                     'error'        => true,
                     'exception'    => get_class($e),
@@ -148,7 +160,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     'file'         => $e->getFile(),
                     'line'         => $e->getLine(),
                     'trace'        => $e->getTraceAsString(),
-                ], 500);
+                ], $status);
             }
 
             // ── Embedded/offline app: never show a bare 404/419/500 page ──
