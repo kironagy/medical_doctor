@@ -66,30 +66,51 @@ class ParseMobileMultipartMiddleware
 
     /**
      * Memory-efficient stream parser for multipart/form-data requests.
-     * Reads directly from php://input in 64KB buffer chunks to eliminate PHP memory exhaustion.
+     *
+     * Reads php://input in 64KB chunks and keeps ONE carry-over buffer for the
+     * whole payload. The previous version reset that buffer after every file
+     * part (it computed a $remaining slice and then threw it away), so every
+     * field that arrived AFTER a file was already sitting in the read-ahead
+     * buffer and got discarded. FormData appends 'file' first and
+     * 'patient_uuid' after it, which is exactly why offline uploads failed
+     * with 422 "patient_uuid is required".
      */
     private function parseMultipartStream(Request $request, string $contentType): void
     {
-        $stream = @fopen('php://input', 'rb');
+        $stream = $this->openInputStream();
         if (!$stream) {
             return;
         }
 
-        // ── 1. Determine Boundary ───────────────────────────────────────────
+        $chunkSize = 65536;
+        $buf = '';
+        $eof = false;
+
+        // Top up $buf until it holds $need bytes or the stream runs dry.
+        $fill = function (int $need) use (&$buf, &$eof, $stream, $chunkSize): void {
+            while (!$eof && strlen($buf) < $need) {
+                $read = fread($stream, $chunkSize);
+                if ($read === false || $read === '') {
+                    $eof = true;
+                    break;
+                }
+                $buf .= $read;
+            }
+        };
+
+        // ── 1. Determine boundary ───────────────────────────────────────────
         $boundary = null;
-        if (preg_match('/boundary=(?:["\']?)([^"\';\s\r\n]+)(?:["\']?)/i', $contentType, $matches)) {
-            $boundary = $matches[1];
+        if (preg_match('/boundary=(?:["\']?)([^"\';\s\r\n]+)(?:["\']?)/i', $contentType, $m)) {
+            $boundary = $m[1];
         }
 
         if (!$boundary) {
-            $firstLine = fgets($stream);
-            if ($firstLine && preg_match('/^--([^\r\n]+)/', ltrim($firstLine), $firstLineMatches)) {
-                $boundary = trim($firstLineMatches[1]);
-                if (str_ends_with($boundary, '--')) {
-                    $boundary = substr($boundary, 0, -2);
-                }
+            // The Android bridge forces CONTENT_TYPE to x-www-form-urlencoded
+            // and drops the boundary, so recover it from the opening delimiter.
+            $fill(4096);
+            if (preg_match('/^--([^\r\n]+)\r?\n/', $buf, $m)) {
+                $boundary = rtrim(trim($m[1]), '-');
             }
-            fseek($stream, 0);
         }
 
         if (!$boundary) {
@@ -97,49 +118,46 @@ class ParseMobileMultipartMiddleware
             return;
         }
 
-        $boundaryDelimiter = '--' . $boundary;
-
-        Log::info('[ParseMobileMultipartStream] Processing multipart stream', [
-            'url'      => $request->fullUrl(),
-            'boundary' => $boundary,
-        ]);
-
+        $delimiter  = "\r\n--" . $boundary;
+        $delimLen   = strlen($delimiter);
         $textFields = [];
-        $chunkSize = 65536; // 64KB read chunks
+        $fileFields = [];
 
-        // Skip until first boundary
-        while (!feof($stream)) {
-            $line = fgets($stream);
-            if ($line === false) break;
-            if (str_contains($line, $boundaryDelimiter)) {
-                break;
-            }
+        // Move the cursor just past the opening delimiter.
+        $fill(strlen($boundary) + 8);
+        $start = strpos($buf, '--' . $boundary);
+        if ($start === false) {
+            fclose($stream);
+            return;
         }
+        $buf = substr($buf, $start + strlen('--' . $boundary));
 
-        while (!feof($stream)) {
-            // ── Read Part Headers ───────────────────────────────────────────
-            $headerLines = [];
-            while (!feof($stream)) {
-                $line = fgets($stream);
-                if ($line === false) break;
-                $trimmed = trim($line);
-                if ($trimmed === '') {
-                    break;
+        while (true) {
+            $fill(2);
+            if (str_starts_with($buf, '--')) {
+                break; // closing delimiter — payload finished
+            }
+            $buf = preg_replace('/^\r?\n/', '', $buf, 1);
+
+            // ── 2. Part headers ─────────────────────────────────────────────
+            while (($headerEnd = strpos($buf, "\r\n\r\n")) === false) {
+                $before = strlen($buf);
+                $fill($before + $chunkSize);
+                if (strlen($buf) === $before) {
+                    break 2; // truncated payload
                 }
-                $headerLines[] = $trimmed;
             }
 
-            if (empty($headerLines)) {
-                break;
-            }
+            $rawHeaders = substr($buf, 0, $headerEnd);
+            $buf = substr($buf, $headerEnd + 4);
 
-            $contentDisposition = '';
-            $fieldMime = 'application/octet-stream';
-            $isBase64 = false;
+            $disposition = '';
+            $fieldMime   = 'application/octet-stream';
+            $isBase64    = false;
 
-            foreach ($headerLines as $line) {
+            foreach (explode("\r\n", $rawHeaders) as $line) {
                 if (stripos($line, 'Content-Disposition:') === 0) {
-                    $contentDisposition = $line;
+                    $disposition = $line;
                 } elseif (stripos($line, 'Content-Type:') === 0) {
                     $fieldMime = trim(substr($line, strlen('Content-Type:')));
                 } elseif (stripos($line, 'Content-Transfer-Encoding:') === 0) {
@@ -147,96 +165,140 @@ class ParseMobileMultipartMiddleware
                 }
             }
 
-            if (empty($contentDisposition)) {
-                continue;
+            $fieldName = null;
+            if (preg_match('/name=(?:"([^"]*)"|([^";\r\n]+))/i', $disposition, $nm)) {
+                $fieldName = trim(($nm[1] ?? '') !== '' ? $nm[1] : ($nm[2] ?? ''));
             }
 
-            if (!preg_match('/name=(?:["\']?)(.*?)(?:["\']?)(?:;|\r|\n|$)/i', $contentDisposition, $nameMatches)) {
-                continue;
+            $filename = null;
+            if (preg_match('/filename=(?:"([^"]*)"|([^";\r\n]+))/i', $disposition, $fm)) {
+                $candidate = trim(($fm[1] ?? '') !== '' ? $fm[1] : ($fm[2] ?? ''));
+                if ($candidate !== '') {
+                    $filename = $candidate;
+                }
             }
-            $fieldName = trim($nameMatches[1]);
 
-            $isFilename = preg_match('/filename=(?:["\']?)(.*?)(?:["\']?)(?:;|\r|\n|$)/i', $contentDisposition, $fileMatches) && !empty($fileMatches[1]);
-            $filename = $isFilename ? trim($fileMatches[1]) : null;
+            // ── 3. Part body — files stream to disk, fields stay in memory ──
+            $tmpPath = null;
+            $tmpFp   = null;
+            $value   = '';
+            $b64rem  = '';
 
-            // ── Read Body for Part ──────────────────────────────────────────
-            $delimiterToFind = "\r\n--" . $boundary;
-            $delimLen = strlen($delimiterToFind);
-
-            if ($isFilename && $filename) {
+            if ($filename !== null) {
                 $tmpPath = tempnam(sys_get_temp_dir(), 'nphp_upl_');
-                $tmpFp = fopen($tmpPath, 'wb');
-                $partBuffer = '';
-                $base64Remainder = '';
+                $tmpFp   = fopen($tmpPath, 'wb');
+            }
 
-                while (!feof($stream)) {
-                    $read = fread($stream, $chunkSize);
-                    if ($read === false || $read === '') break;
-                    $partBuffer .= $read;
+            $truncated = false;
 
-                    $pos = strpos($partBuffer, $delimiterToFind);
-                    if ($pos !== false) {
-                        $bodyData = substr($partBuffer, 0, $pos);
-                        $this->writeBodyData($tmpFp, $bodyData, $isBase64, $base64Remainder, true);
-                        $remaining = substr($partBuffer, $pos + strlen("\r\n"));
-                        $partBuffer = '';
-                        break;
+            while (true) {
+                $pos = strpos($buf, $delimiter);
+                if ($pos !== false) {
+                    $chunk = substr($buf, 0, $pos);
+                    if ($tmpFp) {
+                        $this->writeBodyData($tmpFp, $chunk, $isBase64, $b64rem, true);
                     } else {
-                        if (strlen($partBuffer) > $delimLen) {
-                            $writeLen = strlen($partBuffer) - $delimLen;
-                            $bodyData = substr($partBuffer, 0, $writeLen);
-                            $partBuffer = substr($partBuffer, $writeLen);
-                            $this->writeBodyData($tmpFp, $bodyData, $isBase64, $base64Remainder, false);
-                        }
+                        $value .= $chunk;
+                    }
+                    // Everything from the delimiter onwards STAYS in $buf so the
+                    // following parts are parsed instead of being discarded.
+                    $buf = substr($buf, $pos + $delimLen);
+                    break;
+                }
+
+                // The delimiter can straddle a chunk edge, so always hold back
+                // delimiter-length bytes before flushing what we have.
+                if (strlen($buf) > $delimLen) {
+                    $flushLen = strlen($buf) - $delimLen;
+                    $chunk    = substr($buf, 0, $flushLen);
+                    $buf      = substr($buf, $flushLen);
+                    if ($tmpFp) {
+                        $this->writeBodyData($tmpFp, $chunk, $isBase64, $b64rem, false);
+                    } else {
+                        $value .= $chunk;
                     }
                 }
 
-                if ($partBuffer !== '') {
-                    $pos = strpos($partBuffer, "--" . $boundary);
-                    if ($pos !== false) {
-                        $bodyData = substr($partBuffer, 0, $pos);
-                        $bodyData = preg_replace('/\r?\n$/', '', $bodyData);
-                        $this->writeBodyData($tmpFp, $bodyData, $isBase64, $base64Remainder, true);
+                $before = strlen($buf);
+                $fill($before + $chunkSize);
+                if (strlen($buf) === $before) {
+                    // EOF with no closing delimiter — keep whatever remains.
+                    if ($tmpFp) {
+                        $this->writeBodyData($tmpFp, $buf, $isBase64, $b64rem, true);
                     } else {
-                        $this->writeBodyData($tmpFp, $partBuffer, $isBase64, $base64Remainder, true);
+                        $value .= $buf;
                     }
+                    $buf = '';
+                    $truncated = true;
+                    break;
                 }
+            }
 
-                fclose($tmpFp);
-
-                $uploadedFile = new UploadedFile(
-                    $tmpPath,
-                    $filename,
-                    $fieldMime,
-                    null,
-                    true // test mode = true bypasses is_uploaded_file() validation
-                );
-
-                $request->files->set($fieldName, $uploadedFile);
-                Log::info("[ParseMobileMultipartStream] Attached file: {$fieldName} ({$filename}, " . filesize($tmpPath) . " bytes)");
+            if ($fieldName === null || $fieldName === '') {
+                if ($tmpFp) {
+                    fclose($tmpFp);
+                    @unlink($tmpPath);
+                }
             } else {
-                $partData = '';
-                while (!feof($stream)) {
-                    $line = fgets($stream);
-                    if ($line === false) break;
-                    if (str_contains($line, $boundaryDelimiter)) {
-                        break;
+                $isArrayField = str_ends_with($fieldName, '[]');
+                $key = $isArrayField ? substr($fieldName, 0, -2) : $fieldName;
+
+                if ($tmpFp) {
+                    fclose($tmpFp);
+                    $uploaded = new UploadedFile(
+                        $tmpPath,
+                        $filename,
+                        $fieldMime,
+                        null,
+                        true // test mode = true bypasses is_uploaded_file() validation
+                    );
+                    if ($isArrayField) {
+                        $fileFields[$key][] = $uploaded;
+                    } else {
+                        $fileFields[$key] = $uploaded;
                     }
-                    $partData .= $line;
+                } elseif ($isArrayField) {
+                    $textFields[$key][] = $value;
+                } else {
+                    $textFields[$key] = $value;
                 }
-                $partData = preg_replace('/\r?\n$/', '', $partData);
-                $textFields[$fieldName] = $partData;
-                $_POST[$fieldName] = $partData;
-                Log::info("[ParseMobileMultipartStream] Extracted text field: {$fieldName}");
+            }
+
+            if ($truncated) {
+                break;
             }
         }
 
         fclose($stream);
 
-        if (!empty($textFields)) {
-            $request->merge($textFields);
-            Log::info('[ParseMobileMultipartStream] Merged text fields into request:', array_keys($textFields));
+        foreach ($fileFields as $name => $file) {
+            $request->files->set($name, $file);
         }
+
+        if (!empty($textFields)) {
+            foreach ($textFields as $key => $val) {
+                $_POST[$key] = $val;
+            }
+            $request->merge($textFields);
+        }
+
+        Log::error('[ParseMobileMultipartStream] Parsed multipart body', [
+            'url'      => $request->fullUrl(),
+            'boundary' => $boundary,
+            'fields'   => array_keys($textFields),
+            'files'    => array_keys($fileFields),
+        ]);
+    }
+
+    /**
+     * Raw request body handle. Isolated so the parser can be exercised against
+     * a fixture stream in tests — php://input is not readable under CLI.
+     *
+     * @return resource|false
+     */
+    protected function openInputStream()
+    {
+        return @fopen('php://input', 'rb');
     }
 
     /**
