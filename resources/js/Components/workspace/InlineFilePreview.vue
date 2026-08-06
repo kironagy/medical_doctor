@@ -81,14 +81,7 @@
               :class="isZoomed ? 'max-w-none pointer-events-none' : 'max-w-full max-h-full object-contain pointer-events-auto'"
               :style="imageStyle"
               @dblclick.stop="toggleZoom()"
-              @error="e => {
-                const uuid = file?.uuid;
-                if (!uuid) return;
-                const localUrl = '/_native/cache/files/' + uuid;
-                if (e.target.src !== localUrl) {
-                  e.target.src = localUrl;
-                }
-              }"
+              @error="onImageError"
               ref="imageRef"
             />
           </div>
@@ -255,6 +248,19 @@ watchEffect(() => {
 // ---------------------------------------------------------------
 //  Signed URL
 // ---------------------------------------------------------------
+/** Blob() needs a real type or the <img>/<video> refuses it; rows written
+ *  before mime_type was consistently populated have none. */
+function guessMimeFromName(name) {
+  const ext = String(name || '').split('.').pop().toLowerCase();
+  return {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+    gif: 'image/gif', heic: 'image/heic', bmp: 'image/bmp',
+    mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska',
+    mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav',
+    pdf: 'application/pdf',
+  }[ext] || 'application/octet-stream';
+}
+
 const fetchSignedUrls = async () => {
   if (!file.value?.uuid) return
 
@@ -270,8 +276,20 @@ const fetchSignedUrls = async () => {
     // on this screen proves that — so pull the bytes over XHR instead. The
     // response is capped server-side (FileAccessController::
     // DEVICE_MAX_CHUNK_BYTES), hence the ranged loop.
+    // Applies to every device-local file, not just video: an image preview hit
+    // the exact same wall (18 requests, 0 B transferred, empty body) because
+    // the limitation is the bridge's inability to return ANY binary body, not
+    // anything specific to video. Thumbnails kept working only because they
+    // are served from a separate, already-cached path.
+    // Gated on locality alone, deliberately NOT on mime_type: a local image
+    // whose row carries no mime_type fell through this branch and went back to
+    // the bridge path, which is how the preview ended up retrying forever (22
+    // requests, 0 B transferred) while its thumbnail rendered fine. Whether a
+    // file can actually be served is the server's call, and it answers
+    // success:false when it cannot.
     const localOnly = !file.value.url || file.value.url.startsWith('/_native/');
-    if (localOnly && file.value.mime_type?.startsWith('video/')) {
+
+    if (localOnly) {
       // Preferred path: a loopback URL served off disk by the native media
       // server, so the player streams with Range requests — first frame is
       // immediate, seeking works, and nothing is held in memory. Required for
@@ -296,7 +314,7 @@ const fetchSignedUrls = async () => {
         console.warn('[InlineFilePreview] file too large for the base64 fallback', size);
       } else {
         try {
-          signedUrl.value = await fetchLocalVideoBlobUrl(file.value.uuid, file.value.mime_type);
+          signedUrl.value = await fetchLocalVideoBlobUrl(file.value.uuid, file.value.mime_type || guessMimeFromName(file.value.file_name));
           return;
         } catch (e) {
           console.warn('[InlineFilePreview] local video blob fetch failed', e);
@@ -363,6 +381,30 @@ async function fetchLocalVideoBlobUrl(uuid, mimeType) {
 
   if (!parts.length) throw new Error('no bytes received');
   return URL.createObjectURL(new Blob(parts, { type: mimeType || 'video/mp4' }));
+}
+
+/**
+ * Retry a failed image once against the embedded server.
+ *
+ * Deliberately does NOT touch a loopback (media-server) or blob: src. This
+ * used to unconditionally rewrite src to /_native/cache/files/{uuid}, which
+ * on-device is the one URL that cannot work — the bridge returns an empty
+ * body for it — so a preview that had just been pointed at a working stream
+ * URL was dragged straight back onto the broken path and retried forever.
+ */
+function onImageError(e) {
+  const uuid = file.value?.uuid;
+  if (!uuid) return;
+
+  const current = e.target.src || '';
+  if (current.startsWith('blob:') || current.includes('127.0.0.2')) {
+    return;
+  }
+
+  const localUrl = '/_native/cache/files/' + uuid;
+  if (!current.endsWith(localUrl)) {
+    e.target.src = localUrl;
+  }
 }
 
 const downloading = ref(false);

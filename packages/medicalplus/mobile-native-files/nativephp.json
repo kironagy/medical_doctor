@@ -26,5 +26,8 @@
             "implementation": []
         }
     },
-    "events": []
+    "events": [],
+    "hooks": {
+        "post_compile": "nativephp:native-files:post-compile"
+    }
 }
