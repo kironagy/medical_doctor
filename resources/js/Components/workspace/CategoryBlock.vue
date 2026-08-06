@@ -144,7 +144,7 @@
                     <span v-if="item.sync_status && item.sync_status !== 'synced'"
                           class="px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap"
                           :class="syncStatusBadgeClass(item.sync_status)">
-                      {{ offlineStatusIcon(item.sync_status) }} {{ offlineStatusLabel(item.sync_status) }}<template v-if="item.sync_status === 'uploading' && typeof item.upload_progress === 'number'"> {{ item.upload_progress }}%</template>
+                      {{ offlineStatusIcon(item.sync_status) }} {{ offlineStatusLabel(item.sync_status) }}
                     </span>
                   </div>
                 </div>

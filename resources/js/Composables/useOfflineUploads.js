@@ -29,6 +29,7 @@ import { ref, computed, reactive } from 'vue'
 import { useNativeBridge } from './useNativeBridge'
 import { useWorkspace } from './useWorkspace'
 import { useSyncEngine } from './useSyncEngine'  // BUG-015: reliable network state
+import { useUploads } from './useUploads'  // shared bottom-right UploadManager.vue popup
 
 // ─── Module-level state (shared across all useOfflineUploads() calls) ──────
 const offlineUploads = ref([])
@@ -103,13 +104,12 @@ export function useOfflineUploads() {
    * Save a video or large file locally using the chunked upload endpoints (/api/v1/chunk/init, /api/v1/chunk/chunk, /api/v1/chunk/complete).
    * This avoids single giant POST requests and works cleanly with embedded Laravel.
    *
-   * onChunkProgress(doneCount, totalCount) fires after every chunk finishes so
-   * the caller can reflect real progress in the UI — previously nothing was
-   * reported until the whole file (all chunks + merge) was done, which is why
-   * a big video looked like a single frozen request instead of visibly
-   * uploading in pieces.
+   * $job, when given, is the reactive entry pushed into useUploads()'s shared
+   * `uploads` list — updated after every chunk so UploadManager.vue's
+   * chunk-count/progress-bar/speed UI reflects real progress instead of
+   * nothing happening until the whole file (all chunks + merge) is done.
    */
-  async function saveFileChunkedOffline(file, patientUuid, metadata = {}, onChunkProgress = null) {
+  async function saveFileChunkedOffline(file, patientUuid, metadata = {}, job = null) {
     const CHUNK_SIZE = 5 * 1024 * 1024 // 5 MB chunks
     const token = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null;
     const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
@@ -130,6 +130,9 @@ export function useOfflineUploads() {
     }, { headers })
 
     const { upload_id, chunk_size = CHUNK_SIZE, total_chunks } = initRes.data
+    if (job) job.totalChunks = total_chunks
+
+    let lastSpeedSample = { t: performance.now(), bytes: 0 }
 
     // Step 2: Upload chunks sequentially
     for (let i = 0; i < total_chunks; i++) {
@@ -150,7 +153,18 @@ export function useOfflineUploads() {
         timeout: 120000,
       })
 
-      if (onChunkProgress) onChunkProgress(i + 1, total_chunks)
+      if (job) {
+        job.completedChunks.add(i)
+        job.uploadedBytes = end
+        job.progress = Math.round((end / file.size) * 100)
+
+        const now = performance.now()
+        const dt = (now - lastSpeedSample.t) / 1000
+        if (dt >= 0.5) {
+          job.speed = Math.round((end - lastSpeedSample.bytes) / dt)
+          lastSpeedSample = { t: now, bytes: end }
+        }
+      }
     }
 
     // Step 3: Complete upload and merge chunks into patient_files
@@ -218,57 +232,46 @@ export function useOfflineUploads() {
       || looksLikeVideo
       || (file.size || 0) > LARGE_FILE_BYTES
 
-    const { addFileLocally, updateFileLocally, removeFileLocally } = useWorkspace()
+    const { addFileLocally } = useWorkspace()
+    const { uploads } = useUploads()
 
-    // Show a placeholder immediately with sync_status 'uploading' — the
-    // 'uploading' badge/color already existed in CategoryBlock.vue, but
-    // nothing ever put a file in the list before the WHOLE upload (all
-    // chunks + merge) finished, so a big video just looked frozen with no
-    // visible chunk progress. This placeholder is swapped for the real
-    // PatientFile record below once the server returns its real uuid.
-    const placeholderUuid = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`
-
-    addFileLocally({
-      uuid:          placeholderUuid,
-      patient_id:    patientUuid,
-      title:         metadata.title || file.name || '',
-      desc:          metadata.desc || '',
-      category:      metadata.category || '',
-      file_name:     file.name,
-      mime_type:     file.type || '',
-      size:          file.size,
-      sync_status:   'uploading',
-      upload_progress: 0,
-      type:          isVideo ? 'video' : (file.type?.startsWith('image/') ? 'image' : 'document'),
-      created_at:    new Date().toISOString(),
-      updated_at:    new Date().toISOString(),
-      upload_status: 'uploading',
-      url:           null,
-      thumbnail_url: null,
-    })
+    // Reuse the SAME bottom-right UploadManager.vue popup the online path
+    // already shows (chunk count, progress bar, speed) instead of a
+    // separate badge on the file card — offline.progress = true hides the
+    // pause/cancel/retry buttons there, since those act on useUploads.js's
+    // own in-flight-request bookkeeping, which this job has none of.
+    let popupJob = null
+    if (isVideo) {
+      popupJob = reactive({
+        id: `offline-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        file,
+        patientId: patientUuid,
+        metadata: { ...metadata },
+        status: 'uploading',
+        progress: 0,
+        uploadedBytes: 0,
+        totalBytes: file.size,
+        speed: 0,
+        error: null,
+        totalChunks: 0,
+        completedChunks: new Set(),
+        offline: true,
+      })
+      uploads.value.push(popupJob)
+    }
 
     try {
       let fileData
       if (isVideo) {
-        fileData = await saveFileChunkedOffline(file, patientUuid, metadata, (done, total) => {
-          updateFileLocally({
-            uuid: placeholderUuid,
-            sync_status: 'uploading',
-            upload_progress: Math.round((done / total) * 100),
-          })
-        })
+        fileData = await saveFileChunkedOffline(file, patientUuid, metadata, popupJob)
+        popupJob.status = 'completed'
+        popupJob.progress = 100
       } else {
         fileData = await saveFileOffline(file, patientUuid, metadata)
       }
 
       const job = createJob(file, patientUuid, metadata, fileData)
 
-      // The real record has a different uuid than the placeholder (chunk
-      // merge always mints a fresh one) — drop the placeholder and add the
-      // real one rather than trying to update in place.
-      removeFileLocally(placeholderUuid)
       const fallbackUrl = `/_native/cache/files/${fileData.uuid}`
       const fallbackThumb = fileData.mime_type?.startsWith('image/')
         ? fallbackUrl
@@ -298,7 +301,10 @@ export function useOfflineUploads() {
       return job
     } catch (err) {
       console.error('[OfflineUpload] Failed to save file locally:', err)
-      updateFileLocally({ uuid: placeholderUuid, sync_status: 'failed', upload_status: 'failed' })
+      if (popupJob) {
+        popupJob.status = 'failed'
+        popupJob.error = err?.message || 'Upload failed'
+      }
       throw err
     }
   }

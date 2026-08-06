@@ -86,7 +86,7 @@
               <p v-if="patientName(upload.patientId)" class="text-[10px] text-slate-400 truncate">{{ patientName(upload.patientId) }}</p>
             </div>
             <button
-              v-if="upload.status === 'uploading'"
+              v-if="upload.status === 'uploading' && !upload.offline"
               @click="pauseUpload(upload.id)"
               class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-amber-500 transition-colors"
               :title="$t('files.pause')"
@@ -96,7 +96,7 @@
               </svg>
             </button>
             <button
-              v-if="upload.status === 'uploading'"
+              v-if="upload.status === 'uploading' && !upload.offline"
               @click="cancelUpload(upload.id)"
               class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-500 transition-colors"
               :title="$t('upload_manager.cancel_upload') || 'Cancel'"
@@ -127,7 +127,7 @@
               </svg>
             </button>
             <button
-              v-if="upload.status === 'failed'"
+              v-if="upload.status === 'failed' && !upload.offline"
               @click="retryUpload(upload.id)"
               class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-red-400 hover:text-red-600 transition-colors"
               :title="$t('upload_manager.retry_upload') || 'Retry'"
