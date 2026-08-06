@@ -29,3 +29,6 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.native.example
+
+# Credential files (keystores, private keys, etc.)
+/credentials/

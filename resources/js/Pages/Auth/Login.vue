@@ -82,8 +82,8 @@ if ((user.value || (typeof window !== 'undefined' && (window.AndroidBridge || wi
 }
 
 const form = useForm({
-  email: 'doctor@medical.test',
-  password: 'password',
+  email: '',
+  password: '',
   remember: true,
 });
 
