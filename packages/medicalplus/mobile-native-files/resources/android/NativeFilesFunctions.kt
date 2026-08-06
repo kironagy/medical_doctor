@@ -75,8 +75,8 @@ object NativeFilesFunctions {
      *
      * DownloadManager cannot be used for a file that only exists inside the
      * app's own embedded server: it runs as a separate system process and
-     * would have to re-fetch the URL, which for /_native/* paths it cannot
-     * reach. The JS side already has those bytes (it reads them in base64
+     * would have to re-fetch the URL, which for the app's own local paths it
+     * cannot reach. The JS side already has those bytes (it reads them in base64
      * chunks to play local video), so it passes them straight through here.
      */
     class SaveBytes(private val context: FragmentActivity) : BridgeFunction {

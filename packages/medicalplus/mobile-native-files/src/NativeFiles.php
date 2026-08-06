@@ -64,9 +64,25 @@ class NativeFiles
         }
 
         try {
+            // nativephp_call() hands back the bridge's raw JSON string, not an
+            // array — same as \Native\Mobile\Browser::open() does. Treating it
+            // as an array silently dropped the payload, so a Serve call that
+            // had already started the media server and returned a working URL
+            // looked like a failure to the caller.
             $result = nativephp_call($method, json_encode($payload));
 
-            return is_array($result) ? $result : ['success' => true];
+            if (is_array($result)) {
+                return $result;
+            }
+
+            if (is_string($result) && $result !== '') {
+                $decoded = json_decode($result, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+
+            return ['success' => false, 'error' => 'unexpected bridge response'];
         } catch (\Throwable $e) {
             report($e);
 

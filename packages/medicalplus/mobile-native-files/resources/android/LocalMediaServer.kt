@@ -39,6 +39,22 @@ object LocalMediaServer {
 
     private const val TAG = "LocalMediaServer"
 
+    /**
+     * Deliberately NOT 127.0.0.1. The WebView's request router matches that
+     * exact host and hands the request to the embedded Laravel instead of
+     * letting it reach the network — confirmed live:
+     *   GET /media/{uuid} (host: 127.0.0.1) -> LOCAL_PHP
+     *     "Explicit localhost URL -> embedded Laravel"
+     * so the player got Laravel's "route media/{uuid} could not be found"
+     * instead of the video and never received a single byte from this server.
+     *
+     * Any other host falls through the router as "Unclassified — system
+     * WebView", i.e. the WebView fetches it normally. The whole 127.0.0.0/8
+     * range is loopback, so 127.0.0.2 is still this device only — nothing is
+     * exposed to the network — while sidestepping that literal-string match.
+     */
+    private const val LOOPBACK_HOST = "127.0.0.2"
+
     private val running = AtomicBoolean(false)
     private var serverSocket: ServerSocket? = null
     private var port: Int = 0
@@ -64,7 +80,7 @@ object LocalMediaServer {
         if (!start()) return null
 
         registry[token] = file.absolutePath
-        return "http://127.0.0.1:$port/media/$token"
+        return "http://$LOOPBACK_HOST:$port/media/$token"
     }
 
     @Synchronized
@@ -74,7 +90,7 @@ object LocalMediaServer {
         return try {
             // Port 0 = let the OS pick a free one; a fixed port would collide
             // with whatever else the device happens to be running.
-            val socket = ServerSocket(0, 8, java.net.InetAddress.getByName("127.0.0.1"))
+            val socket = ServerSocket(0, 8, java.net.InetAddress.getByName(LOOPBACK_HOST))
             serverSocket = socket
             port = socket.localPort
             running.set(true)
@@ -90,7 +106,7 @@ object LocalMediaServer {
                 }
             }
 
-            Log.i(TAG, "listening on 127.0.0.1:$port")
+            Log.i(TAG, "listening on $LOOPBACK_HOST:$port")
             true
         } catch (e: Throwable) {
             Log.e(TAG, "could not start: ${e.message}")
@@ -180,7 +196,7 @@ object LocalMediaServer {
             val out = BufferedOutputStream(sock.getOutputStream())
             out.write(
                 ("HTTP/1.1 416 Range Not Satisfiable\r\n" +
-                    "Content-Range: bytes */$length\r\n" +
+                    "Content-Range: bytes " + "*" + "/$length\r\n" +
                     "Content-Length: 0\r\n" +
                     "Connection: close\r\n\r\n").toByteArray()
             )
