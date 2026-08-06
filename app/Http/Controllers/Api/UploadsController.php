@@ -354,9 +354,16 @@ class UploadsController extends Controller
     {
         Log::channel('upload')->info('upload:start - resolvePatient starting', ['patient_id' => $patientId]);
 
+        // SYNC-007 bypass — see Mobile\FileController::resolvePatient(): with
+        // the scope applied an existing patient reads as missing and a stub
+        // replaces it with a "Patient (xxxxxxxx)" placeholder.
         $patient = is_numeric($patientId)
-            ? Patient::find((int) $patientId)
-            : Patient::where('uuid', $patientId)->first();
+            ? Patient::withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)
+                ->find((int) $patientId)
+            : Patient::withoutGlobalScope(\App\Domains\Auth\Scopes\DoctorIsolationScope::class)
+                ->where(function ($q) use ($patientId) {
+                    $q->where('uuid', $patientId)->orWhere('remote_uuid', $patientId);
+                })->first();
 
         if ($patient) {
             Log::channel('upload')->info('upload:start - resolvePatient patient found locally');

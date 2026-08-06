@@ -156,7 +156,14 @@ class FileCacheRepository implements FileCacheRepositoryInterface
             return null;
         }
 
-        $patient = \App\Domains\Patients\Models\Patient::where('uuid', $patientUuid)->first();
+        // SYNC-007 bypass — see Mobile\FileController::resolvePatient(): with
+        // the scope applied an existing patient reads as missing and the
+        // placeholder row below ("Patient (xxxxxxxx)") replaces it.
+        $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($patientUuid) {
+            $q->where('uuid', $patientUuid)->orWhere('remote_uuid', $patientUuid);
+        })->first();
         if (!$patient) {
             try {
                 $remotePRes = $this->api->get('/patients/' . $patientUuid);

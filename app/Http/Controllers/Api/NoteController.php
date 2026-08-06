@@ -113,7 +113,15 @@ class NoteController extends Controller
 
     private function resolvePatient(string $uuid): Patient
     {
-        $patient = Patient::where('uuid', $uuid)->first();
+        // SYNC-007 bypass — see Mobile\FileController::resolvePatient(): with
+        // the scope applied an existing patient reads as missing and the stub
+        // below overwrites it with a "Patient (xxxxxxxx)" placeholder.
+        $patient = Patient::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($uuid) {
+            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        })->first();
+
         if ($patient) {
             return $patient;
         }

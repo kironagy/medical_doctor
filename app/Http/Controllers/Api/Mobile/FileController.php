@@ -458,7 +458,22 @@ class FileController extends Controller
 
     private function resolvePatient(string $uuid): Patient
     {
-        $patient = Patient::where('uuid', $uuid)->first();
+        // Same SYNC-007 bypass the rest of this controller already uses: on
+        // SQLite there is no authenticated user, so DoctorIsolationScope
+        // filters this lookup down to nothing and a patient that DOES exist
+        // reads as missing. The stub below was then created with the same
+        // uuid, so the patient's name became "Patient (xxxxxxxx)" and every
+        // subsequent read resolved to the empty stub instead of the real
+        // row — the "my patient renamed itself and lost its data after a
+        // refresh" report. Match remote_uuid too, exactly like
+        // FileAccessController::resolveFile(), so a synced patient is found
+        // by whichever id the caller happens to hold.
+        $patient = Patient::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($uuid) {
+            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        })->first();
+
         if ($patient) {
             return $patient;
         }
