@@ -337,12 +337,20 @@ const {
   scrollContainer,
   onRefresh: async () => {
     if (refreshPromise) return
-    refreshPromise = (async () => {
-      await refreshFromServer()
-      await refreshPatientList()
-      await refreshWorkspaceData()
-    })()
-    try { await refreshPromise } finally { refreshPromise = null }
+    // Only the two fast, user-visible refreshes gate the spinner, and they run
+    // in parallel. refreshFromServer() rebuilds the whole local cache on the
+    // server side (15s timeout on its own); running it first and sequentially
+    // is what made pull-to-refresh take 30–50s. It now runs afterwards in the
+    // background and refreshes the list again once it lands.
+    refreshPromise = Promise.allSettled([refreshPatientList(), refreshWorkspaceData()])
+    try {
+      await refreshPromise
+    } finally {
+      refreshPromise = null
+      refreshFromServer()
+        .then(() => refreshPatientList())
+        .catch(() => {})
+    }
   },
 })
 

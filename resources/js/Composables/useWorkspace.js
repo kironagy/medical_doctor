@@ -737,10 +737,20 @@ async function refreshPatientList(page = 1) {
             // is explicitly 'pending_create' or 'pending_update'.
             // Patients that were synced and are now missing from the server
             // response were DELETED on the server, so they MUST NOT be re-added.
+            // "Missing from the API response means deleted on the server" is
+            // only true when the response actually CAME from the server. On the
+            // device this request is intercepted and served by the embedded
+            // Laravel/SQLite instance, whose patient cache may be partial or
+            // empty — treating that as "everyone was deleted" wiped the whole
+            // list the moment the app went offline (or right after creating a
+            // patient offline, which re-runs this refresh). While offline,
+            // preserve every previously visible patient.
+            const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
             for (const [uuid, patient] of allPatientsBackup) {
                 if (!finalUuids.has(uuid)) {
                     const isLocalPending = patient.sync_status === 'pending_create' || patient.sync_status === 'pending_update';
-                    if (isLocalPending) {
+                    if (isLocalPending || isOffline) {
                         preservedPatients.push(patient);
                     }
                 }

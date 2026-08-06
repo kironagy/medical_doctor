@@ -91,7 +91,14 @@ class DownloadSyncService
                     if (!is_array($remoteP) || empty($remoteP['uuid'])) continue;
 
                     $counts['downloaded']++;
-                    $result = $this->upsertRemotePatient($remoteP, $validCols);
+                    // Per-row isolation: one bad patient must never abort the
+                    // whole download and leave the cursor unwritten.
+                    try {
+                        $result = $this->upsertRemotePatient($remoteP, $validCols);
+                    } catch (Throwable $e) {
+                        Log::error('[PatientCache] skipped patient uuid=' . $remoteP['uuid'] . ' reason=' . $e->getMessage());
+                        continue;
+                    }
                     if ($result === 'inserted') {
                         $counts['inserted']++;
                         if ($summary !== null) $summary['patients']++;
@@ -219,8 +226,46 @@ class DownloadSyncService
      *
      * @return string 'inserted'|'updated'|'skipped'
      */
+    /**
+     * patients.primary_doctor_id is a FK into users. The device only ever has
+     * the logged-in doctor's own row, so every remote patient owned by a
+     * DIFFERENT doctor id blew up with a foreign key violation on insert. That
+     * exception escaped to downloadPatients()'s outer catch, which aborted the
+     * whole download before the `patients_last_sync` cursor was written — so
+     * the local cache stayed empty and going offline showed an empty list.
+     *
+     * Materialise a minimal local row for the referenced doctor (using the
+     * payload's primary_doctor block when the API included it) so the FK
+     * resolves and the patient can be cached.
+     */
+    private function ensureDoctorExistsLocally(array $remoteP): void
+    {
+        $doctorId = $remoteP['primary_doctor_id'] ?? null;
+        if (!$doctorId) {
+            return;
+        }
+
+        $users = \App\Domains\Users\Models\User::query();
+        if ($users->whereKey($doctorId)->exists()) {
+            return;
+        }
+
+        $doctor = $remoteP['primary_doctor'] ?? [];
+
+        DB::table('users')->insertOrIgnore([
+            'id'         => $doctorId,
+            'name'       => $doctor['name'] ?? 'Doctor #' . $doctorId,
+            'email'      => $doctor['email'] ?? ('doctor' . $doctorId . '@local.invalid'),
+            'password'   => '',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
     private function upsertRemotePatient(array $remoteP, array $validCols): string
     {
+        $this->ensureDoctorExistsLocally($remoteP);
+
         $localP = Patient::where('uuid', $remoteP['uuid'])->first();
         $clean = Arr::except($remoteP, ['id', 'primary_doctor', 'visits', 'shares', 'files', 'notes']);
         $clean['sync_status'] = 'synced';
