@@ -213,6 +213,30 @@ async function selectPatient(uuid) {
         //  If addPatient() already populated workspaceData for this uuid, keep
         //  it and let the category blocks hydrate from local pending data.
         // ═══════════════════════════════════════════════════════════════
+        // Before giving up, ask the embedded Laravel directly. Online, the
+        // request above is forwarded to production, which 404s for a patient
+        // that only exists on this device (sync_status=pending_create) — its
+        // {patient:uuid} binding aborts before the controller even runs. The
+        // /_native/ path is always served locally, so it returns the real
+        // workspace payload instead of the empty-shell fallback below, which
+        // only ever worked right after addPatient() had populated it.
+        try {
+            const localRes = await axios.get(`/_native/api/workspace/${uuid}`);
+            if (localRes.data) {
+                workspaceData.value = localRes.data;
+                const localCats = localRes.data.categories || [];
+                if (localCats.length > 0) {
+                    globalCategories.value = localCats;
+                }
+                localCats.forEach((c) => {
+                    expandedCategories.value[c.slug] = true;
+                });
+                return;
+            }
+        } catch (localError) {
+            console.warn("Local patient data unavailable too", localError);
+        }
+
         console.error("Failed to load patient data (keeping local snapshot if any)", e);
         const local = workspaceData.value;
         if (local?.patient?.uuid === uuid || local?.uuid === uuid) {

@@ -411,6 +411,20 @@ Route::get('/_native/api/patients/pending', function () {
     }
 })->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
 
+// ── Local patient workspace data (OUTSIDE auth middleware) ────────────
+// Same payload as GET /api/v1/workspace/{patient:uuid}, but guaranteed to be
+// served by the embedded Laravel: any /_native/* path is routed to LOCAL_PHP,
+// while the /api/v1 one is forwarded to production whenever the device is
+// online. A patient created on the device is still sync_status=pending_create
+// and does not exist on production, so opening it sent production a uuid it
+// had never seen — its {patient:uuid} route-model binding threw
+// NotFoundHttpException and the whole workspace failed to open. Note this
+// route intentionally takes a plain string uuid rather than a bound model,
+// so a missing patient is handled by the controller instead of aborting in
+// the router.
+Route::get('/_native/api/workspace/{uuid}', [\App\Http\Controllers\WorkspaceController::class, 'patientData'])
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
+
 // ═══ SYNC-005 FIX: Removed /sync/all endpoint ════════════════════════
 // This endpoint was a competing sync path that duplicated logic from
 // SyncEngineService. All sync operations now go through the single
