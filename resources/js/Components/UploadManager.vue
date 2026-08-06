@@ -86,8 +86,8 @@
               <p v-if="patientName(upload.patientId)" class="text-[10px] text-slate-400 truncate">{{ patientName(upload.patientId) }}</p>
             </div>
             <button
-              v-if="upload.status === 'uploading' && !upload.offline"
-              @click="pauseUpload(upload.id)"
+              v-if="upload.status === 'uploading'"
+              @click="onPause(upload)"
               class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-amber-500 transition-colors"
               :title="$t('files.pause')"
             >
@@ -96,8 +96,8 @@
               </svg>
             </button>
             <button
-              v-if="upload.status === 'uploading' && !upload.offline"
-              @click="cancelUpload(upload.id)"
+              v-if="upload.status === 'uploading'"
+              @click="onCancel(upload)"
               class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-500 transition-colors"
               :title="$t('upload_manager.cancel_upload') || 'Cancel'"
             >
@@ -107,7 +107,7 @@
             </button>
             <button
               v-if="upload.status === 'paused'"
-              @click="resumeUpload(upload.id)"
+              @click="onResume(upload)"
               class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-amber-500 hover:text-amber-600 transition-colors"
               :title="$t('files.resume')"
             >
@@ -118,7 +118,7 @@
             </button>
             <button
               v-if="upload.status === 'paused'"
-              @click="cancelUpload(upload.id)"
+              @click="onCancel(upload)"
               class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-red-500 transition-colors"
               :title="$t('upload_manager.cancel_upload') || 'Cancel'"
             >
@@ -127,8 +127,8 @@
               </svg>
             </button>
             <button
-              v-if="upload.status === 'failed' && !upload.offline"
-              @click="retryUpload(upload.id)"
+              v-if="upload.status === 'failed'"
+              @click="onRetry(upload)"
               class="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-red-400 hover:text-red-600 transition-colors"
               :title="$t('upload_manager.retry_upload') || 'Retry'"
             >
@@ -201,10 +201,36 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useUploads } from '@/Composables/useUploads'
+import { useOfflineUploads } from '@/Composables/useOfflineUploads'
 import { useWorkspace } from '@/Composables/useWorkspace'
 
 const { uploads, cancelUpload, pauseUpload, resumeUpload, retryUpload, clearCompleted, formatSize, formatSpeed } = useUploads()
 const { patients } = useWorkspace()
+
+// ── FIX-REL-2 step 4: offline jobs (upload.offline === true) carry none of
+// useUploads.js's in-flight-request bookkeeping (job.uploadId set the same
+// way, controllers map, etc) — routing them through cancelUpload/pauseUpload/
+// retryUpload would either no-op or throw. Dispatch to the matching
+// useOfflineUploads.js function instead, which knows how to resume a
+// partially-uploaded offline session rather than restarting it.
+const {
+  pauseOfflineUpload,
+  cancelOfflineUpload,
+  resumeOfflineUpload,
+} = useOfflineUploads()
+
+function onPause(upload) {
+  return upload.offline ? pauseOfflineUpload(upload.id) : pauseUpload(upload.id)
+}
+function onCancel(upload) {
+  return upload.offline ? cancelOfflineUpload(upload.id) : cancelUpload(upload.id)
+}
+function onResume(upload) {
+  return upload.offline ? resumeOfflineUpload(upload.id) : resumeUpload(upload.id)
+}
+function onRetry(upload) {
+  return upload.offline ? resumeOfflineUpload(upload.id) : retryUpload(upload.id)
+}
 
 function patientName(pid) {
   if (!pid) return ''

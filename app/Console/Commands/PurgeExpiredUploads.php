@@ -12,8 +12,8 @@ class PurgeExpiredUploads extends Command
 
     public function handle(UploadCleanupService $cleanupService): int
     {
-        $count = $cleanupService->purgeExpired();
-        $this->info("Purged {$count} expired upload sessions.");
+        $count = $cleanupService->purgeExpired((int) $this->option('hours'));
+        $this->info("Purged {$count} expired upload sessions/temp files.");
         return Command::SUCCESS;
     }
 }

@@ -3,12 +3,16 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\InitChunkUploadRequest;
+use App\Http\Requests\StoreChunkRequest;
+use App\Http\Requests\CompleteChunkUploadRequest;
 use App\Services\Upload\UploadSessionService;
 use App\Services\Upload\ChunkUploadService;
 use App\Services\Upload\ChunkMergeService;
 use App\Services\Upload\UploadCleanupService;
 use App\Services\Upload\UploadValidationService;
 use App\Domains\Patients\Models\Patient;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use MedicalPlus\BackgroundSync\Facades\BackgroundSync;
@@ -24,14 +28,9 @@ class ChunkUploadController extends Controller
         private readonly UploadValidationService $validationService,
     ) {}
 
-    public function init(Request $request)
+    public function init(InitChunkUploadRequest $request)
     {
-        if ($request->hasSession()) {
-            $request->session()->save();
-        }
         $start = microtime(true);
-
-        // Correct mime_type if it is application/octet-stream or empty, based on file_name extension
         $mimeType = $request->input('mime_type');
         $fileName = $request->input('file_name');
         if ($fileName && ($mimeType === 'application/octet-stream' || empty($mimeType))) {
@@ -42,11 +41,16 @@ class ChunkUploadController extends Controller
                 'gif' => 'image/gif',
                 'webp' => 'image/webp',
                 'heic' => 'image/heic',
+                'heif' => 'image/heif',
                 'mp4' => 'video/mp4',
                 'mov' => 'video/quicktime',
                 'avi' => 'video/x-msvideo',
                 'mkv' => 'video/x-matroska',
                 'webm' => 'video/webm',
+                '3gp' => 'video/3gpp',
+                'm4v' => 'video/x-m4v',
+                'wmv' => 'video/x-ms-wmv',
+                'flv' => 'video/x-flv',
                 'pdf' => 'application/pdf',
                 default => null,
             };
@@ -55,25 +59,16 @@ class ChunkUploadController extends Controller
             }
         }
 
-        Log::channel('upload')->info('chunk:init - ENTER Controller', [
-            'payload' => $request->all()
-        ]);
+        if (env('UPLOAD_DEBUG')) {
+            Log::channel('upload')->info('chunk:init - ENTER Controller', ['payload' => $request->all()]);
+        }
+
+        $validated = $request->validated();
+        if (env('UPLOAD_DEBUG')) {
+            Log::channel('upload')->info('chunk:init - Validation passed');
+        }
 
         try {
-            $validated = $request->validate([
-                'file_name' => 'required|string|max:255',
-                'file_size' => 'required|integer|min:1|max:5368709120',
-                'mime_type' => 'required|string|max:255',
-                'patient_id' => 'required',
-                'chunk_size' => 'sometimes|integer|min:1048576|max:52428800',
-                'metadata' => 'sometimes|array',
-                'metadata.title' => 'sometimes|nullable|string|max:255',
-                'metadata.desc' => 'sometimes|nullable|string|max:1000',
-                'metadata.category' => 'sometimes|nullable|string|max:100',
-                'metadata.date' => 'sometimes|nullable|date',
-            ]);
-            Log::channel('upload')->info('chunk:init - Validation passed');
-
             $patient = $this->resolvePatient($request->patient_id);
             Log::channel('upload')->info('chunk:init - Patient resolved', [
                 'patient_id' => $patient->id,
@@ -88,7 +83,9 @@ class ChunkUploadController extends Controller
                 ]);
                 return response()->json(['message' => 'Forbidden'], 403);
             }
-            Log::channel('upload')->info('chunk:init - Gate check skipped/passed');
+            if (env('UPLOAD_DEBUG')) {
+                Log::channel('upload')->info('chunk:init - Gate check skipped/passed');
+            }
 
             $data = array_merge($request->only(['file_name', 'file_size', 'mime_type']), [
                 'patient_id' => $patient->id,
@@ -114,14 +111,14 @@ class ChunkUploadController extends Controller
                 }
             }
             $userId = $user?->id ?? $patient->primary_doctor_id ?? $patient->created_by_id ?? 1;
-            Log::channel('upload')->info('chunk:init - Resolved user context', [
-                'user_id' => $userId
-            ]);
+            if (env('UPLOAD_DEBUG')) {
+                Log::channel('upload')->info('chunk:init - Resolved user context', ['user_id' => $userId]);
+            }
 
             $session = $this->sessionService->create($data, $userId);
-            Log::channel('upload')->info('chunk:init - Upload session created', [
-                'session' => $session->uuid
-            ]);
+            if (env('UPLOAD_DEBUG')) {
+                Log::channel('upload')->info('chunk:init - Upload session created', ['session' => $session->uuid]);
+            }
 
             // Elevates the process's priority for the duration of the upload,
             // same reasoning as RunManualSyncJob. Chunks are still driven by
@@ -134,12 +131,10 @@ class ChunkUploadController extends Controller
 
             $duration = (microtime(true) - $start) * 1000;
 
-            Log::channel('upload')->info('chunk:init - Returning response', [
+            // Always log the summary line (cheap: no payload, just scalars).
+            Log::channel('upload')->info('chunk:init - OK', [
                 'session'   => $session->uuid,
-                'user'      => $userId,
-                'patient'   => $patient->id,
                 'file'      => $data['file_name'],
-                'size'      => $data['file_size'],
                 'chunk_sz'  => $session->chunk_size,
                 'chunks'    => $session->total_chunks,
             ]);
@@ -151,6 +146,14 @@ class ChunkUploadController extends Controller
                 'total_size' => $session->total_size,
                 'expires_at' => $session->expires_at->toIso8601String(),
             ])->header('X-Server-Time', round($duration, 2));
+        } catch (HttpException $e) {
+            // ── FIX-REL-1: preserve the real status (e.g. 422 unsupported
+            // MIME from UploadValidationService::validateInit()) instead of
+            // letting the \Throwable catch below force it to 500.
+            return response()->json([
+                'message' => $e->getMessage(),
+                'patient_uuid' => $request->input('patient_id'),
+            ])->setStatusCode($e->getStatusCode());
         } catch (\Throwable $e) {
             $sqlState = null;
             $sqliteError = null;
@@ -197,19 +200,10 @@ class ChunkUploadController extends Controller
         }
     }
 
-    public function chunk(Request $request)
+    public function chunk(StoreChunkRequest $request)
     {
-        if ($request->hasSession()) {
-            $request->session()->save();
-        }
         $start = microtime(true);
-
-        $validated = $request->validate([
-            'upload_id' => 'required|string|size:36',
-            'chunk_index' => 'required|integer|min:0',
-            'chunk' => 'required|file|max:51200',
-            'checksum' => 'sometimes|string|size:64',
-        ]);
+        $validated = $request->validated();
 
         try {
             $session = $this->sessionService->findOrFail($validated['upload_id']);
@@ -231,6 +225,12 @@ class ChunkUploadController extends Controller
 
             $duration = (microtime(true) - $start) * 1000;
             return response()->json($result)->header('X-Server-Time', round($duration, 2));
+        } catch (ModelNotFoundException $e) {
+            return response()->json([
+                'message'   => 'Upload session not found or expired',
+                'upload_id' => $validated['upload_id'] ?? null,
+                'code'      => 'SESSION_EXPIRED',
+            ], 410);
         } catch (HttpException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
@@ -239,6 +239,14 @@ class ChunkUploadController extends Controller
             ])->header('X-Server-Time', round((microtime(true) - $start) * 1000, 2))
             ->setStatusCode($e->getStatusCode());
         } catch (\Throwable $e) {
+            if ($this->isSqliteBusy($e)) {
+                return response()->json([
+                    'message'   => 'Database is busy, please retry',
+                    'upload_id' => $validated['upload_id'] ?? null,
+                    'code'      => 'DB_BUSY',
+                ], 503)->header('Retry-After', 1);
+            }
+
             $sqlState = null;
             $sqliteError = null;
             if ($e instanceof \PDOException) {
@@ -275,16 +283,13 @@ class ChunkUploadController extends Controller
         }
     }
 
-    public function complete(Request $request)
+    public function complete(CompleteChunkUploadRequest $request)
     {
         if ($request->hasSession()) {
             $request->session()->save();
         }
         $start = microtime(true);
-
-        $validated = $request->validate([
-            'upload_id' => 'required|string|size:36',
-        ]);
+        $validated = $request->validated();
 
         try {
             $session = $this->sessionService->findOrFail($validated['upload_id']);
@@ -305,6 +310,15 @@ class ChunkUploadController extends Controller
                 'thumbnail_url' => $patientFile->thumbnail_url,
                 'type' => $patientFile->type,
             ])->header('X-Server-Time', round($duration, 2));
+        } catch (ModelNotFoundException $e) {
+            // ── FIX-REL-4: only genuine failures fire the failure toast.
+            // An expired/unknown session is a recoverable client state, not
+            // a crash — do not notify BackgroundSync::stop(failure) for it.
+            return response()->json([
+                'message'   => 'Upload session not found or expired',
+                'upload_id' => $validated['upload_id'] ?? null,
+                'code'      => 'SESSION_EXPIRED',
+            ], 410);
         } catch (HttpException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
@@ -312,6 +326,15 @@ class ChunkUploadController extends Controller
             ])->header('X-Server-Time', round((microtime(true) - $start) * 1000, 2))
             ->setStatusCode($e->getStatusCode());
         } catch (\Throwable $e) {
+            if ($this->isSqliteBusy($e)) {
+                BackgroundSync::stop('فشل رفع الملف');
+                return response()->json([
+                    'message'   => 'Database is busy, please retry',
+                    'upload_id' => $validated['upload_id'] ?? null,
+                    'code'      => 'DB_BUSY',
+                ], 503)->header('Retry-After', 1);
+            }
+
             $sqlState = null;
             $sqliteError = null;
             if ($e instanceof \PDOException) {
@@ -334,6 +357,11 @@ class ChunkUploadController extends Controller
                 'trace'        => $e->getTraceAsString(),
             ]);
 
+            // Genuine failure — this is the only path that should fire the
+            // BackgroundSync failure notification (previously a `finally`
+            // block fired it for recoverable 4xx responses too).
+            BackgroundSync::stop('فشل رفع الملف');
+
             return response()->json([
                 'message'      => 'Upload completion failed: ' . $e->getMessage(),
                 'error'        => $e->getMessage(),
@@ -344,11 +372,24 @@ class ChunkUploadController extends Controller
                 'line'         => $e->getLine(),
                 'trace'        => $e->getTraceAsString(),
             ], 500);
-        } finally {
-            if (isset($e)) {
-                BackgroundSync::stop('فشل رفع الملف');
-            }
         }
+    }
+
+    /**
+     * SQLITE_BUSY / SQLITE_BUSY_SNAPSHOT surfaces as a PDOException with
+     * "database is locked" — DEFERRED transaction mode does not retry that
+     * error class via busy_timeout. Detect it so the client gets a 503 with
+     * Retry-After instead of an indistinguishable 500.
+     */
+    private function isSqliteBusy(\Throwable $e): bool
+    {
+        $pdoEx = $e instanceof \PDOException ? $e : ($e->getPrevious() instanceof \PDOException ? $e->getPrevious() : null);
+        if (!$pdoEx) {
+            return false;
+        }
+        $message = $pdoEx->getMessage();
+        return str_contains($message, 'database is locked')
+            || str_contains($message, 'SQLITE_BUSY');
     }
 
     public function cancel(Request $request, string $uuid)
@@ -365,6 +406,12 @@ class ChunkUploadController extends Controller
             $this->chunkService->cancel($session);
             BackgroundSync::stop();
             return response()->json(['message' => 'Upload cancelled']);
+        } catch (ModelNotFoundException $e) {
+            return response()->json([
+                'message'   => 'Upload session not found or expired',
+                'upload_id' => $uuid,
+                'code'      => 'SESSION_EXPIRED',
+            ], 410);
         } catch (\Throwable $e) {
             Log::channel('upload')->error('chunk:cancel_error', [
                 'upload_id' => $uuid,
@@ -390,6 +437,12 @@ class ChunkUploadController extends Controller
 
             $status = $this->chunkService->getStatus($session);
             return response()->json($status);
+        } catch (ModelNotFoundException $e) {
+            return response()->json([
+                'message'   => 'Upload session not found or expired',
+                'upload_id' => $uuid,
+                'code'      => 'SESSION_EXPIRED',
+            ], 410);
         } catch (\Throwable $e) {
             Log::channel('upload')->error('chunk:status_error', [
                 'upload_id' => $uuid,
@@ -423,11 +476,16 @@ class ChunkUploadController extends Controller
         // patient stopped syncing to production and its files waited forever.
         $patient = is_numeric($patientId)
             ? Patient::withoutGlobalScopes()->find((int) $patientId)
-            : Patient::withoutGlobalScopes()->where('uuid', $patientId)->first();
+            : Patient::withoutGlobalScopes()->where('uuid', $patientId)->orWhere('remote_uuid', $patientId)->first();
 
         if ($patient) {
             Log::channel('upload')->info('chunk:init - resolvePatient patient found locally');
             return $patient;
+        }
+
+        // FIX-ARCH-5: Gate stub patient creation on embedded SQLite database. On MySQL (production), return 404.
+        if (config('database.default') !== 'sqlite') {
+            throw new HttpException(404, 'Patient not found');
         }
 
         Log::channel('upload')->info('chunk:init - resolvePatient creating stub for local patient');

@@ -9,6 +9,7 @@ use App\Services\Upload\ChunkMergeService;
 use App\Services\Upload\UploadCleanupService;
 use App\Services\Upload\UploadValidationService;
 use App\Domains\Patients\Models\Patient;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -30,21 +31,23 @@ class UploadsController extends Controller
             'payload' => $request->all()
         ]);
 
-        try {
-            $validated = $request->validate([
-                'file_name' => 'required|string|max:255',
-                'file_size' => 'required|integer|min:1|max:5368709120',
-                'mime_type' => 'required|string|max:255',
-                'patient_id' => 'required',
-                'chunk_size' => 'sometimes|integer|min:1048576|max:52428800',
-                'metadata' => 'sometimes|array',
-                'metadata.title' => 'sometimes|nullable|string|max:255',
-                'metadata.desc' => 'sometimes|nullable|string|max:1000',
-                'metadata.category' => 'sometimes|nullable|string|max:100',
-                'metadata.date' => 'sometimes|nullable|date',
-            ]);
-            Log::channel('upload')->info('upload:start - Validation passed');
+        // ── FIX-REL-1: validate() moved above the try block (see the
+        // identical fix and rationale in ChunkUploadController::init()).
+        $validated = $request->validate([
+            'file_name' => 'required|string|max:255',
+            'file_size' => 'required|integer|min:1|max:5368709120',
+            'mime_type' => 'required|string|max:255',
+            'patient_id' => 'required',
+            'chunk_size' => 'sometimes|integer|min:1048576|max:52428800',
+            'metadata' => 'sometimes|array',
+            'metadata.title' => 'sometimes|nullable|string|max:255',
+            'metadata.desc' => 'sometimes|nullable|string|max:1000',
+            'metadata.category' => 'sometimes|nullable|string|max:100',
+            'metadata.date' => 'sometimes|nullable|date',
+        ]);
+        Log::channel('upload')->info('upload:start - Validation passed');
 
+        try {
             $patient = $this->resolvePatient($request->patient_id);
             Log::channel('upload')->info('upload:start - Patient resolved', [
                 'patient_id' => $patient->id,
@@ -98,6 +101,13 @@ class UploadsController extends Controller
                 'total_size' => $session->total_size,
                 'expires_at' => $session->expires_at->toIso8601String(),
             ])->header('X-Server-Time', round($duration, 2));
+        } catch (HttpException $e) {
+            // ── FIX-REL-1: preserve the real status (e.g. 422 unsupported
+            // MIME from UploadValidationService::validateInit()).
+            return response()->json([
+                'message' => $e->getMessage(),
+                'patient_uuid' => $request->input('patient_id'),
+            ])->setStatusCode($e->getStatusCode());
         } catch (\Throwable $e) {
             $sqlState = null;
             $sqliteError = null;
@@ -170,6 +180,12 @@ class UploadsController extends Controller
 
             $duration = (microtime(true) - $start) * 1000;
             return response()->json($result)->header('X-Server-Time', round($duration, 2));
+        } catch (ModelNotFoundException $e) {
+            return response()->json([
+                'message'   => 'Upload session not found or expired',
+                'upload_id' => $validated['upload_id'] ?? null,
+                'code'      => 'SESSION_EXPIRED',
+            ], 410);
         } catch (HttpException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
@@ -178,6 +194,14 @@ class UploadsController extends Controller
             ])->header('X-Server-Time', round((microtime(true) - $start) * 1000, 2))
             ->setStatusCode($e->getStatusCode());
         } catch (\Throwable $e) {
+            if ($this->isSqliteBusy($e)) {
+                return response()->json([
+                    'message'   => 'Database is busy, please retry',
+                    'upload_id' => $validated['upload_id'] ?? null,
+                    'code'      => 'DB_BUSY',
+                ], 503)->header('Retry-After', 1);
+            }
+
             $sqlState = null;
             $sqliteError = null;
             if ($e instanceof \PDOException) {
@@ -224,6 +248,12 @@ class UploadsController extends Controller
 
             $status = $this->chunkService->getStatus($session);
             return response()->json($status);
+        } catch (ModelNotFoundException $e) {
+            return response()->json([
+                'message'   => 'Upload session not found or expired',
+                'upload_id' => $id,
+                'code'      => 'SESSION_EXPIRED',
+            ], 410);
         } catch (\Throwable $e) {
             Log::channel('upload')->error('upload:status_error', [
                 'upload_id' => $id,
@@ -248,6 +278,12 @@ class UploadsController extends Controller
             $this->sessionService->ensureUploading($session);
             $status = $this->chunkService->getStatus($session);
             return response()->json($status);
+        } catch (ModelNotFoundException $e) {
+            return response()->json([
+                'message'   => 'Upload session not found or expired',
+                'upload_id' => $id,
+                'code'      => 'SESSION_EXPIRED',
+            ], 410);
         } catch (\Throwable $e) {
             Log::channel('upload')->error('upload:resume_error', [
                 'upload_id' => $id,
@@ -286,6 +322,12 @@ class UploadsController extends Controller
                 'thumbnail_url' => $patientFile->thumbnail_url,
                 'type' => $patientFile->type,
             ])->header('X-Server-Time', round($duration, 2));
+        } catch (ModelNotFoundException $e) {
+            return response()->json([
+                'message'   => 'Upload session not found or expired',
+                'upload_id' => $validated['upload_id'] ?? null,
+                'code'      => 'SESSION_EXPIRED',
+            ], 410);
         } catch (HttpException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
@@ -293,6 +335,14 @@ class UploadsController extends Controller
             ])->header('X-Server-Time', round((microtime(true) - $start) * 1000, 2))
             ->setStatusCode($e->getStatusCode());
         } catch (\Throwable $e) {
+            if ($this->isSqliteBusy($e)) {
+                return response()->json([
+                    'message'   => 'Database is busy, please retry',
+                    'upload_id' => $validated['upload_id'] ?? null,
+                    'code'      => 'DB_BUSY',
+                ], 503)->header('Retry-After', 1);
+            }
+
             $sqlState = null;
             $sqliteError = null;
             if ($e instanceof \PDOException) {
@@ -328,6 +378,23 @@ class UploadsController extends Controller
         }
     }
 
+    /**
+     * SQLITE_BUSY / SQLITE_BUSY_SNAPSHOT surfaces as a PDOException with
+     * "database is locked" — DEFERRED transaction mode does not retry that
+     * error class via busy_timeout. Detect it so the client gets a 503 with
+     * Retry-After instead of an indistinguishable 500.
+     */
+    private function isSqliteBusy(\Throwable $e): bool
+    {
+        $pdoEx = $e instanceof \PDOException ? $e : ($e->getPrevious() instanceof \PDOException ? $e->getPrevious() : null);
+        if (!$pdoEx) {
+            return false;
+        }
+        $message = $pdoEx->getMessage();
+        return str_contains($message, 'database is locked')
+            || str_contains($message, 'SQLITE_BUSY');
+    }
+
     public function destroy(Request $request, string $id)
     {
         try {
@@ -338,6 +405,12 @@ class UploadsController extends Controller
 
             $this->chunkService->cancel($session);
             return response()->json(['message' => 'Upload cancelled']);
+        } catch (ModelNotFoundException $e) {
+            return response()->json([
+                'message'   => 'Upload session not found or expired',
+                'upload_id' => $id,
+                'code'      => 'SESSION_EXPIRED',
+            ], 410);
         } catch (\Throwable $e) {
             Log::channel('upload')->error('upload:destroy_error', [
                 'upload_id' => $id,

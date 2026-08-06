@@ -416,6 +416,21 @@ Route::post('/_native/api/files/download', function (\Illuminate\Http\Request $r
         }
 
         if ($absolutePath) {
+            // ── FIX-PERF-9: cap base64 download at 5 MB.
+            // file_get_contents + base64_encode + json() = 3× the file in PHP
+            // heap, guaranteed OOM for anything over ~80 MB at 256M limit.
+            // Clients that need larger files must use the chunked download path
+            // (FileAccessController offset/length API).
+            $maxBytes = 5 * 1024 * 1024;
+            $fileSize = filesize($absolutePath);
+            if ($fileSize === false || $fileSize > $maxBytes) {
+                return response()->json([
+                    'success' => false,
+                    'error'   => 'File too large for inline download; use the chunked API (/_native/cache/files/{uuid}/base64?offset=&length=).',
+                    'size'    => $fileSize,
+                    'max'     => $maxBytes,
+                ], 413);
+            }
             return response()->json(
                 $native->saveBytes(base64_encode(file_get_contents($absolutePath)), $fileName, $mime)
             );

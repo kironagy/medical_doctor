@@ -371,8 +371,9 @@ async function fetchLocalVideoBlobUrl(uuid, mimeType) {
     if (total === null && typeof res.data?.size === 'number') total = res.data.size;
 
     const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
+    // FIX-PERF-9: replaced the charCodeAt loop (1M iterations/MB) with
+    // Uint8Array.from() which uses the V8-optimised typed-array path.
+    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
     parts.push(bytes);
 
     offset += bytes.length;

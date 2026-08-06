@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Requests\StoreFileRequest;
 use App\Http\Controllers\Controller;
 use App\Domains\Media\Services\UploadService;
 use App\Domains\Patients\Models\Patient;
@@ -14,15 +15,9 @@ class UploadController extends Controller
 {
     public function __construct(private readonly UploadService $uploadService) {}
 
-    public function store(Request $request, string $patientUuid)
+    public function store(StoreFileRequest $request, string $patientUuid)
     {
-        $request->validate([
-            'file' => 'required|file|max:512000',
-            'title' => 'sometimes|string|max:255',
-            'desc' => 'sometimes|string|max:1000',
-            'category' => 'sometimes|string|max:100',
-            'date' => 'sometimes|date',
-        ]);
+        $validated = $request->validated();
 
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
 

@@ -10,16 +10,11 @@ use App\Domains\Media\Models\PatientFile;
 use App\Domains\Media\Jobs\GenerateThumbnailJob;
 use Exception;
 
+use App\Services\Upload\UploadValidationService;
+
 class UploadService
 {
-    private const SAFE_EXTENSIONS = [
-        'mp4','mov','avi','mkv','webm','m4v','3gp','wmv','flv',
-        'jpg','jpeg','png','gif','webp','bmp','heic','tif','tiff',
-        'pdf','doc','docx','xls','xlsx','ppt','pptx','txt','csv','rtf',
-        'zip','rar','7z',
-        'mp3','wav','aac','flac','ogg','m4a',
-        'dcm','dicom',
-    ];
+    private const SAFE_EXTENSIONS = UploadValidationService::SAFE_EXTENSIONS;
 
     public function uploadFile(UploadedFile $file, int $patientId, int $uploaderId, array $metadata = []): PatientFile
     {

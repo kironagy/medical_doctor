@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Upload\UploadTempFileResolver;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -9,6 +10,10 @@ use Illuminate\Support\Facades\Log;
 
 class ParseMobileMultipartMiddleware
 {
+    public function __construct(
+        private readonly UploadTempFileResolver $tempFiles
+    ) {}
+
     /**
      * Handle an incoming request.
      *
@@ -185,8 +190,7 @@ class ParseMobileMultipartMiddleware
             $b64rem  = '';
 
             if ($filename !== null) {
-                $tmpPath = tempnam(sys_get_temp_dir(), 'nphp_upl_');
-                $tmpFp   = fopen($tmpPath, 'wb');
+                [$tmpPath, $tmpFp] = $this->tempFiles->open('nphp_upl_');
             }
 
             $truncated = false;
@@ -282,7 +286,7 @@ class ParseMobileMultipartMiddleware
             $request->merge($textFields);
         }
 
-        Log::error('[ParseMobileMultipartStream] Parsed multipart body', [
+        Log::debug('[ParseMobileMultipartStream] Parsed multipart body', [
             'url'      => $request->fullUrl(),
             'boundary' => $boundary,
             'fields'   => array_keys($textFields),

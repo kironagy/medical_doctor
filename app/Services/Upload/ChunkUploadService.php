@@ -102,9 +102,15 @@ class ChunkUploadService
         $finalAbsPath = $disk->path($finalRelPath);
         $offset = $chunkIndex * $session->chunk_size;
 
+        // ── FIX-REL-3 item 4: mkdir TOCTOU. Two concurrent first-chunk
+        // requests for a new patient both see !is_dir() as true and both call
+        // mkdir(); the loser's E_WARNING became a thrown ErrorException before
+        // reaching the try/catch guards below it. Suppress + recheck instead.
         $dir = dirname($finalAbsPath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            if (!@mkdir($dir, 0755, true) && !is_dir($dir)) {
+                throw new HttpException(500, "Cannot create directory: {$dir}");
+            }
         }
 
         $fp = fopen($finalAbsPath, 'c+');
@@ -150,6 +156,19 @@ class ChunkUploadService
 
         fclose($input);
         fflush($fp);
+
+        // ── FIX-REL-3 item: fsync the final chunk. fflush only pushes PHP's
+        // userspace buffer to the OS; it does not force the OS page cache to
+        // disk. A device power loss or kernel panic between the last chunk
+        // write and merge could otherwise leave a file whose tail never made
+        // it to storage while the receipt and merge both indicate success —
+        // unacceptable for a medical record. Costs one extra syscall, only
+        // paid on the last chunk of each upload.
+        $isLastChunk = $chunkIndex === $session->total_chunks - 1;
+        if ($isLastChunk && function_exists('fsync')) {
+            fsync($fp);
+        }
+
         fclose($fp);
     }
 
@@ -162,7 +181,13 @@ class ChunkUploadService
         }
 
         $chunkPath = "{$chunkDir}/{$chunkIndex}";
-        $tmpPath = "{$chunkDir}/_{$chunkIndex}.tmp";
+        // ── FIX-REL-3 item 5: unique staging name. The previous fixed name
+        // `_{$chunkIndex}.tmp` let a retry racing the original attempt write
+        // the same staging path; whichever move() ran second silently lost
+        // (disk had 'throw' => false) with both return values discarded,
+        // leaving the chunk possibly half-written. A per-attempt random
+        // suffix means concurrent attempts never collide on the same path.
+        $tmpPath = "{$chunkDir}/_{$chunkIndex}." . bin2hex(random_bytes(8)) . '.tmp';
 
         $chunk->storeAs(dirname($chunkPath), basename($tmpPath), $session->disk);
         if ($disk->exists($tmpPath)) {

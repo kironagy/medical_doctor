@@ -139,6 +139,36 @@ return Application::configure(basePath: dirname(__DIR__))
                     'trace'        => $e->getTraceAsString(),
                 ]);
 
+                // ── FIX-REL-1: map exception types Laravel would otherwise ──
+                // convert to their real statuses AFTER this closure runs (the
+                // callback short-circuits Handler::render(), so ValidationException,
+                // AuthenticationException etc never reach Laravel's own mapping).
+                if ($e instanceof \Illuminate\Validation\ValidationException) {
+                    return response()->json([
+                        'message' => $e->getMessage(),
+                        'errors'  => $e->errors(),
+                    ], $e->status);
+                }
+
+                if ($e instanceof \Illuminate\Auth\AuthenticationException) {
+                    return response()->json(['message' => $e->getMessage() ?: 'Unauthenticated.'], 401);
+                }
+
+                if ($e instanceof \Illuminate\Auth\Access\AuthorizationException) {
+                    return response()->json(['message' => $e->getMessage() ?: 'This action is unauthorized.'], 403);
+                }
+
+                if ($e instanceof \Illuminate\Session\TokenMismatchException) {
+                    return response()->json(['message' => 'Your session has expired. Please retry.'], 419);
+                }
+
+                if (
+                    $e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException ||
+                    $e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException
+                ) {
+                    return response()->json(['message' => 'Not found.'], 404);
+                }
+
                 // Preserve the exception's own HTTP status (404, 413, 503, …)
                 // instead of forcing 500 on every error. Hardcoding 500 here
                 // meant abort(404)/abort(503) calls throughout the _native/*
@@ -151,16 +181,19 @@ return Application::configure(basePath: dirname(__DIR__))
                     ? $e->getStatusCode()
                     : 500;
 
-                return response()->json([
-                    'error'        => true,
-                    'exception'    => get_class($e),
-                    'message'      => $e->getMessage(),
+                $debugFields = app()->hasDebugModeEnabled() ? [
                     'sqlstate'     => $sqlState,
                     'sqlite_error' => $sqliteError,
                     'file'         => $e->getFile(),
                     'line'         => $e->getLine(),
                     'trace'        => $e->getTraceAsString(),
-                ], $status);
+                ] : [];
+
+                return response()->json(array_merge([
+                    'error'        => true,
+                    'exception'    => get_class($e),
+                    'message'      => $e->getMessage(),
+                ], $debugFields), $status);
             }
 
             // ── Embedded/offline app: never show a bare 404/419/500 page ──

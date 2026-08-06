@@ -49,6 +49,20 @@ class ChunkMergeService
                 if ($size === 0) {
                     throw new RuntimeException("Direct-write file is empty: {$finalAbsPath}");
                 }
+
+                // ── FIX-REL-3 item 1: checksum bypass on direct-write path.
+                // The legacy chunked-merge path already computes sha256 by
+                // streaming every chunk through hash_update(). The direct-write
+                // path skipped this entirely, so a truncated or bit-flipped
+                // video was accepted as valid and markCompleted was called with
+                // a null hash. hash_file() streams at C level — no full-file
+                // PHP buffer — safe for videos of any size.
+                $finalHash = hash_file('sha256', $finalAbsPath) ?: null;
+                Log::channel('upload')->info('merge:direct_write_checksum', [
+                    'session'  => $locked->uuid,
+                    'size'     => $size,
+                    'hash'     => $finalHash,
+                ]);
             } else {
                 // Legacy: perform actual merge from temporary chunks
                 $chunkDir = $locked->chunkDir();
@@ -181,12 +195,19 @@ class ChunkMergeService
                 $disk->deleteDirectory($chunkDir);
             }
 
-            // Mark session completed (using $locked, not $session)
+            // Mark session completed (using $locked, not $session).
+            // $finalHash is always set by this point: the legacy branch sets it
+            // via hash_final() at line ~103; the direct-write branch now sets it
+            // via hash_file() above. The ?? null fallback is kept as a safety net.
             $this->sessionService->markCompleted($locked->uuid, $finalHash ?? null);
 
-            if ($type === 'video') {
-                GenerateThumbnailJob::dispatch($patientFile->id);
-            }
+            // ── FIX-PERF-10: GenerateThumbnailJob::dispatch moved OUTSIDE this
+            // transaction (see below). With QUEUE_CONNECTION=sync (required on
+            // device; also the production default) the job runs synchronously
+            // and ffmpeg can take up to 60 s, holding the FOR UPDATE row lock
+            // on upload_sessions the entire time. Under concurrent video
+            // completions this causes InnoDB lock-wait timeouts -> 500 errors.
+            // Moved to after DB::transaction returns, below.
 
             return $patientFile;
         });
@@ -197,6 +218,15 @@ class ChunkMergeService
             'file_uuid'   => $patientFile->uuid,
             'duration_ms' => round($durationMs, 2),
         ]);
+
+        // ── FIX-PERF-10: dispatch AFTER the transaction commits so ffmpeg does
+        // not run while the upload_sessions FOR UPDATE lock is still held.
+        // GenerateThumbnailJob is a no-op on SQLite (early return at line 44),
+        // so this only matters on MySQL/production. Behaviour is otherwise
+        // identical: the file record already exists when dispatch() is called.
+        if ($patientFile->type === 'video') {
+            GenerateThumbnailJob::dispatch($patientFile->id);
+        }
 
         return $patientFile;
     }

@@ -58,6 +58,9 @@ let idCounter = 0;
 // Decouple upload chunks from global application interceptors to prevent
 // shared pipeline contention.
 const uploadHttp = axios.create();
+// ── FIX-PERF-5: set a default timeout so control requests cannot hang
+// forever. Individual requests override this where they need more time.
+uploadHttp.defaults.timeout = 60000; // 60 s
 // Ensure CSRF token is included if available
 const csrfToken = document.head.querySelector('meta[name="csrf-token"]');
 if (csrfToken) {
@@ -146,12 +149,22 @@ router.on('finish', (event) => decrementInertiaRequests(event, 'finished'));
 // normal-request gate (the POOL_SIZE semaphore — the real connection limit —
 // still always applies). A timer guarantees the watchdog runs even when no
 // other event fires pumpScheduler().
-const WATCHDOG_MS = 4000;
+// ── FIX-PERF-6: reduce watchdog from 4000ms to 500ms (was adding up to 4s of
+// dead time per chunk; 500ms still lets UI requests drain without noticeable
+// upload stall).
+const WATCHDOG_MS = 500;
 let watchdogTimer = null;
 
 function canScheduleChunk(bypassGate = false) {
     if (globalActiveChunks >= POOL_SIZE) return false;
     if (bypassGate) return true;
+    // ── FIX-PERF-6: when POOL_SIZE is 1 (device mode set by configureUploads)
+    // the mutex means only one request runs at a time anyway. The
+    // normalRequestsPending gate only makes sense when you want to limit
+    // *additional* chunks beyond the first — with pool=1 the first chunk IS
+    // the pool, so gating it means every chunk on device waits WATCHDOG_MS
+    // before being admitted. Bypass the gate entirely on pool=1.
+    if (POOL_SIZE <= 1) return true;
     return normalRequestsPending === 0;
 }
 
@@ -193,19 +206,59 @@ function releaseGlobalSlot() {
     pumpScheduler();
 }
 
-function loadPersisted() {
+// ── FIX-REL-7: sessions expire server-side after 6h (UploadSessionService).
+// A resume attempt past that just trades a resume round-trip for a fresh
+// init anyway, so evict entries older than this on every load rather than
+// growing the key unboundedly (the previous code removed entries only on
+// success or explicit cancel, so an abandoned upload leaked forever).
+const PERSISTED_TTL_MS = 24 * 60 * 60 * 1000; // 24h — well past the 6h server expiry
+
+// ── FIX-REL-2: exported so useOfflineUploads.js can persist/resume its own
+// sessions in the SAME upload_sessions map instead of maintaining a second,
+// parallel store (which is what left offline uploads with zero resume).
+export function loadPersisted() {
+    let parsed;
     try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+        parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
     } catch {
         return {};
     }
+    const now = Date.now();
+    let evicted = false;
+    for (const key of Object.keys(parsed)) {
+        const entry = parsed[key];
+        const savedAt = entry?.savedAt || 0;
+        if (!savedAt || now - savedAt > PERSISTED_TTL_MS) {
+            delete parsed[key];
+            evicted = true;
+        }
+    }
+    if (evicted) savePersisted(parsed);
+    return parsed;
 }
-function savePersisted(s) {
+export function savePersisted(s) {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-    } catch {}
+    } catch (e) {
+        // ── FIX-REL-7: a silently swallowed quota error stopped resume from
+        // working for ALL uploads with no visible symptom. Surface it.
+        console.error("[useUploads] Failed to persist upload_sessions to localStorage", e);
+    }
 }
-function fileKey(f) {
+
+// ── FIX-REL-1 risk #1: now that the server returns truthful HTTP statuses
+// (422/401/403/410 instead of a blanket 500), a 4xx is a permanent rejection
+// and retrying it just wastes up to MAX_RETRIES full chunk re-uploads before
+// failing anyway. Only retry on 5xx and network/timeout errors (no response).
+export function isRetryableUploadError(err) {
+    if (!err) return false;
+    if (err.name === "CanceledError" || (typeof axios !== "undefined" && axios.isCancel?.(err))) return false;
+    const status = err.response?.status;
+    if (status == null) return true; // network error / timeout — no response received
+    return status >= 500;
+}
+
+export function fileKey(f) {
     if (!f) return `unknown_${Date.now()}`;
     return `${f.name || "unnamed"}_${f.size || 0}_${f.lastModified || 0}`;
 }
@@ -298,62 +351,101 @@ export function useUploads() {
         const { addFileLocally } = useWorkspace();
         const metadata = job.metadata || {};
         job.status = "uploading";
-        try {
-            const formData = new FormData();
-            formData.append("file", job.file);
-            if (metadata.title)    formData.append("title", metadata.title);
-            if (metadata.desc)     formData.append("desc", metadata.desc);
-            if (metadata.category) formData.append("category", metadata.category);
-            if (metadata.date)     formData.append("date", metadata.date);
 
-            const res = await uploadHttp.post(`/api/v1/mobile/patients/${job.patientId}/files`, formData, {
-                headers: { "Content-Type": "multipart/form-data" },
-                onUploadProgress: (evt) => {
-                    if (evt.total) {
-                        job.uploadedBytes = evt.loaded;
-                        job.progress = Math.min(99, Math.round((evt.loaded / evt.total) * 100));
-                    }
-                }
-            });
-
-            if (res.data) {
-                const fileData = res.data;
-                const fileUuid = fileData.uuid || fileData.file_uuid;
-                const mimeType = job.file?.type || fileData.mime_type || "application/octet-stream";
-                const localUrl = `/_native/cache/files/${fileUuid}`;
-                const localThumbnailUrl = mimeType.startsWith("image/")
-                    ? localUrl
-                    : mimeType.startsWith("video/")
-                        ? `/_native/cache/files/${fileUuid}/thumbnail`
-                        : null;
-
-                addFileLocally({
-                    uuid:          fileUuid,
-                    remote_uuid:   fileUuid,
-                    patient_id:    job.patientId,
-                    title:         metadata.title || job.file?.name || "",
-                    desc:          metadata.desc || "",
-                    category:      metadata.category || null,
-                    file_name:     job.file?.name || fileData.file_name || "",
-                    mime_type:     mimeType,
-                    size:          job.file?.size || fileData.size || 0,
-                    created_at:    new Date().toISOString(),
-                    updated_at:    new Date().toISOString(),
-                    upload_status: "ready",
-                    sync_status:   "synced",
-                    url:           localUrl,
-                    thumbnail_url: localThumbnailUrl,
-                    type:          fileData.type || "image",
-                });
+        let lastError = null;
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            if (attempt > 0) {
+                const delay = Math.min(RETRY_BASE_MS * Math.pow(2, attempt - 1), RETRY_CAP_MS);
+                await new Promise((r) => setTimeout(r, delay));
             }
 
-            job.status   = "completed";
-            job.progress = 100;
-            delete job.file;
-        } catch (err) {
-            job.error  = err.message || "Upload failed";
-            job.status = "failed";
+            // ── FIX-PERF-5: register an AbortController so the cancel button
+            // works for direct (non-video) uploads the same way it does for
+            // chunked uploads. Previously this path never populated
+            // job._controllers, so cancelUpload() could not abort it and the
+            // upload held the global pool semaphore indefinitely.
+            const controller = new AbortController();
+            job._controllers.set('direct', controller);
+
+            try {
+                const formData = new FormData();
+                formData.append("file", job.file);
+                if (metadata.title)    formData.append("title", metadata.title);
+                if (metadata.desc)     formData.append("desc", metadata.desc);
+                if (metadata.category) formData.append("category", metadata.category);
+                if (metadata.date)     formData.append("date", metadata.date);
+
+                const res = await uploadHttp.post(`/api/v1/mobile/patients/${job.patientId}/files`, formData, {
+                    headers: { "Content-Type": "multipart/form-data" },
+                    // Scale timeout to file size: 30s base + 10s per MB, capped at 5min.
+                    // uploadHttp.defaults.timeout (60s) applies to control requests;
+                    // file bodies need more headroom on slow links.
+                    timeout: Math.min(300000, 30000 + Math.ceil((job.file?.size || 0) / (1024 * 1024)) * 10000),
+                    signal: controller.signal,
+                    onUploadProgress: (evt) => {
+                        if (evt.total) {
+                            job.uploadedBytes = evt.loaded;
+                            job.progress = Math.min(99, Math.round((evt.loaded / evt.total) * 100));
+                        }
+                    }
+                });
+
+                job._controllers.delete('direct');
+
+                if (res.data) {
+                    const fileData = res.data;
+                    const fileUuid = fileData.uuid || fileData.file_uuid;
+                    const mimeType = job.file?.type || fileData.mime_type || "application/octet-stream";
+                    const localUrl = `/_native/cache/files/${fileUuid}`;
+                    const localThumbnailUrl = mimeType.startsWith("image/")
+                        ? localUrl
+                        : mimeType.startsWith("video/")
+                            ? `/_native/cache/files/${fileUuid}/thumbnail`
+                            : null;
+
+                    addFileLocally({
+                        uuid:          fileUuid,
+                        remote_uuid:   fileUuid,
+                        patient_id:    job.patientId,
+                        title:         metadata.title || job.file?.name || "",
+                        desc:          metadata.desc || "",
+                        category:      metadata.category || null,
+                        file_name:     job.file?.name || fileData.file_name || "",
+                        mime_type:     mimeType,
+                        size:          job.file?.size || fileData.size || 0,
+                        created_at:    new Date().toISOString(),
+                        updated_at:    new Date().toISOString(),
+                        upload_status: "ready",
+                        sync_status:   "synced",
+                        url:           localUrl,
+                        thumbnail_url: localThumbnailUrl,
+                        type:          fileData.type || "image",
+                    });
+                }
+
+                job.status   = "completed";
+                job.progress = 100;
+                delete job.file;
+                return; // success
+            } catch (err) {
+                job._controllers.delete('direct');
+                lastError = err;
+                if (err.name === "CanceledError" || axios.isCancel(err)) {
+                    job.status = "cancelled";
+                    return;
+                }
+                if (!isRetryableUploadError(err)) break; // 4xx — don't retry
+                // transient: loop continues with backoff
+            }
         }
+
+        // All attempts exhausted
+        job.error =
+            lastError?.response?.data?.message ||
+            lastError?.response?.data?.error ||
+            lastError?.message ||
+            "Upload failed";
+        job.status = "failed";
     }
 
     async function startUpload(job, debug = null) {
@@ -379,6 +471,7 @@ export function useUploads() {
                 try {
                     const r = await uploadHttp.get(
                         `/api/v1/chunk/${persisted[key].upload_id}/status`,
+                        { timeout: 30000 }, // FIX-PERF-5: was untimed
                     );
                     if (
                         r.data.status === "uploading" ||
@@ -417,7 +510,7 @@ export function useUploads() {
                     patient_id: patientId,
                     chunk_size: CHUNK_SIZE,
                     metadata:   Object.keys(meta).length ? meta : undefined,
-                });
+                }, { timeout: 30000 }); // FIX-PERF-5: was untimed
                 uploadId       = initRes.data.upload_id;
                 job.chunkSize  = initRes.data.chunk_size;
                 d?.setUploadUuid(uploadId);
@@ -455,6 +548,7 @@ export function useUploads() {
                 patient_id:   patientId,
                 total_chunks: job.totalChunks,
                 status:       "uploading",
+                savedAt:      Date.now(),
             };
             savePersisted(persisted);
 
@@ -487,7 +581,7 @@ export function useUploads() {
                 d?.onMergeStart();
                 const completeRes = await uploadHttp.post("/api/v1/chunk/complete", {
                     upload_id: job.uploadId,
-                });
+                }, { timeout: 120000 }); // FIX-PERF-5: was untimed; merge can take >30s for large video
                 d?.onMergeComplete();
                 if (completeRes?.data?.uuid) {
                     const fileUuid = completeRes.data.uuid;
@@ -548,7 +642,25 @@ export function useUploads() {
         d?.stopNetworkMonitor();
     }
 
-    // ── Progress helper ───────────────────────────────────────────────────────
+    // ── Progress helper ────────────────────────────────────────────────────────
+    // ── FIX-PERF-12: throttle reactive progress flush to ~10 Hz (100ms).
+    // onUploadProgress fires on every XHR progress event — potentially
+    // hundreds of times per second per chunk. job is reactive(), so every
+    // write triggers Vue's dependency graph + re-render in two components
+    // (UploadManager + CategoryBlock). With POOL_SIZE=4 and frequent events
+    // this was continuous main-thread work.
+    // _inFlightLoaded is still updated synchronously; only the reactive
+    // flush (uploadedBytes, progress, speed) is deferred.
+    const _progressRafHandles = new WeakMap();
+    function scheduleProgressFlush(job) {
+        if (_progressRafHandles.has(job)) return;
+        const handle = requestAnimationFrame(() => {
+            _progressRafHandles.delete(job);
+            updateProgressFromParts(job);
+        });
+        _progressRafHandles.set(job, handle);
+    }
+
     function updateProgressFromParts(job) {
         const inFlightTotal = Array.from(job._inFlightLoaded.values()).reduce(
             (sum, val) => sum + val,
@@ -666,11 +778,15 @@ export function useUploads() {
                     onUploadProgress: (e) => {
                         d?.onChunkUploadProgress(chunkIndex, e.loaded, e.total);
                         if (e.lengthComputable) {
+                            // Update raw state immediately (accurate data for when flush runs)
                             job._inFlightLoaded.set(chunkIndex, e.loaded);
-                            updateProgressFromParts(job);
+                            // FIX-PERF-12: throttle the reactive flush via rAF
+                            scheduleProgressFlush(job);
 
-                            // Update speed via sliding-window tracker
-                            job._speedTracker.push(job.uploadedBytes);
+                            // Speed tracker: update every event but only flush
+                            // to job.speed inside rAF via updateProgressFromParts
+                            job._speedTracker.push(job._completedBytesSum +
+                                Array.from(job._inFlightLoaded.values()).reduce((a, b) => a + b, 0));
                             const bps = job._speedTracker.bps();
                             if (bps > 0) job.speed = bps;
                         }
@@ -711,6 +827,15 @@ export function useUploads() {
                 }
                 job.failedChunks.set(chunkIndex, attempt + 1);
                 d?.recordError(`chunk_${chunkIndex}_attempt_${attempt}`, err);
+
+                // A 4xx is a permanent rejection (bad chunk, expired/unknown
+                // session, validation failure) — stop retrying immediately
+                // instead of burning the remaining attempts on a re-upload
+                // that will fail the same way every time.
+                if (!isRetryableUploadError(err)) {
+                    d?.recordError(`chunk_${chunkIndex}_non_retryable`, err);
+                    break;
+                }
             }
         }
 

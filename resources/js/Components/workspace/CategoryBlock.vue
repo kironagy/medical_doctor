@@ -401,7 +401,14 @@
 </template>
 
 <script setup>
-const trace = (msg) => { try { fetch('/_native/api/debug/trace', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})}).catch(()=>{}); } catch(e) {} }
+// FIX-PERF-8: trace() now checks upload_debug localStorage flag before POSTing.
+// On device each trace POST is a full PHP boot contending for g_php_request_mutex
+// against the actual chunk uploads. Previously unconditional.
+const _uploadDebug = typeof localStorage !== 'undefined' && localStorage.getItem('upload_debug') === '1';
+const trace = (msg) => {
+  if (!_uploadDebug) return;
+  try { fetch('/_native/api/debug/trace', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msg})}).catch(()=>{}); } catch(e) {}
+}
 import { ref, computed, watch, nextTick } from 'vue'
 import { useWorkspace } from '@/Composables/useWorkspace'
 import { useUploads } from '@/Composables/useUploads'
@@ -805,10 +812,11 @@ const displayedPages = computed(() => {
 })
 
 const activeUploads = computed(() => {
+  const puuid = selectedPatient.value?.uuid
   const pid = selectedPatient.value?.id
-  if (!pid) return []
+  if (!puuid && !pid) return []
   return uploads.value.filter(j =>
-    j.patientId === pid &&
+    (j.patientId === puuid || j.patientId === pid || String(j.patientId) === String(pid) || String(j.patientId) === String(puuid)) &&
     j.metadata?.category === props.slug &&
     j.status !== 'completed' &&
     j.status !== 'cancelled'

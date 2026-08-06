@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\Mobile;
 
+use App\Http\Requests\StoreFileRequest;
+use App\Services\Upload\UploadValidationService;
 use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
 use App\Domains\Media\Models\PatientFile;
@@ -79,32 +81,25 @@ class FileController extends Controller
         $patientUuid = $request->input('patient_uuid');
         $repo = app(\App\Contracts\Repositories\OfflineFileRepositoryInterface::class);
 
-        $files = $patientUuid
-            ? $repo->findByPatientUuid($patientUuid)
-            : $repo->findPending();
-
         return response()->json(['data' => $files]);
     }
 
-    public function store(Request $request, ?string $uuid = null)
+    public function store(StoreFileRequest $request, ?string $uuid = null)
     {
         $patientUuid = $uuid ?: $request->input('patient_uuid');
-        $uuid = $patientUuid; // Fix route vs request input mapping
         if (!$patientUuid) {
             return response()->json(['message' => 'patient_uuid is required'], 422);
         }
+        if (!is_numeric($patientUuid) && !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $patientUuid)) {
+            return response()->json(['message' => 'Invalid patient UUID format'], 422);
+        }
+        $uuid = $patientUuid;
         $patient = $this->resolvePatient($patientUuid);
         if ($request->user()) {
             Gate::authorize('update', $patient);
         }
 
-        $validated = $request->validate([
-            'file'     => 'required|file|max:512000',
-            'title'    => 'nullable|string|max:255',
-            'desc'     => 'nullable|string|max:1000',
-            'category' => 'nullable|string|max:100',
-            'date'     => 'nullable|date',
-        ]);
+        $validated = $request->validated();
 
         // TEMPORARY (category investigation): record what the client actually
         // sent so we can tell a dropped category apart from one the sync

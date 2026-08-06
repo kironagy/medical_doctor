@@ -3,6 +3,7 @@
 namespace App\Services\Sync;
 
 use App\Services\Mobile\RemoteApiService;
+use App\Services\Upload\UploadTempFileResolver;
 use App\Domains\Sync\Models\SyncQueue;
 use App\Domains\Sync\Services\SyncQueueService;
 use App\Domains\Media\Models\PatientFile;
@@ -18,7 +19,8 @@ class FileSyncService
 
     public function __construct(
         private readonly RemoteApiService $api,
-        private readonly SyncQueueService $queueService
+        private readonly SyncQueueService $queueService,
+        private readonly UploadTempFileResolver $tempFiles
     ) {}
 
     public function processItem(SyncQueue $item): bool
@@ -196,32 +198,42 @@ class FileSyncService
         }
 
         // Step 3: Stream and upload missing chunks
+        // ── FIX-REL-3 item 3: file handle leak.
+        // Previously fclose($handle) only ran on the happy path — any exception
+        // thrown inside the chunk loop (network error, API 4xx/5xx, temp-file
+        // open failure) propagated upward through processItem's catch block
+        // without closing $handle, leaking a file descriptor. The try/finally
+        // below ensures $handle is always closed, even on exception.
         $handle = fopen($absPath, 'rb');
         $totalChunks = (int) ceil($fileSize / self::CHUNK_SIZE);
 
-        for ($chunkIndex = 0; $chunkIndex < $totalChunks; $chunkIndex++) {
-            if (in_array($chunkIndex, $uploadedChunks)) {
-                Log::info("[FileSyncService] Skipping already uploaded chunk #{$chunkIndex}/{$totalChunks} for {$uploadId}");
-                fseek($handle, ($chunkIndex + 1) * self::CHUNK_SIZE);
-                continue;
+        try {
+            for ($chunkIndex = 0; $chunkIndex < $totalChunks; $chunkIndex++) {
+                if (in_array($chunkIndex, $uploadedChunks)) {
+                    Log::info("[FileSyncService] Skipping already uploaded chunk #{$chunkIndex}/{$totalChunks} for {$uploadId}");
+                    fseek($handle, ($chunkIndex + 1) * self::CHUNK_SIZE);
+                    continue;
+                }
+
+                fseek($handle, $chunkIndex * self::CHUNK_SIZE);
+                $chunkData = fread($handle, self::CHUNK_SIZE);
+
+                [$tmpChunkPath, $tmpChunkFp] = $this->tempFiles->open('chunk_');
+                fwrite($tmpChunkFp, $chunkData);
+                fclose($tmpChunkFp);
+
+                try {
+                    $this->api->upload('/chunk/chunk', ['chunk' => $tmpChunkPath], [
+                        'upload_id'   => $uploadId,
+                        'chunk_index' => $chunkIndex,
+                    ]);
+                } finally {
+                    @unlink($tmpChunkPath);
+                }
             }
-
-            fseek($handle, $chunkIndex * self::CHUNK_SIZE);
-            $chunkData = fread($handle, self::CHUNK_SIZE);
-
-            $tmpChunkPath = tempnam(sys_get_temp_dir(), 'chunk_');
-            file_put_contents($tmpChunkPath, $chunkData);
-
-            try {
-                $this->api->upload('/chunk/chunk', ['chunk' => $tmpChunkPath], [
-                    'upload_id'   => $uploadId,
-                    'chunk_index' => $chunkIndex,
-                ]);
-            } finally {
-                @unlink($tmpChunkPath);
-            }
+        } finally {
+            fclose($handle);
         }
-        fclose($handle);
 
         // Step 4: Complete and merge chunks
         // Merging chunks + writing the final file on the remote server can

@@ -9,6 +9,30 @@ import i18n from './Plugins/i18n';
 import UploadManager from './Components/UploadManager.vue';
 import GlobalDialog from './Components/GlobalDialog.vue';
 import ToastContainer from './Components/ToastContainer.vue';
+import { configureUploads } from './Composables/useUploads';
+
+// ── FIX-PERF-2 + FIX-PERF-4: device-aware upload configuration ────────────
+// On the native Android bridge every PHP request is serialised behind a
+// pthread_mutex (php_bridge.c:28, confirmed — architecturally necessary for
+// php_embed). POOL_SIZE=4 therefore multiplies peak JVM heap by 4× with zero
+// throughput benefit; a 5 MB chunk produces ~45 MB of transient allocation
+// across 4 memory spaces, × 4 = ~180 MB peak.
+// On device: pool=1 (one request at a time, matching the mutex), chunk=2 MB.
+// Reduces peak to ~9 MB (see §14.2 of 03-UPLOAD-PERFORMANCE.md).
+// Web build keeps pool=4, chunk=5 MB — untouched.
+// detectNative() is already used in InlineFilePreview.vue and CategoryBlock.vue.
+const _isNative = typeof window !== 'undefined' &&
+  window.AndroidPOST !== undefined;
+if (_isNative) {
+  configureUploads({ poolSize: 1, chunkSize: 2 * 1024 * 1024 });
+}
+// ── End FIX-PERF-2 + FIX-PERF-4 ──────────────────────────────────────────
+
+// ── FIX-PERF-8: gate client-error POSTs behind an explicit flag.
+// On the NativePHP bridge each fetch() is a full PHP boot, contending for
+// g_php_request_mutex with actual upload requests. Only enable when debugging.
+const _logClientErrors = typeof import.meta !== 'undefined' &&
+  import.meta.env?.VITE_LOG_CLIENT_ERRORS === 'true';
 
 // ── Global error boundary ──────────────────────────────────────────
 // Never allow silent failures. Every unhandled error logs to console
@@ -24,15 +48,17 @@ function captureError(context, error, extra = {}) {
     ...extra,
   }
   console.error(`[AppCrash] ${context}:`, payload.message, payload.stack)
-  try {
-    if (typeof fetch !== 'undefined') {
-      fetch('/api/v1/log/client-error', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        body: JSON.stringify(payload),
-      }).catch(() => {})
-    }
-  } catch (_) {}
+  if (_logClientErrors) {
+    try {
+      if (typeof fetch !== 'undefined') {
+        fetch('/api/v1/log/client-error', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify(payload),
+        }).catch(() => {})
+      }
+    } catch (_) {}
+  }
 }
 
 // Global unhandled promise rejection handler

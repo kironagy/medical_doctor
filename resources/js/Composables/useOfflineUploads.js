@@ -29,7 +29,14 @@ import { ref, computed, reactive } from 'vue'
 import { useNativeBridge } from './useNativeBridge'
 import { useWorkspace } from './useWorkspace'
 import { useSyncEngine } from './useSyncEngine'  // BUG-015: reliable network state
-import { useUploads } from './useUploads'  // shared bottom-right UploadManager.vue popup
+import { useUploads, loadPersisted, savePersisted, fileKey, isRetryableUploadError, getUploadConfig } from './useUploads'  // shared bottom-right UploadManager.vue popup
+
+// ── FIX-REL-2: retry/backoff parameters, matching useUploads.js:uploadChunk
+// so the offline path reaches parity with the online path instead of
+// aborting the whole file on the first transient error.
+const MAX_RETRIES = 3
+const RETRY_BASE_MS = 500
+const RETRY_CAP_MS = 4000
 
 // ─── Module-level state (shared across all useOfflineUploads() calls) ──────
 const offlineUploads = ref([])
@@ -110,48 +117,146 @@ export function useOfflineUploads() {
    * nothing happening until the whole file (all chunks + merge) is done.
    */
   async function saveFileChunkedOffline(file, patientUuid, metadata = {}, job = null) {
-    const CHUNK_SIZE = 5 * 1024 * 1024 // 5 MB chunks
+    // ── FIX-PERF-4: read the shared configuration instead of a hardcoded
+    // constant. configureUploads() in app.js sets chunkSize to 2 MB on device,
+    // and that change would have had no effect on this path before this fix.
+    const CHUNK_SIZE = getUploadConfig().chunkSize || (5 * 1024 * 1024)
     const token = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null;
     const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
 
-    // Step 1: Initialize chunk upload session
-    const initRes = await axios.post('/api/v1/chunk/init', {
-      file_name: file.name || 'video.mp4',
-      file_size: file.size,
-      mime_type: file.type || 'video/mp4',
-      patient_id: patientUuid,
-      chunk_size: CHUNK_SIZE,
-      metadata: {
-        title: metadata.title || file.name || '',
-        desc: metadata.desc || '',
-        category: metadata.category || '',
-        date: metadata.date || new Date().toISOString(),
-      },
-    }, { headers })
+    // ── FIX-REL-2 step 2/3: persist + resume via the SAME upload_sessions
+    // localStorage map useUploads.js already maintains, keyed the same way
+    // (fileKey). Previously the offline path never wrote or read this map,
+    // so any interrupted offline upload restarted at chunk 0 from scratch.
+    const persisted = loadPersisted()
+    const key = fileKey(file)
 
-    const { upload_id, chunk_size = CHUNK_SIZE, total_chunks } = initRes.data
-    if (job) job.totalChunks = total_chunks
+    let upload_id = null
+    let chunk_size = CHUNK_SIZE
+    let total_chunks = 0
+    let completedSet = new Set()
+
+    // ── Resume check ──────────────────────────────────────────────────
+    if (persisted[key] && persisted[key].status === 'uploading') {
+      try {
+        const r = await axios.get(`/api/v1/chunk/${persisted[key].upload_id}/status`, { headers })
+        if (r.data.status === 'uploading' || r.data.status === 'pending') {
+          upload_id = r.data.uuid
+          total_chunks = r.data.total_chunks
+          completedSet = new Set(r.data.received_chunks || [])
+        }
+      } catch {
+        // Session gone (410/404) or unreachable — fall through to a fresh init.
+        delete persisted[key]
+        savePersisted(persisted)
+      }
+    }
+
+    // Step 1: Initialize chunk upload session (skipped when resuming)
+    if (!upload_id) {
+      const initRes = await axios.post('/api/v1/chunk/init', {
+        file_name: file.name || 'video.mp4',
+        file_size: file.size,
+        mime_type: file.type || 'video/mp4',
+        patient_id: patientUuid,
+        chunk_size: CHUNK_SIZE,
+        metadata: {
+          title: metadata.title || file.name || '',
+          desc: metadata.desc || '',
+          category: metadata.category || '',
+          date: metadata.date || new Date().toISOString(),
+        },
+      }, { headers })
+
+      upload_id = initRes.data.upload_id
+      chunk_size = initRes.data.chunk_size || CHUNK_SIZE
+      total_chunks = initRes.data.total_chunks
+    }
+
+    if (job) {
+      job.totalChunks = total_chunks
+      job.uploadId = upload_id
+      job.completedChunks = completedSet
+    }
+
+    persisted[key] = {
+      upload_id,
+      file_name: file.name,
+      file_size: file.size,
+      patient_id: patientUuid,
+      total_chunks,
+      status: 'uploading',
+      savedAt: Date.now(),
+    }
+    savePersisted(persisted)
 
     let lastSpeedSample = { t: performance.now(), bytes: 0 }
+    let uploadedBytes = 0
+    for (const idx of completedSet) {
+      uploadedBytes += Math.min(chunk_size, file.size - idx * chunk_size)
+    }
 
-    // Step 2: Upload chunks sequentially
+    // Step 2: Upload missing chunks sequentially, with retry+backoff
     for (let i = 0; i < total_chunks; i++) {
+      if (completedSet.has(i)) continue // ── resume: skip chunks the server already has
+
+      // ── Cooperative pause/cancel: checked between chunks since this loop
+      // is a sequential await chain with no per-chunk AbortController pool
+      // like the online path's runPool(). Paused/cancelled state is left in
+      // `persisted[key]` so a later resume/retry continues from here.
+      if (job?._cancelled) {
+        const err = new DOMException('Upload cancelled', 'AbortError')
+        throw err
+      }
+      if (job?._paused) {
+        const err = new DOMException('Upload paused', 'AbortError')
+        err.isPause = true
+        throw err
+      }
+
       const start = i * chunk_size
       const end = Math.min(file.size, (i + 1) * chunk_size)
       const chunkBlob = file.slice(start, end)
 
-      const fd = new FormData()
-      fd.append('upload_id', upload_id)
-      fd.append('chunk_index', i)
-      fd.append('chunk', chunkBlob, file.name || 'chunk')
+      let lastError = null
+      let attempt = 0
+      for (; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const delay = Math.min(RETRY_BASE_MS * Math.pow(2, attempt - 1), RETRY_CAP_MS)
+          await new Promise((r) => setTimeout(r, delay))
+        }
 
-      await axios.post('/api/v1/chunk/chunk', fd, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          ...headers
-        },
-        timeout: 120000,
-      })
+        const fd = new FormData()
+        fd.append('upload_id', upload_id)
+        fd.append('chunk_index', i)
+        fd.append('chunk', chunkBlob, file.name || 'chunk')
+
+        const controller = new AbortController()
+        if (job) job._controller = controller
+
+        try {
+          await axios.post('/api/v1/chunk/chunk', fd, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+              ...headers
+            },
+            timeout: 120000,
+            signal: controller.signal,
+          })
+          lastError = null
+          break
+        } catch (err) {
+          lastError = err
+          // ── Retry only on 5xx / network errors — a 4xx (bad chunk,
+          // expired session) will fail identically on every retry.
+          if (!isRetryableUploadError(err)) break
+        }
+      }
+
+      if (lastError) throw lastError
+
+      completedSet.add(i)
+      uploadedBytes = end
 
       if (job) {
         job.completedChunks.add(i)
@@ -169,6 +274,9 @@ export function useOfflineUploads() {
 
     // Step 3: Complete upload and merge chunks into patient_files
     const completeRes = await axios.post('/api/v1/chunk/complete', { upload_id }, { headers })
+
+    delete persisted[key]
+    savePersisted(persisted)
 
     const resData = completeRes.data
     return {
@@ -212,6 +320,10 @@ export function useOfflineUploads() {
   }
 
   // ── Main public API ────────────────────────────────────────────────
+  function offlineUploadFile(file, patientUuid, metadata = {}) {
+    const { uploadFile } = useUploads()
+    return uploadFile(file, patientUuid, metadata)
+  }
 
   /**
    * Upload a file while offline — saves locally via the Phase 7 offline endpoint
@@ -253,9 +365,13 @@ export function useOfflineUploads() {
         totalBytes: file.size,
         speed: 0,
         error: null,
+        uploadId: null,
         totalChunks: 0,
         completedChunks: new Set(),
         offline: true,
+        _paused: false,
+        _cancelled: false,
+        _controller: null,
       })
       uploads.value.push(popupJob)
     }
@@ -300,12 +416,118 @@ export function useOfflineUploads() {
 
       return job
     } catch (err) {
+      // A pause/cancel is a deliberate user action, not a failure — set the
+      // matching status so the UI shows "Paused"/"Cancelled" rather than a
+      // red error, and so the retry button (which resumes) applies correctly.
+      if (popupJob && err?.name === 'AbortError') {
+        popupJob.status = err.isPause ? 'paused' : 'cancelled'
+        return
+      }
+
       console.error('[OfflineUpload] Failed to save file locally:', err)
       if (popupJob) {
         popupJob.status = 'failed'
-        popupJob.error = err?.message || 'Upload failed'
+        // ── FIX-REL-1: use the full extraction chain instead of the bare
+        // axios message, which was always "Request failed with status code 500"
+        // regardless of the actual server-provided reason.
+        popupJob.error =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          'Upload failed'
       }
       throw err
+    }
+  }
+
+  /**
+   * ── FIX-REL-2 step 4: resume a failed offline chunked (video) upload.
+   * Wired to UploadManager.vue's retry button for `offline: true` jobs —
+   * unhiding that button without this would call useUploads().retryUpload(),
+   * which knows nothing about offline jobs (no `job.uploadId` bookkeeping
+   * matching its own state machine) and would restart from scratch or throw.
+   *
+   * Relies on saveFileChunkedOffline's own resume logic (persisted session +
+   * GET /status) to skip chunks already received by the server, so this is
+   * safe to call after a partial failure — it does not restart at chunk 0.
+   */
+  async function resumeOfflineUpload(jobId) {
+    const { uploads } = useUploads()
+    const job = uploads.value.find((u) => u.id === jobId && u.offline)
+    if (!job || !job.file) return
+
+    job.status = 'uploading'
+    job.error = null
+    job._paused = false
+    job._cancelled = false
+
+    try {
+      const fileData = await saveFileChunkedOffline(job.file, job.patientId, job.metadata, job)
+      job.status = 'completed'
+      job.progress = 100
+
+      const { addFileLocally } = useWorkspace()
+      const fallbackUrl = `/_native/cache/files/${fileData.uuid}`
+      addFileLocally({
+        uuid:          fileData.uuid,
+        patient_id:    job.patientId,
+        title:         job.metadata?.title || job.file?.name || '',
+        desc:          job.metadata?.desc || '',
+        category:      job.metadata?.category || '',
+        file_name:     fileData.original_name || job.file?.name,
+        mime_type:     fileData.mime_type,
+        size:          fileData.size,
+        sync_status:   fileData.sync_status || 'pending_sync',
+        type:          fileData.type || 'document',
+        created_at:    fileData.created_at,
+        updated_at:    fileData.created_at,
+        local_path:    fileData.local_path,
+        upload_status: 'ready',
+        url:           fileData.url || fallbackUrl,
+        thumbnail_url: fileData.thumbnail_url,
+      })
+    } catch (err) {
+      if (err?.name === 'AbortError') {
+        job.status = err.isPause ? 'paused' : 'cancelled'
+        return
+      }
+      job.status = 'failed'
+      job.error =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        'Upload failed'
+    }
+  }
+
+  /**
+   * Pause an in-flight offline chunked upload. Cooperative — takes effect
+   * before the next chunk starts (see the check in saveFileChunkedOffline).
+   */
+  function pauseOfflineUpload(jobId) {
+    const { uploads } = useUploads()
+    const job = uploads.value.find((u) => u.id === jobId && u.offline)
+    if (!job || job.status !== 'uploading') return
+    job._paused = true
+    job._controller?.abort()
+  }
+
+  /**
+   * Cancel an offline chunked upload and discard its persisted resume state
+   * (so a later pick of the same file starts fresh instead of resuming a
+   * cancelled session).
+   */
+  function cancelOfflineUpload(jobId) {
+    const { uploads } = useUploads()
+    const job = uploads.value.find((u) => u.id === jobId && u.offline)
+    if (!job) return
+    job._cancelled = true
+    job._controller?.abort()
+    if (job.file) {
+      const persisted = loadPersisted()
+      const key = fileKey(job.file)
+      delete persisted[key]
+      savePersisted(persisted)
     }
   }
 
@@ -393,22 +615,22 @@ export function useOfflineUploads() {
   /**
    * Retry a failed offline upload by resetting its sync_status.
    */
-  async function retryUpload(uuid) {
-    try {
-      const res = await axios.post(`/_native/api/offline/uploads/${uuid}/retry`)
-      const job = offlineUploads.value.find((j) => j.uuid === uuid)
-      if (job) {
-        job.sync_status = 'pending_upload'
-        job.error_message = null
-      }
-      // Also update in workspace
-      const { updateFileLocally } = useWorkspace()
-      updateFileLocally({ uuid, sync_status: 'pending_upload' })
-      return res.data
-    } catch (err) {
-      console.error('[OfflineUpload] Retry failed:', err)
-      throw err
+  // ── FIX-REL-2 step 5: removed the dead POST to
+  // /_native/api/offline/uploads/{uuid}/retry — no such route exists
+  // (routes/web.php only registers store/destroy/pendingIndex for this
+  // prefix), so every call 404'd and was silently swallowed by the global
+  // JSON exception render. This file's sync_status is already the sole
+  // signal SyncEngine polls to decide what to push, so resetting it back to
+  // 'pending_upload' locally (and in the workspace store) is sufficient to
+  // make the next sync cycle retry it — no network round-trip needed.
+  function retryUpload(uuid) {
+    const job = offlineUploads.value.find((j) => j.uuid === uuid)
+    if (job) {
+      job.sync_status = 'pending_upload'
+      job.error_message = null
     }
+    const { updateFileLocally } = useWorkspace()
+    updateFileLocally({ uuid, sync_status: 'pending_upload' })
   }
 
   /**
@@ -462,6 +684,9 @@ export function useOfflineUploads() {
     uploadFile,
     pickFile,
     retryUpload,
+    resumeOfflineUpload,
+    pauseOfflineUpload,
+    cancelOfflineUpload,
     deleteUpload,
     statusIcon,
     statusLabel,
