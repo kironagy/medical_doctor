@@ -7,38 +7,6 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\DoctorController;
 
-// ⚠️ TEMPORARY — one-shot diagnostic: log the actual resolved DB connection
-// on every request. Local `users`/`patients`/`patient_files` tables read back
-// empty on-device despite a working login and successful API calls, which
-// only makes sense if Laravel is writing to a SQLite file other than the one
-// being inspected via adb. This settles which file/path is really in use —
-// remove once confirmed.
-if (config('database.default') === 'sqlite') {
-    static $loggedDbPath = false;
-    if (!$loggedDbPath) {
-        $loggedDbPath = true;
-        \Illuminate\Support\Facades\Log::error('[DB-PATH-DIAG]', [
-            'config_db_default'    => config('database.default'),
-            'config_sqlite_database' => config('database.connections.sqlite.database'),
-            'env_DB_DATABASE'      => env('DB_DATABASE'),
-            'getenv_DB_DATABASE'   => getenv('DB_DATABASE'),
-            'pdo_connection_test'  => (function () {
-                try {
-                    return \Illuminate\Support\Facades\DB::connection()->getPdo()
-                        ? \Illuminate\Support\Facades\DB::connection()->getDatabaseName()
-                        : 'no-pdo';
-                } catch (\Throwable $e) {
-                    return 'connection-failed: ' . $e->getMessage();
-                }
-            })(),
-            'users_count'          => (function () {
-                try { return \Illuminate\Support\Facades\DB::table('users')->count(); }
-                catch (\Throwable $e) { return 'query-failed: ' . $e->getMessage(); }
-            })(),
-        ]);
-    }
-}
-
 // ── Session Restore (auto-login for Embedded Laravel) ────────────────
 // The embedded Laravel application does NOT use Sanctum tokens for local
 // authentication. When the WebView restarts, the frontend calls this
@@ -463,6 +431,47 @@ Route::post('/_native/api/files/download', function (\Illuminate\Http\Request $r
         \Illuminate\Support\Facades\Log::error('[files.download] ' . $e->getMessage(), ['uuid' => $uuid]);
 
         return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+    }
+})->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
+
+// ── Local files for a patient+category (OUTSIDE auth middleware) ──────
+// The workspace loads a category's files from /api/v1/patients/{uuid}/
+// categories/{slug}/files, which the router forwards to production whenever
+// the device is online. That is correct for a synced patient — except its
+// not-yet-uploaded files exist ONLY on this device, so the moment the patient
+// itself synced, the list came back from production without them and every
+// pending file vanished from the UI while still sitting in the sync queue.
+// The frontend merges this local list on top so they stay visible until their
+// bytes actually reach the server.
+Route::get('/_native/api/patients/{uuid}/categories/{slug}/local-files', function (string $uuid, string $slug) {
+    try {
+        $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($uuid) {
+            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        })->first();
+
+        if (!$patient) {
+            return response()->json(['data' => [], 'count' => 0]);
+        }
+
+        $files = \App\Domains\Media\Models\PatientFile::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )
+            ->where('patient_id', $patient->id)
+            ->where('category', $slug)
+            ->whereNull('remote_uuid')
+            ->where('sync_status', '!=', 'pending_delete')
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(fn ($f) => (new \App\Domains\Media\Resources\FileResource($f))->resolve())
+            ->all();
+
+        return response()->json(['data' => $files, 'count' => count($files)]);
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Log::error('[local-files] ' . $e->getMessage(), ['uuid' => $uuid, 'slug' => $slug]);
+
+        return response()->json(['data' => [], 'count' => 0]);
     }
 })->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
 

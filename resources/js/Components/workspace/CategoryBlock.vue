@@ -549,8 +549,32 @@ async function loadCategoryData(page = 1) {
       f => f.category === props.slug && !freshFileUuids.has(f.uuid)
     );
 
-    serverFiles.value = workspaceLocalFiles.length > 0
-      ? [...workspaceLocalFiles, ...freshServerFiles]
+    // allFiles comes from the workspace payload, which for a SYNCED patient is
+    // fetched from production — so it contains no device-only files and the
+    // merge above had nothing to add. That is why every not-yet-uploaded file
+    // vanished from the patient the moment the patient itself synced, while
+    // still showing as pending in the sync centre. Ask the embedded server
+    // directly for the files whose bytes are still only on this device.
+    let deviceOnlyFiles = [];
+    if (detectNative() && selectedPatient.value?.uuid) {
+      try {
+        const localRes = await axios.get(
+          `/_native/api/patients/${selectedPatient.value.uuid}/categories/${props.slug}/local-files`
+        );
+        const seen = new Set([
+          ...freshFileUuids,
+          ...workspaceLocalFiles.map(f => f.uuid),
+        ]);
+        deviceOnlyFiles = (localRes.data?.data || []).filter(f => !seen.has(f.uuid));
+      } catch (err) {
+        console.warn('[CategoryBlock] local-files unavailable', err);
+      }
+    }
+
+    const mergedLocalFiles = [...deviceOnlyFiles, ...workspaceLocalFiles];
+
+    serverFiles.value = mergedLocalFiles.length > 0
+      ? [...mergedLocalFiles, ...freshServerFiles]
       : freshServerFiles;
 
     initialLoadDone.value = true;
@@ -566,7 +590,7 @@ async function loadCategoryData(page = 1) {
 
     serverMeta.value = !serverRequestFailed
       ? (response.data.meta || { total: freshServerFiles.length, current_page: 1, last_page: 1 })
-      : { total: workspaceLocalFiles.length, current_page: 1, last_page: Math.max(1, Math.ceil(workspaceLocalFiles.length / perPage)) };
+      : { total: mergedLocalFiles.length, current_page: 1, last_page: Math.max(1, Math.ceil(mergedLocalFiles.length / perPage)) };
     currentPage.value = serverMeta.value.current_page;
 
     if (serverRequestFailed) {
