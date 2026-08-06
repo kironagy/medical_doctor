@@ -26,6 +26,37 @@ const lastSyncResult = ref(null)
 const pendingSummary = ref({ patients: 0, files: 0, deletes: 0, notes: 0, total: 0 })
 
 const MANUAL_SYNC_ENDPOINT = '/_native/api/sync/manual'
+const SYNC_STATE_ENDPOINT = '/_native/api/sync/state'
+
+/**
+ * Wait for a backgrounded sync to finish by polling its state.
+ *
+ * On the device the sync now runs on the queue worker runtime instead of inside
+ * the HTTP request, so /manual returns as soon as the job is queued. Polling a
+ * small state endpoint keeps the UI's "syncing" indicator honest without
+ * holding a request open (which is what used to block every other screen).
+ */
+async function waitForQueuedSync() {
+    const POLL_MS = 2000
+    const MAX_MS = 60 * 60 * 1000
+    const startedAt = Date.now()
+
+    while (Date.now() - startedAt < MAX_MS) {
+        await new Promise(r => setTimeout(r, POLL_MS))
+
+        try {
+            const { data } = await axios.get(SYNC_STATE_ENDPOINT, { timeout: 10000 })
+            if (!data?.running) {
+                return data?.result || { success: true, stats: {} }
+            }
+        } catch (e) {
+            // A failed poll is not a failed sync — keep waiting.
+            console.warn('[SyncEngine] sync state poll failed:', e.message)
+        }
+    }
+
+    return { success: true, stats: {}, message: 'Sync still running in the background' }
+}
 const PENDING_ENDPOINT = '/_native/api/sync/pending-summary'
 
 // Update online state when browser online/offline events fire (purely for UI status icon)
@@ -58,8 +89,17 @@ async function triggerSync() {
             timeout: 300000, // 5 minutes for full manual pipeline
         })
 
-        console.log('[SyncEngine] ✅ Manual sync finished:', res.data)
-        const data = res.data
+        // On the device the pipeline is queued onto the worker runtime and this
+        // call returns immediately, so follow its progress via the state
+        // endpoint instead of assuming it already finished.
+        let data = res.data
+        if (data?.queued) {
+            console.log('[SyncEngine] ⏳ Sync queued on the worker runtime, polling for completion...')
+            const finished = await waitForQueuedSync()
+            data = { ...data, ...finished }
+        }
+
+        console.log('[SyncEngine] ✅ Manual sync finished:', data)
 
         lastSyncResult.value = {
             success: data.success ?? true,

@@ -199,7 +199,16 @@ export function useOfflineUploads() {
    * The file appears immediately in the UI via addFileLocally().
    */
   async function uploadFile(file, patientUuid, metadata = {}) {
+    // Android's file/camera pickers frequently hand back a File with an empty
+    // `type`, which made this fall through to the single-request path and push
+    // a whole video through one POST. Fall back to the extension, and treat any
+    // large file as chunk-worthy regardless of what it claims to be.
+    const LARGE_FILE_BYTES = 8 * 1024 * 1024
+    const name = (file.name || '').toLowerCase()
+    const looksLikeVideo = /\.(mp4|mov|avi|mkv|webm|3gp|wmv|flv|m4v)$/.test(name)
     const isVideo = !!(file.type && file.type.startsWith('video/'))
+      || looksLikeVideo
+      || (file.size || 0) > LARGE_FILE_BYTES
 
     try {
       let fileData

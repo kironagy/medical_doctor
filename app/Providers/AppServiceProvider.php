@@ -50,6 +50,23 @@ class AppServiceProvider extends ServiceProvider
         // Register model observers
         PatientFile::observe(PatientFileObserver::class);
 
+        // ── Device: run queued work on the dedicated worker runtime ────────
+        // The embedded Android runtime serialises every PHP request through a
+        // single global mutex, and QUEUE_CONNECTION=sync makes every dispatched
+        // job execute inline inside the caller's request — so a sync or a
+        // thumbnail job holds that lock and the whole UI stalls behind it.
+        //
+        // NativePHP's PHPQueueWorker loops `queue:work --once` on a SEPARATE PHP
+        // runtime that explicitly does not contend with UI requests, so pointing
+        // the queue at the database driver moves that work off the UI lock and
+        // lets the app keep responding while it runs.
+        //
+        // Scoped to SQLite so the production server (MySQL) keeps its own
+        // QUEUE_CONNECTION exactly as configured.
+        if (config('database.default') === 'sqlite') {
+            config(['queue.default' => 'database']);
+        }
+
         // Only run on NativePHP (mobile) environment
         // Use database driver check (SQLite = embedded, MySQL = production)
         // instead of env('NATIVEPHP_APP_ID') which can be accidentally set

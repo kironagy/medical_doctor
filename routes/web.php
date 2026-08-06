@@ -448,6 +448,18 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
         return response()->json(['success' => true, 'message' => 'Sync cancelled']);
     });
 
+    // Progress of the queued sync — polled by the client while it runs.
+    Route::get('/state', function () {
+        $state = \App\Jobs\RunManualSyncJob::readState();
+
+        return response()->json([
+            'success' => true,
+            'status'  => $state['status'],
+            'running' => $state['status'] === 'running',
+            'result'  => $state['result'],
+        ]);
+    });
+
     // Manual sync pipeline endpoint
     Route::post('/manual', function (\Illuminate\Http\Request $request) {
         try {
@@ -460,6 +472,26 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
                         \Illuminate\Support\Facades\Log::warning('[ManualSync] Failed to capture Bearer token: ' . $e->getMessage());
                     }
                 }
+            }
+
+            // On the device, run the pipeline on the queue (dedicated worker
+            // runtime) instead of inline. Running it here holds the embedded
+            // runtime's single global request mutex for the whole sync, which
+            // froze every other screen until it finished. Returns immediately;
+            // the client polls /_native/api/sync/state for progress.
+            if (config('database.default') === 'sqlite') {
+                $state = \App\Jobs\RunManualSyncJob::readState();
+                if ($state['status'] !== 'running') {
+                    \App\Jobs\RunManualSyncJob::writeState('running');
+                    \App\Jobs\RunManualSyncJob::dispatch();
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'queued'  => true,
+                    'message' => 'Sync started in the background',
+                    'stats'   => [],
+                ]);
             }
 
             $syncEngine = app(\App\Services\SyncEngineService::class);
