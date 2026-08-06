@@ -205,7 +205,30 @@ class PatientRepository implements PatientRepositoryInterface
                 return;
             }
 
-            $patient->forceDelete();
+            // Was previously immediate forceDelete() + queue push. That wiped
+            // the local row before the server ever knew about it: if the
+            // queue item was never processed (manual Sync button uses a
+            // different consumer than the background SyncEngineService),
+            // the delete never reached production, and the row was already
+            // gone locally with nothing left to retry from. Mark
+            // pending_delete instead, same as delete() above — the local
+            // list already excludes pending_delete (paginated() filters it),
+            // so it disappears from the UI immediately, while
+            // SyncEngineService::processPendingDeletes() pushes the real
+            // delete to the server and only then removes the row for good.
+            if ($patient->sync_status === 'pending_create') {
+                $patient->forceDelete();
+                return;
+            }
+
+            $patient->update([
+                'sync_status'       => 'pending_delete',
+                'client_updated_at' => now(),
+            ]);
+            if (!$patient->trashed()) {
+                $patient->delete();
+            }
+
             $this->queueService->push('patient', $patient->uuid, 'delete');
         });
     }
