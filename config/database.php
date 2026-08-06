@@ -38,9 +38,21 @@ return [
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => null,
-            'journal_mode' => null,
-            'synchronous' => null,
+            // WAL lets readers keep reading while a writer is writing — the
+            // default rollback-journal mode (journal_mode null) takes an
+            // exclusive lock on the WHOLE database file for the duration of
+            // any write transaction. On the device, the UI (opening a
+            // patient, uploading a chunk) and SyncEngineService (potentially
+            // hundreds of writes per run) hit this exact same SQLite file
+            // from two different PHP runtimes — every write during a sync
+            // blocked every other screen at the SQLite level, entirely
+            // independent of the native request mutex fixed separately via
+            // the queue-worker move. busy_timeout makes any remaining brief
+            // writer-vs-writer contention retry automatically instead of
+            // failing immediately with "database is locked".
+            'busy_timeout' => 5000,
+            'journal_mode' => 'wal',
+            'synchronous' => 'NORMAL',
             'transaction_mode' => 'DEFERRED',
         ],
 
