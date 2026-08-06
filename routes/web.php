@@ -411,6 +411,112 @@ Route::get('/_native/api/patients/pending', function () {
     }
 })->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
 
+// ── Save a file to the device's Downloads folder (OUTSIDE auth middleware) ──
+// A local file's bytes are read here and handed to the native side directly,
+// because Android's DownloadManager runs in its own process and cannot reach
+// the app's embedded server. A file that lives on production is passed to
+// DownloadManager as a plain URL so it gets the system progress notification.
+Route::post('/_native/api/files/download', function (\Illuminate\Http\Request $request) {
+    $uuid = (string) $request->input('uuid');
+    $fileName = (string) $request->input('file_name', 'download');
+
+    try {
+        $file = \App\Domains\Media\Models\PatientFile::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($uuid) {
+            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        })->first();
+
+        $native = app(\MedicalPlus\NativeFiles\NativeFiles::class);
+        $mime = $file?->mime_type;
+
+        $absolutePath = null;
+        if ($file && $file->file_path) {
+            $candidate = \Illuminate\Support\Facades\Storage::disk('local')->path($file->file_path);
+            if (is_file($candidate)) {
+                $absolutePath = $candidate;
+            }
+        }
+        if (!$absolutePath) {
+            $offline = \Illuminate\Support\Facades\DB::table('offline_files')->where('uuid', $uuid)->first();
+            if ($offline) {
+                $candidate = app(\App\Services\OfflineUploadService::class)->absolutePath($offline->local_path);
+                if (is_file($candidate)) {
+                    $absolutePath = $candidate;
+                }
+            }
+        }
+
+        if ($absolutePath) {
+            return response()->json(
+                $native->saveBytes(base64_encode(file_get_contents($absolutePath)), $fileName, $mime)
+            );
+        }
+
+        // Not on this device — let DownloadManager pull it from production.
+        if ($file && $file->sync_status === 'synced') {
+            return response()->json($native->save($file->url, $fileName, $mime));
+        }
+
+        return response()->json(['success' => false, 'error' => 'file not found'], 404);
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Log::error('[files.download] ' . $e->getMessage(), ['uuid' => $uuid]);
+
+        return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+    }
+})->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
+
+// ── Streamable URL for a device-local file (OUTSIDE auth middleware) ──
+// Returns a loopback URL served straight off disk by the native media server,
+// which is the only way a large local video can play: the bridge cannot pass
+// a binary body at all, and the base64-over-JSON fallback has to pull the
+// WHOLE file through one PHP boot per chunk before the first frame — tolerable
+// for a 2MB clip, useless at 50MB and impossible at 500MB. The URL below
+// streams with real Range support, so playback starts at once, seeking works
+// and memory stays flat regardless of size.
+//
+// Only for files whose bytes are on THIS device. A synced file is served by
+// production and must keep using its normal remote URL.
+Route::get('/_native/api/files/{uuid}/stream-url', function (string $uuid) {
+    try {
+        $file = \App\Domains\Media\Models\PatientFile::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->where(function ($q) use ($uuid) {
+            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        })->first();
+
+        $absolutePath = null;
+        if ($file && $file->file_path) {
+            $candidate = \Illuminate\Support\Facades\Storage::disk('local')->path($file->file_path);
+            if (is_file($candidate)) {
+                $absolutePath = $candidate;
+            }
+        }
+
+        if (!$absolutePath) {
+            $offline = \Illuminate\Support\Facades\DB::table('offline_files')->where('uuid', $uuid)->first();
+            if ($offline) {
+                $candidate = app(\App\Services\OfflineUploadService::class)->absolutePath($offline->local_path);
+                if (is_file($candidate)) {
+                    $absolutePath = $candidate;
+                }
+            }
+        }
+
+        if (!$absolutePath) {
+            return response()->json(['success' => false, 'error' => 'not stored on this device'], 404);
+        }
+
+        $result = app(\MedicalPlus\NativeFiles\NativeFiles::class)->serve($absolutePath, $uuid);
+
+        return response()->json($result + ['size' => filesize($absolutePath)]);
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Log::error('[stream-url] ' . $e->getMessage(), ['uuid' => $uuid]);
+
+        return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+    }
+})->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
+
 // ── Local patient workspace data (OUTSIDE auth middleware) ────────────
 // Same payload as GET /api/v1/workspace/{patient:uuid}, but guaranteed to be
 // served by the embedded Laravel: any /_native/* path is routed to LOCAL_PHP,

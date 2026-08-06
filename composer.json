@@ -13,6 +13,7 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "medicalplus/mobile-background-sync": "*",
+        "medicalplus/mobile-native-files": "*",
         "nativephp/mobile": "^3.3",
         "nativephp/mobile-camera": "^1.0",
         "nativephp/mobile-dialog": "^1.0",
@@ -83,6 +84,10 @@
         {
             "type": "path",
             "url": "packages/medicalplus/mobile-background-sync"
+        },
+        {
+            "type": "path",
+            "url": "packages/medicalplus/mobile-native-files"
         }
     ],
     "extra": {

@@ -1,0 +1,30 @@
+{
+    "namespace": "NativeFiles",
+    "bridge_functions": [
+        {
+            "name": "NativeFiles.Serve",
+            "android": "com.medicalplus.nativefiles.NativeFilesFunctions.Serve",
+            "description": "Expose a device-local file on the loopback media server and return a URL that <video> can stream with Range requests"
+        },
+        {
+            "name": "NativeFiles.Save",
+            "android": "com.medicalplus.nativefiles.NativeFilesFunctions.Save",
+            "description": "Queue a URL with Android's DownloadManager: downloads in the background, shows the system progress notification, lands in the public Downloads folder"
+        },
+        {
+            "name": "NativeFiles.SaveBytes",
+            "android": "com.medicalplus.nativefiles.NativeFilesFunctions.SaveBytes",
+            "description": "Write already-in-hand base64 bytes straight to the public Downloads folder"
+        }
+    ],
+    "android": {
+        "min_version": 26,
+        "permissions": [
+            "android.permission.POST_NOTIFICATIONS"
+        ],
+        "dependencies": {
+            "implementation": []
+        }
+    },
+    "events": []
+}

@@ -19,9 +19,10 @@
             <button @click="toggleFullscreen" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" :title="$t('file_preview.fullscreen')">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
             </button>
-            <a v-if="file?.url" :href="file.url" target="_blank" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors" :title="$t('file_preview.download')">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-            </a>
+            <button v-if="file?.url" @click="downloadFile" :disabled="downloading" class="p-2 text-slate-300 dark:text-slate-400 hover:text-white bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-50" :title="$t('file_preview.download')">
+              <svg v-if="!downloading" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
+            </button>
             <!-- Cache Offline (Phase 6) -->
             <button
               v-if="!isCached"
@@ -271,11 +272,35 @@ const fetchSignedUrls = async () => {
     // DEVICE_MAX_CHUNK_BYTES), hence the ranged loop.
     const localOnly = !file.value.url || file.value.url.startsWith('/_native/');
     if (localOnly && file.value.mime_type?.startsWith('video/')) {
+      // Preferred path: a loopback URL served off disk by the native media
+      // server, so the player streams with Range requests — first frame is
+      // immediate, seeking works, and nothing is held in memory. Required for
+      // anything big: the base64 fallback below has to fetch the entire file
+      // (one PHP boot per chunk) before playback can start, which is fine for
+      // a couple of MB and hopeless for 50MB+.
       try {
-        signedUrl.value = await fetchLocalVideoBlobUrl(file.value.uuid, file.value.mime_type);
-        return;
+        const streamRes = await axios.get(`/_native/api/files/${file.value.uuid}/stream-url`);
+        if (streamRes.data?.success && streamRes.data.url) {
+          signedUrl.value = streamRes.data.url;
+          return;
+        }
       } catch (e) {
-        console.warn('[InlineFilePreview] local video blob fetch failed', e);
+        console.warn('[InlineFilePreview] native stream URL unavailable', e);
+      }
+
+      // Fallback for older builds where the plugin is missing. Bounded on
+      // purpose: pulling hundreds of MB through this path would exhaust
+      // memory long before it finished.
+      const size = Number(file.value.size || 0);
+      if (size && size > 25 * 1024 * 1024) {
+        console.warn('[InlineFilePreview] file too large for the base64 fallback', size);
+      } else {
+        try {
+          signedUrl.value = await fetchLocalVideoBlobUrl(file.value.uuid, file.value.mime_type);
+          return;
+        } catch (e) {
+          console.warn('[InlineFilePreview] local video blob fetch failed', e);
+        }
       }
     }
     // Trust the model's own url attribute: PatientFile::getUrlAttribute()
@@ -338,6 +363,50 @@ async function fetchLocalVideoBlobUrl(uuid, mimeType) {
 
   if (!parts.length) throw new Error('no bytes received');
   return URL.createObjectURL(new Blob(parts, { type: mimeType || 'video/mp4' }));
+}
+
+const downloading = ref(false);
+
+/**
+ * Save the file to the device's Downloads folder.
+ *
+ * This used to be an <a href target="_blank">, which inside the app's WebView
+ * did nothing at all — no download, no new window, no error. A WebView only
+ * downloads when the host registers a DownloadListener, so the save has to
+ * happen natively: NativeFiles.Save hands the URL to Android's DownloadManager
+ * (its own system notification tracks progress and stays tappable when done),
+ * and NativeFiles.SaveBytes writes bytes we already hold for a file that only
+ * exists on this device, which DownloadManager cannot fetch — it runs in a
+ * separate process and cannot reach the app's embedded server.
+ */
+async function downloadFile() {
+  if (downloading.value || !file.value) return;
+  const uuid = file.value.uuid;
+  const name = file.value.file_name || file.value.title || `file-${uuid}`;
+
+  if (!detectNative()) {
+    window.open(file.value.url, '_blank');
+    return;
+  }
+
+  downloading.value = true;
+  try {
+    const res = await axios.post('/_native/api/files/download', {
+      uuid,
+      file_name: name,
+    });
+
+    if (res.data?.success) {
+      toast.success('Download started');
+    } else {
+      toast.error(res.data?.error || 'Download failed');
+    }
+  } catch (e) {
+    console.error('[InlineFilePreview] download failed', e);
+    toast.error('Download failed');
+  } finally {
+    downloading.value = false;
+  }
 }
 
 function cachedFileUrl(uuid) {

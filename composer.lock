@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "db462c403db1ad50a391cb3233f055c1",
+    "content-hash": "74f2462b22fc8df882ffacef4f9c22f2",
     "packages": [
         {
             "name": "bacon/bacon-qr-code",
@@ -2421,6 +2421,42 @@
                 "MIT"
             ],
             "description": "Foreground service that keeps sync and large uploads running when the app is backgrounded or closed",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "medicalplus/mobile-native-files",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/medicalplus/mobile-native-files",
+                "reference": "569478f54b0dd154dc1ed47269f0f37bf0aed1fe"
+            },
+            "require": {
+                "nativephp/mobile": "^3.0",
+                "php": "^8.2"
+            },
+            "type": "nativephp-plugin",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "MedicalPlus\\NativeFiles\\NativeFilesServiceProvider"
+                    ]
+                },
+                "nativephp": {
+                    "manifest": "nativephp.json"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "MedicalPlus\\NativeFiles\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Loopback media server for streaming device-local files, plus Downloads-folder saving with the system notification",
             "transport-options": {
                 "relative": true
             }

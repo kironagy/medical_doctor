@@ -1,0 +1,26 @@
+{
+    "name": "medicalplus/mobile-native-files",
+    "description": "Loopback media server for streaming device-local files, plus Downloads-folder saving with the system notification",
+    "type": "nativephp-plugin",
+    "license": "MIT",
+    "version": "1.0.0",
+    "require": {
+        "php": "^8.2",
+        "nativephp/mobile": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "MedicalPlus\\NativeFiles\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "MedicalPlus\\NativeFiles\\NativeFilesServiceProvider"
+            ]
+        },
+        "nativephp": {
+            "manifest": "nativephp.json"
+        }
+    }
+}
