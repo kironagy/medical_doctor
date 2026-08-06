@@ -119,13 +119,11 @@ class EloquentPatientRepository implements PatientRepositoryInterface
             return;
         }
 
-        // Same SYNC-002 pattern as Mobile\PatientController::destroy(): on the
-        // embedded SQLite device, mark pending_delete instead of soft-deleting
-        // immediately, so SyncEngineService::processPendingDeletes() pushes the
-        // delete to the production server before removing the local row.
-        // Soft-deleting straight away here left sync_status untouched at
-        // 'synced', which processPendingDeletes() never queries for — the
-        // delete silently never reached the server.
+        // BUG-SYNC-002 (see docs/FIX_HISTORY.md) — kept only because
+        // PatientRepositoryInterface requires this method to exist; nothing
+        // calls it directly (PatientRepository implements delete()/
+        // forceDelete() itself rather than delegating to $this->local for
+        // these two). Not the live path — see PatientRepository::delete().
         if (config('database.default') === 'sqlite') {
             $patient->update([
                 'sync_status' => 'pending_delete',

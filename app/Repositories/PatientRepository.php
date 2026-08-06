@@ -154,6 +154,20 @@ class PatientRepository implements PatientRepositoryInterface
             }
 
             if ($patient->sync_status === 'pending_create') {
+                // Confirmed live: create() always pushes a sync_queue
+                // 'create' row with a full payload snapshot. Force-deleting
+                // here without cancelling it left that row stuck pending
+                // forever — SyncEngineService::processPendingDeletes()
+                // never sees it (this patient never had sync_status
+                // 'pending_delete'), and PatientSyncService::processItem()
+                // just fails it repeatedly ("Local patient record not
+                // found") since the local row this branch just deleted no
+                // longer exists to build a create payload from. push() with
+                // operation 'delete' against an existing 'create' item
+                // cancels it outright (SyncQueueService Rule B) instead of
+                // enqueueing a pointless delete for a patient that was
+                // never on the server.
+                $this->queueService->push('patient', $patient->uuid, 'delete');
                 $patient->forceDelete();
                 return;
             }
@@ -245,6 +259,20 @@ class PatientRepository implements PatientRepositoryInterface
             // SyncEngineService::processPendingDeletes() pushes the real
             // delete to the server and only then removes the row for good.
             if ($patient->sync_status === 'pending_create') {
+                // Confirmed live: create() always pushes a sync_queue
+                // 'create' row with a full payload snapshot. Force-deleting
+                // here without cancelling it left that row stuck pending
+                // forever — SyncEngineService::processPendingDeletes()
+                // never sees it (this patient never had sync_status
+                // 'pending_delete'), and PatientSyncService::processItem()
+                // just fails it repeatedly ("Local patient record not
+                // found") since the local row this branch just deleted no
+                // longer exists to build a create payload from. push() with
+                // operation 'delete' against an existing 'create' item
+                // cancels it outright (SyncQueueService Rule B) instead of
+                // enqueueing a pointless delete for a patient that was
+                // never on the server.
+                $this->queueService->push('patient', $patient->uuid, 'delete');
                 $patient->forceDelete();
                 return;
             }

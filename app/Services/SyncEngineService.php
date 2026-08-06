@@ -9,6 +9,8 @@ use App\Services\Mobile\ApiService;
 use App\Services\OfflineUploadService;
 use App\Services\Sync\FileSyncService;
 use App\Services\Sync\DownloadSyncService;
+use App\Services\Sync\PatientSyncService;
+use App\Domains\Sync\Models\SyncQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -63,6 +65,7 @@ class SyncEngineService
         private readonly ApiService $api,
         private readonly FileSyncService $fileSyncService,
         private readonly DownloadSyncService $downloadSyncService,
+        private readonly PatientSyncService $patientSyncService,
     ) {}
 
     /**
@@ -752,6 +755,31 @@ class SyncEngineService
             ->unique('uuid');
 
         foreach ($pendingDeletes as $patient) {
+            // Two independent delete-propagation paths used to exist here:
+            // this direct query+delete, and PatientSyncService consuming a
+            // sync_queue 'delete' row (driven by ManualSyncService's manual
+            // "Sync Now" button vs this auto-sync cycle) — both could act on
+            // the same pending_delete patient, hitting different endpoints
+            // (/patients/{uuid} here vs /mobile/patients/{uuid} there).
+            // PatientRepository::delete()/forceDelete() (the only live
+            // delete path — see docs/FIX_HISTORY.md) always pushes a
+            // sync_queue entry now, so defer to PatientSyncService whenever
+            // one exists instead of duplicating the delete here; only a
+            // patient with no queue entry (legacy/orphaned row) falls
+            // through to the direct path below as a safety net.
+            $queueItem = SyncQueue::where('entity_uuid', $patient->uuid)
+                ->where('entity_type', 'patient')
+                ->where('operation', 'delete')
+                ->whereIn('status', ['pending', 'failed'])
+                ->first();
+
+            if ($queueItem) {
+                if ($this->patientSyncService->processItem($queueItem)) {
+                    $deletedCount++;
+                }
+                continue;
+            }
+
             try {
                 try {
                     $this->api->delete("/patients/{$patient->uuid}");

@@ -258,6 +258,26 @@ const fetchSignedUrls = async () => {
   if (!file.value?.uuid) return
 
   if (detectNative()) {
+    // A device-local video must be fetched by JS and played from a blob:
+    // URL — it cannot be handed to <video src="/_native/...">.
+    // Confirmed live via DevTools against the device: the media request the
+    // <video> element issues itself never completes through the native
+    // bridge's request interception ("Provisional headers are shown",
+    // Response headers (0), 48 retries for 7.6 kB total), so the player
+    // retries forever and keeps retrying even after the preview is closed.
+    // XHR/fetch goes through a different, working path — every JSON API call
+    // on this screen proves that — so pull the bytes over XHR instead. The
+    // response is capped server-side (FileAccessController::
+    // DEVICE_MAX_CHUNK_BYTES), hence the ranged loop.
+    const localOnly = !file.value.url || file.value.url.startsWith('/_native/');
+    if (localOnly && file.value.mime_type?.startsWith('video/')) {
+      try {
+        signedUrl.value = await fetchLocalVideoBlobUrl(file.value.uuid, file.value.mime_type);
+        return;
+      } catch (e) {
+        console.warn('[InlineFilePreview] local video blob fetch failed', e);
+      }
+    }
     // Trust the model's own url attribute: PatientFile::getUrlAttribute()
     // already points a synced file straight at production (confirmed live —
     // GET /api/v1/files/{uuid} there returns 200 with no auth) and only
@@ -281,6 +301,46 @@ const fetchSignedUrls = async () => {
       console.warn('Failed to fetch signed URL, using direct URL', e)
     }
   }
+}
+
+/**
+ * Download a device-local file over XHR in Range'd chunks and return a blob:
+ * URL for it. See fetchSignedUrls() for why the <video> element cannot fetch
+ * it directly. Chunked because the embedded server caps every response
+ * (DEVICE_MAX_CHUNK_BYTES) regardless of the Range asked for, so one request
+ * only ever yields the first slice of a larger file.
+ */
+async function fetchLocalVideoBlobUrl(uuid, mimeType) {
+  const CHUNK = 2 * 1024 * 1024;
+  const parts = [];
+  let start = 0;
+  let total = null;
+
+  // Hard stop: a wrong Content-Range (or a server that ignores Range and
+  // keeps returning the same slice) must not spin forever the way the
+  // native player did.
+  for (let i = 0; i < 512; i++) {
+    const res = await axios.get(`/_native/cache/files/${uuid}`, {
+      responseType: 'blob',
+      headers: { Range: `bytes=${start}-${start + CHUNK - 1}` },
+    });
+
+    const blob = res.data;
+    if (!blob || blob.size === 0) break;
+    parts.push(blob);
+
+    const contentRange = res.headers['content-range'] || res.headers['Content-Range'];
+    if (total === null && contentRange) {
+      const m = /\/(\d+)\s*$/.exec(contentRange);
+      if (m) total = parseInt(m[1], 10);
+    }
+
+    start += blob.size;
+    if (total !== null ? start >= total : blob.size < CHUNK) break;
+  }
+
+  if (!parts.length) throw new Error('no bytes received');
+  return URL.createObjectURL(new Blob(parts, { type: mimeType || 'video/mp4' }));
 }
 
 function cachedFileUrl(uuid) {

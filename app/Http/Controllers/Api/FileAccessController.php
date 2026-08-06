@@ -160,7 +160,16 @@ class FileAccessController extends Controller
 
         $cappedEnd = min($end, $start + self::DEVICE_MAX_CHUNK_BYTES - 1);
         $length = $cappedEnd - $start + 1;
-        $isPartial = $start !== 0 || $cappedEnd !== $fileSize - 1;
+        // Confirmed live (adb logcat): Chromium's <video> element always probes
+        // with "Range: bytes=0-" before playing, even for a file far under
+        // DEVICE_MAX_CHUNK_BYTES. When the served range happens to equal the
+        // whole file this used to answer 200 with no Content-Range — legal
+        // HTTP (a server may ignore Range), but Chromium's ffmpeg demuxer
+        // doesn't accept it: it expects 206 whenever it sent a Range header,
+        // and instead threw PipelineStatus::DEMUXER_ERROR_COULD_NOT_OPEN on a
+        // file that was byte-for-byte a valid MP4 (verified with ffprobe).
+        // Honor the Range header's presence, not just whether it was capped.
+        $isPartial = !empty($rangeHeader) || $start !== 0 || $cappedEnd !== $fileSize - 1;
 
         $headers = [
             'Content-Type'        => $mime,
@@ -174,20 +183,42 @@ class FileAccessController extends Controller
             $headers['Content-Range'] = "bytes {$start}-{$cappedEnd}/{$fileSize}";
         }
 
-        return response()->stream(function () use ($absolutePath, $start, $length) {
-            $stream = fopen($absolutePath, 'rb');
-            fseek($stream, $start);
-            $remaining = $length;
-            $bufferSize = 256 * 1024;
-            while ($remaining > 0 && !feof($stream)) {
-                $chunk = fread($stream, min($bufferSize, $remaining));
-                if ($chunk === false || $chunk === '') break;
-                echo $chunk;
-                $remaining -= strlen($chunk);
-                @flush();
-            }
-            fclose($stream);
-        }, $isPartial ? 206 : 200, $headers);
+        // Read into a string and return a normal response instead of
+        // response()->stream(). Confirmed live: with the streamed version the
+        // headers were correct (206 + Content-Range) but the <video> element
+        // still refused the body and retried the same request forever.
+        // StreamedResponse writes the body with echo/flush during send(),
+        // which on this SAPI lands in the shared output buffer the bridge
+        // scrapes stdout from — the same buffer ParseMobileMultipartMiddleware
+        // has to ob_end_clean() because previous dispatches leak into it. Any
+        // stray byte there is invisible in a JSON response but corrupts an MP4
+        // (Chromium reported DEMUXER_ERROR_COULD_NOT_OPEN on a file ffprobe
+        // reads as a perfectly valid H.264/AAC MP4). A plain string body is
+        // handed over as one exact-length buffer, and DEVICE_MAX_CHUNK_BYTES
+        // already bounds it to something safe to hold in memory.
+        $stream = fopen($absolutePath, 'rb');
+        if ($stream === false) {
+            abort(404, 'File not found on disk.');
+        }
+        fseek($stream, $start);
+        $body = stream_get_contents($stream, $length);
+        fclose($stream);
+
+        if ($body === false) {
+            abort(500, 'Failed to read file.');
+        }
+
+        // Content-Length must match what is actually being sent, byte for
+        // byte: a short read here (truncated/racing file) previously still
+        // advertised the requested length, which is itself enough to make the
+        // player retry indefinitely.
+        $headers['Content-Length'] = strlen($body);
+        if ($isPartial) {
+            $actualEnd = $start + strlen($body) - 1;
+            $headers['Content-Range'] = "bytes {$start}-{$actualEnd}/{$fileSize}";
+        }
+
+        return response($body, $isPartial ? 206 : 200, $headers);
     }
 
     private function resolveFile(Request $request, string $uuid): PatientFile

@@ -648,11 +648,13 @@ async function refreshPatientList(page = 1) {
         // resolves. Category cache refresh doesn't gate patient list
         // correctness, so it no longer blocks STEP 2.
         let sqlitePending = [];
+        let sqlitePendingFetchOk = false;
         const categoryCachePromise = refreshCategoryCache().catch(() => {});
         try {
             console.log('[INSTRUMENT] refreshPatientList STEP 2: GET /_native/api/patients/pending starting...');
             const pendingRes = await axios.get('/_native/api/patients/pending');
             sqlitePending = pendingRes.data?.data || [];
+            sqlitePendingFetchOk = true;
             console.log('[INSTRUMENT] refreshPatientList STEP 2 COMPLETE: count=', sqlitePending.length, 'uuids=', sqlitePending.map(p => p.uuid + '(' + (p.sync_status || '?') + ')').join(','));
         } catch (e) {
             console.log('[INSTRUMENT] refreshPatientList STEP 2 FAILED:', e.message);
@@ -696,10 +698,26 @@ async function refreshPatientList(page = 1) {
             // Collect all local pending patients from snapshot + SQLite
             const localPendingMap = new Map();
 
-            // Source 1: Snapshot (captured before any async calls)
+            // Source 1: Snapshot (captured before any async calls). This
+            // guards against concurrent state changes racing the refresh —
+            // it is NOT proof the patient is still pending, since the
+            // snapshot was taken before this refresh's own async calls
+            // (including, e.g., the delete request that triggered this very
+            // refresh) settled. STEP 2 (sqlitePending) is a fresh read of
+            // the same local SQLite taken after that delete completes, so
+            // when it succeeded, trust its absence: a snapshot UUID it
+            // doesn't corroborate means the patient was actually deleted
+            // during this refresh, not merely unsynced. Previously this
+            // loop trusted the snapshot unconditionally, which resurrected
+            // patients into the UI seconds after a successful force-delete
+            // (confirmed live: STEP 2 returned count=0 for a uuid that
+            // STEP 4 then re-added from this snapshot).
+            const sqlitePendingUuids = new Set(sqlitePending.map(p => p.uuid));
             for (const p of snapshotPending) {
                 if (p.sync_status !== 'synced' && !apiUuids.has(p.uuid)) {
-                    localPendingMap.set(p.uuid, p);
+                    if (!sqlitePendingFetchOk || sqlitePendingUuids.has(p.uuid)) {
+                        localPendingMap.set(p.uuid, p);
+                    }
                 }
             }
 
@@ -750,7 +768,14 @@ async function refreshPatientList(page = 1) {
             for (const [uuid, patient] of allPatientsBackup) {
                 if (!finalUuids.has(uuid)) {
                     const isLocalPending = patient.sync_status === 'pending_create' || patient.sync_status === 'pending_update';
-                    if (isLocalPending || isOffline) {
+                    // Same corroboration as the Source 1 merge above: a
+                    // pending-looking status in this pre-refresh backup isn't
+                    // proof it's still pending — check it against the fresh
+                    // STEP 2 read when that read succeeded, so a patient
+                    // deleted during this refresh isn't resurrected here via
+                    // the safety net after Source 1 already excluded it.
+                    const stillLocalPending = isLocalPending && (!sqlitePendingFetchOk || sqlitePendingUuids.has(uuid));
+                    if (stillLocalPending || isOffline) {
                         preservedPatients.push(patient);
                     }
                 }
