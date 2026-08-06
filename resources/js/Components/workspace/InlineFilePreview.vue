@@ -311,32 +311,29 @@ const fetchSignedUrls = async () => {
  * only ever yields the first slice of a larger file.
  */
 async function fetchLocalVideoBlobUrl(uuid, mimeType) {
-  const CHUNK = 2 * 1024 * 1024;
+  const CHUNK = 1024 * 1024;
   const parts = [];
-  let start = 0;
+  let offset = 0;
   let total = null;
 
-  // Hard stop: a wrong Content-Range (or a server that ignores Range and
-  // keeps returning the same slice) must not spin forever the way the
-  // native player did.
-  for (let i = 0; i < 512; i++) {
-    const res = await axios.get(`/_native/cache/files/${uuid}`, {
-      responseType: 'blob',
-      headers: { Range: `bytes=${start}-${start + CHUNK - 1}` },
+  // Hard stop: a server that never advances the offset must not spin
+  // forever the way the native player did.
+  for (let i = 0; i < 2048; i++) {
+    const res = await axios.get(`/_native/cache/files/${uuid}/base64`, {
+      params: { offset, length: CHUNK },
     });
 
-    const blob = res.data;
-    if (!blob || blob.size === 0) break;
-    parts.push(blob);
+    const b64 = res.data?.data || '';
+    if (!b64) break;
+    if (total === null && typeof res.data?.size === 'number') total = res.data.size;
 
-    const contentRange = res.headers['content-range'] || res.headers['Content-Range'];
-    if (total === null && contentRange) {
-      const m = /\/(\d+)\s*$/.exec(contentRange);
-      if (m) total = parseInt(m[1], 10);
-    }
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
+    parts.push(bytes);
 
-    start += blob.size;
-    if (total !== null ? start >= total : blob.size < CHUNK) break;
+    offset += bytes.length;
+    if (total !== null ? offset >= total : bytes.length < CHUNK) break;
   }
 
   if (!parts.length) throw new Error('no bytes received');

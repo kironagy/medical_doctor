@@ -591,7 +591,7 @@ class FileAccessController extends Controller
      *
      * Route: GET /_native/cache/files/{uuid}/base64
      */
-    public function streamCachedBase64(string $uuid)
+    public function streamCachedBase64(Request $request, string $uuid)
     {
         $file = PatientFile::withoutGlobalScope(
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
@@ -622,14 +622,54 @@ class FileAccessController extends Controller
             abort(404, 'File not found.');
         }
 
-        if (filesize($absolutePath) > self::BASE64_MAX_BYTES) {
-            abort(413, 'File too large for base64; use the streaming endpoint.');
+        $mime = $file?->mime_type ?: (mime_content_type($absolutePath) ?: 'application/octet-stream');
+        $fileSize = filesize($absolutePath);
+
+        // Chunked mode (?offset=&length=) exists because this JSON endpoint is
+        // the ONLY way media bytes reach the WebView on-device. Proven live
+        // with DevTools attached to the device: a binary body — streamed or
+        // string, 200 or 206, any file size — arrives with correct headers and
+        // an empty body (0 bytes in the hex viewer), so <video src> and even a
+        // plain XHR for the bytes both come back with nothing and the player
+        // retries forever. JSON responses over that same bridge are fine,
+        // which is what makes base64 the working transport rather than a
+        // fallback. Callers walk the file in chunks so neither PHP nor the
+        // response ever holds more than one chunk, which is also what lifts
+        // the BASE64_MAX_BYTES ceiling for videos.
+        $offset = (int) $request->query('offset', 0);
+        $hasLength = $request->query('length') !== null;
+        $length = (int) $request->query('length', 0);
+
+        if ($offset > 0 || $hasLength) {
+            if ($offset < 0 || $offset >= $fileSize) {
+                return response()->json(['mime' => $mime, 'size' => $fileSize, 'offset' => $offset, 'data' => '']);
+            }
+
+            $length = max(1, min($length ?: self::BASE64_MAX_BYTES, self::BASE64_MAX_BYTES, $fileSize - $offset));
+
+            $handle = fopen($absolutePath, 'rb');
+            if ($handle === false) {
+                abort(500, 'Failed to read file.');
+            }
+            fseek($handle, $offset);
+            $bytes = stream_get_contents($handle, $length);
+            fclose($handle);
+
+            return response()->json([
+                'mime'   => $mime,
+                'size'   => $fileSize,
+                'offset' => $offset,
+                'data'   => base64_encode($bytes === false ? '' : $bytes),
+            ]);
         }
 
-        $mime = $file?->mime_type ?: (mime_content_type($absolutePath) ?: 'application/octet-stream');
+        if ($fileSize > self::BASE64_MAX_BYTES) {
+            abort(413, 'File too large for base64; request it in chunks with ?offset=&length=.');
+        }
 
         return response()->json([
             'mime' => $mime,
+            'size' => $fileSize,
             'data' => base64_encode(file_get_contents($absolutePath)),
         ]);
     }
