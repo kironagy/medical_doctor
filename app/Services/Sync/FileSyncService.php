@@ -73,31 +73,14 @@ class FileSyncService
                     $remoteUuid = $this->checkServerSha256Deduplication($sha256);
 
                     // ── Task 1: Upload execution (Resumable vs Normal) ──────
-                // Video always goes through the resumable/chunked path
-                    // regardless of size — matches SyncEngineService's gate and
-                    // avoids single-shot multipart uploads for video files.
-                    $mimeType = $file?->mime_type ?? $offFile?->mime_type ?? '';
-                    $isVideo = str_starts_with($mimeType, 'video/');
+                // One upload path for every type and size. Video and
+                    // anything over RESUMABLE_THRESHOLD used the resumable
+                    // chunk endpoint and uploaded reliably, while smaller
+                    // files fell to a single multipart POST that images never
+                    // completed — they simply stayed pending. Using the proven
+                    // path for all of them removes the split.
                     if (!$remoteUuid) {
-                        if ($isVideo || $fileSize > self::RESUMABLE_THRESHOLD) {
-                            $remoteUuid = $this->uploadLargeFileResumable($absPath, $patientUuid, $file, $offFile);
-                        } else {
-                            $title = $file ? ($file->title ?? $file->file_name) : ($offFile->title ?? $offFile->original_name);
-                            $category = $file ? ($file->category ?? null) : ($offFile->category ?? null);
-                            $date = $file ? ($file->date ?? null) : ($offFile->date ?? null);
-                            $response = $this->api->upload(
-                                "/patients/{$patientUuid}/files",
-                                ['file' => $absPath],
-                                [
-                                    'title'    => $title,
-                                    'desc'     => $file->desc ?? ($offFile->desc ?? ''),
-                                    'category' => $category,
-                                    'date'     => ($date ? \Carbon\Carbon::parse($date)->format('Y-m-d') : now()->format('Y-m-d')),
-                                    'sha256'   => $sha256,
-                                ]
-                            );
-                            $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
-                        }
+                        $remoteUuid = $this->uploadLargeFileResumable($absPath, $patientUuid, $file, $offFile);
                     }
 
                     if ($remoteUuid) {

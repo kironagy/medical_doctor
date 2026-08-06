@@ -547,29 +547,23 @@ class SyncEngineService
 
             try {
                 $fileSize = filesize($absolutePath);
-                $isVideo = str_starts_with($file->mime_type ?? '', 'video/');
 
-                if ($isVideo) {
-                    Log::info('[SyncEngine] Syncing local patient_file via resumable chunk upload', [
-                        'file_uuid' => $file->uuid,
-                        'file_size' => $fileSize,
-                        'mime_type' => $file->mime_type,
-                    ]);
-                    $remoteUuid = $this->fileSyncService->uploadLargeFileResumable($absolutePath, $patientUuid, $file, null);
-                } else {
-                    $response = $this->api->upload(
-                        "/patients/{$patientUuid}/files",
-                        ['file' => $absolutePath],
-                        [
-                            'title'    => $file->title ?? $file->file_name,
-                            'desc'     => $file->desc ?? '',
-                            'category' => $file->category ?? null,
-                            'date'     => ($file->date ? \Carbon\Carbon::parse($file->date)->format('Y-m-d') : now()->format('Y-m-d')),
-                        ]
-                    );
+                // One upload path for every file type. Videos went through the
+                // resumable chunk endpoint and uploaded reliably; everything
+                // else went through a single multipart POST and images never
+                // made it — they stayed pending forever while the video beside
+                // them synced on the first try. uploadLargeFileResumable()
+                // isn't video-specific (it reads name/mime/size off the file
+                // it is given), so using the path that demonstrably works on
+                // this device for all of them removes the discrepancy instead
+                // of maintaining a second, weaker uploader.
+                Log::info('[SyncEngine] Syncing local patient_file via resumable chunk upload', [
+                    'file_uuid' => $file->uuid,
+                    'file_size' => $fileSize,
+                    'mime_type' => $file->mime_type,
+                ]);
 
-                    $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
-                }
+                $remoteUuid = $this->fileSyncService->uploadLargeFileResumable($absolutePath, $patientUuid, $file, null);
 
                 if (!$remoteUuid) {
                     throw new \RuntimeException('No UUID returned from production server');
@@ -746,25 +740,17 @@ class SyncEngineService
 
         $fileSize = filesize($absolutePath);
         $mimeType = $file['mime_type'] ?? (mime_content_type($absolutePath) ?: '');
-        $isVideo = str_starts_with($mimeType, 'video/');
 
-        if ($isVideo) {
-            Log::info('[SyncEngine] Syncing offline_file via resumable chunk upload', [
-                'file_uuid' => $file['uuid'],
-                'file_size' => $fileSize,
-                'mime_type' => $mimeType,
-            ]);
-            $offFile = (object) $file;
-            $remoteUuid = $this->fileSyncService->uploadLargeFileResumable($absolutePath, $file['patient_uuid'], null, $offFile);
-        } else {
-            $response = $this->api->upload(
-                "/patients/{$file['patient_uuid']}/files",
-                ['file' => $absolutePath],
-                $extraParams
-            );
-
-            $remoteUuid = $response['uuid'] ?? $response['file']['uuid'] ?? null;
-        }
+        // Same single upload path as syncLocalPatientFiles(): the resumable
+        // chunk endpoint for every type, not just video. The multipart branch
+        // this replaces is the one that left images pending indefinitely.
+        Log::info('[SyncEngine] Syncing offline_file via resumable chunk upload', [
+            'file_uuid' => $file['uuid'],
+            'file_size' => $fileSize,
+            'mime_type' => $mimeType,
+        ]);
+        $offFile = (object) $file;
+        $remoteUuid = $this->fileSyncService->uploadLargeFileResumable($absolutePath, $file['patient_uuid'], null, $offFile);
 
         if (!$remoteUuid) {
             throw new \RuntimeException('No UUID in server response');
