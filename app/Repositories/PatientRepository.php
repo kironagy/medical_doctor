@@ -5,7 +5,10 @@ namespace App\Repositories;
 use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Repositories\Eloquent\EloquentPatientRepository;
 use App\Domains\Sync\Services\SyncQueueService;
+use App\Services\Mobile\RemoteApiService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * ───────────────────────────────────────────────────────────────────────────
@@ -70,6 +73,29 @@ class PatientRepository implements PatientRepositoryInterface
         return config('database.default') === 'sqlite';
     }
 
+    /**
+     * The patient list the user deletes from is fetched live from the
+     * remote server (paginated() only ever reads the local cache, but the
+     * workspace list itself hits production directly), so a patient can be
+     * visible and deletable in the UI without ever having been pulled down
+     * into this device's local SQLite. When that happens, delete()/
+     * forceDelete() find no local row to mark pending_delete and used to
+     * silently return — the delete never reached the server at all. Call
+     * the remote API directly in that case so it always actually deletes.
+     */
+    private function deleteRemoteDirectly(string $uuid): void
+    {
+        try {
+            app(RemoteApiService::class)->delete("/mobile/patients/{$uuid}");
+        } catch (Throwable $e) {
+            if (!str_contains($e->getMessage(), '404')) {
+                Log::warning('[PatientRepository] Remote delete for uncached patient failed: ' . $e->getMessage(), [
+                    'uuid' => $uuid,
+                ]);
+            }
+        }
+    }
+
     public function create(array $data): array
     {
         if (!$this->isOfflineDevice()) {
@@ -123,6 +149,7 @@ class PatientRepository implements PatientRepositoryInterface
             })->first();
 
             if (!$patient) {
+                $this->deleteRemoteDirectly($uuid);
                 return;
             }
 
@@ -202,6 +229,7 @@ class PatientRepository implements PatientRepositoryInterface
             })->first();
 
             if (!$patient) {
+                $this->deleteRemoteDirectly($uuid);
                 return;
             }
 
