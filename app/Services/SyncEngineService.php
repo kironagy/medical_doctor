@@ -441,6 +441,46 @@ class SyncEngineService
      *
      * @return array{uploaded: int, failed: int}
      */
+    /**
+     * Absolute path of a patient_file's bytes, wherever they actually landed.
+     *
+     * Mirrors FileAccessController::resolveAbsolutePath(): file_path is only
+     * populated for chunk-uploaded files, while an offline upload records its
+     * location in offline_files and a cached download in file_cache. Returns
+     * null only when the bytes are genuinely nowhere on this device.
+     */
+    private function resolveLocalFileBytes(\App\Domains\Media\Models\PatientFile $file): ?string
+    {
+        if ($file->file_path) {
+            $candidate = Storage::disk('local')->path($file->file_path);
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        $keys = array_values(array_unique(array_filter([$file->uuid, $file->remote_uuid])));
+
+        foreach ($keys as $key) {
+            $offline = DB::table('offline_files')->where('uuid', $key)->first();
+            if ($offline && !empty($offline->local_path)) {
+                $candidate = app(\App\Services\OfflineUploadService::class)->absolutePath($offline->local_path);
+                if (is_file($candidate)) {
+                    return $candidate;
+                }
+            }
+
+            $cached = DB::table('file_cache')->where('file_uuid', $key)->first();
+            if ($cached && !empty($cached->local_path)) {
+                $candidate = app(\App\Services\Mobile\FileCacheService::class)->resolvePath($cached->local_path);
+                if (is_file($candidate)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        return null;
+    }
+
     public function syncLocalPatientFiles(): array
     {
         $results = ['uploaded' => 0, 'failed' => 0];
@@ -480,15 +520,28 @@ class SyncEngineService
             // Use the patient UUID from the fresh DB record (may differ after sync)
             $patientUuid = $patientRecord->uuid;
 
-            $absolutePath = Storage::disk('local')->path($file->file_path);
-            if (!file_exists($absolutePath)) {
-                Log::warning('[SyncEngine] Local patient_file not found on disk', [
+            // file_path is not the only place a file's bytes can be: an
+            // upload that went through the offline path stores them under
+            // offline_files, and a cached download under file_cache. Only
+            // chunk-uploaded files (video) land at the file_path location, so
+            // checking that one path alone found videos and missed images.
+            $absolutePath = $this->resolveLocalFileBytes($file);
+
+            if (!$absolutePath) {
+                // Deliberately NOT marked synced here. It used to be stamped
+                // remote_uuid = its own uuid + sync_status = 'synced' "to
+                // prevent infinite retry", which silently declared a file
+                // uploaded that the server had never received: the row stopped
+                // being eligible for sync forever and the file was gone from
+                // both sides. Leaving the row untouched keeps it in the queue
+                // and visible, so a genuinely missing file is a loud, fixable
+                // problem instead of quiet data loss.
+                Log::error('[SyncEngine] patient_file bytes not found in any local location — left pending', [
                     'uuid'      => $file->uuid,
+                    'file_name' => $file->file_name,
                     'file_path' => $file->file_path,
                 ]);
-                // Mark as synced with self-UUID to prevent infinite retry on missing files
-                \App\Domains\Media\Models\PatientFile::where('uuid', $file->uuid)
-                    ->update(['remote_uuid' => $file->uuid, 'sync_status' => 'synced']);
+                $results['failed']++;
                 continue;
             }
 

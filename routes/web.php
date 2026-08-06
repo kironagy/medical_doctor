@@ -599,7 +599,18 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
             // runtime's single global request mutex for the whole sync, which
             // froze every other screen until it finished. Returns immediately;
             // the client polls /_native/api/sync/state for progress.
-            if (config('database.default') === 'sqlite') {
+            // ...but ONLY when a worker actually exists to run it. MainActivity
+            // starts PHPQueueWorker only after booting the persistent runtime,
+            // and skips both when nativephp.runtime.mode is 'classic' — which
+            // it is. Dispatching under classic mode put the job in the jobs
+            // table with nothing to ever pick it up: the client polled
+            // /_native/api/sync/state forever, the status never left 'running',
+            // and not one record reached the server. Confirmed on-device — the
+            // whole app runs BRIDGE[CLASSIC] and no PHPQueueWorker line is
+            // ever logged, not even at launch.
+            $hasQueueWorker = config('nativephp.runtime.mode') === 'persistent';
+
+            if (config('database.default') === 'sqlite' && $hasQueueWorker) {
                 $state = \App\Jobs\RunManualSyncJob::readState();
                 if ($state['status'] !== 'running') {
                     \App\Jobs\RunManualSyncJob::writeState('running');
@@ -612,6 +623,31 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
                     'message' => 'Sync started in the background',
                     'stats'   => [],
                 ]);
+            }
+
+            // Classic mode: run it here. This does hold the embedded runtime's
+            // request mutex for the duration (the UI is unresponsive while it
+            // runs, which is what moving it to the queue was meant to avoid),
+            // but a sync that blocks and finishes beats one that never runs.
+            // The state row is still written so the polling UI resolves
+            // instead of spinning forever.
+            if (config('database.default') === 'sqlite') {
+                \App\Jobs\RunManualSyncJob::writeState('running');
+
+                try {
+                    $results = app(\App\Services\SyncEngineService::class)->syncAll();
+                    \App\Jobs\RunManualSyncJob::writeState('idle', $results);
+
+                    return response()->json([
+                        'success' => true,
+                        'queued'  => false,
+                        'message' => 'Sync completed successfully',
+                        'stats'   => $results,
+                    ]);
+                } catch (\Throwable $e) {
+                    \App\Jobs\RunManualSyncJob::writeState('failed');
+                    throw $e;
+                }
             }
 
             $syncEngine = app(\App\Services\SyncEngineService::class);
