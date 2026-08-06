@@ -80,6 +80,7 @@ class ChunkUploadService
             return [
                 'chunk_index'      => $chunkIndex,
                 'received_chunks'  => $receivedCount,
+                'received_count'   => $receivedCount,
                 'total_chunks'     => $session->total_chunks,
                 'progress'         => $progress,
                 'server_time_ms'   => round($durationMs, 2),

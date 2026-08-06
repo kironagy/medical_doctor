@@ -68,14 +68,17 @@ if (csrfToken) {
 }
 uploadHttp.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
-// ── BUG-014 FIX: Include Bearer token in upload requests ──────────────────
-// The chunk endpoints on embedded Laravel don't require auth (SQLite mode),
-// but including the token ensures we're covered if routing ever changes or
-// if a request is forwarded to the external server.
-const _uploadToken = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null;
-if (_uploadToken) {
-    uploadHttp.defaults.headers.common['Authorization'] = 'Bearer ' + _uploadToken;
-}
+// ── FIX-ARCH-6: Read Bearer token per request via request interceptor ─────────────
+// Prevents module-load token snapshotting bug where logins occurring after
+// page load had no token attached to subsequent uploads.
+uploadHttp.interceptors.request.use((config) => {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null;
+    if (token) {
+        config.headers = config.headers || {};
+        config.headers['Authorization'] = 'Bearer ' + token;
+    }
+    return config;
+});
 
 let globalActiveChunks = 0;
 const globalChunkQueue = [];

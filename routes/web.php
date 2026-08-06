@@ -193,18 +193,8 @@ Route::prefix('api/v1')->withoutMiddleware([
         return response()->json(['ok' => true]);
     });
 
-    // Chunked upload endpoints
-    Route::post('/chunk/init', [\App\Http\Controllers\Api\ChunkUploadController::class, 'init']);
-    Route::post('/chunk/chunk', [\App\Http\Controllers\Api\ChunkUploadController::class, 'chunk']);
-    Route::post('/chunk/complete', [\App\Http\Controllers\Api\ChunkUploadController::class, 'complete']);
-    Route::post('/chunk/{uuid}/cancel', [\App\Http\Controllers\Api\ChunkUploadController::class, 'cancel']);
-    Route::get('/chunk/{uuid}/status', [\App\Http\Controllers\Api\ChunkUploadController::class, 'status']);
-
     // Direct upload endpoint
     Route::post('/patients/{patientUuid}/files', [\App\Http\Controllers\Api\UploadController::class, 'store']);
-
-    // Optional progress endpoint for compatibility
-    Route::get('/uploads/progress', [\App\Http\Controllers\Api\UploadController::class, 'progress']);
 
     Route::get('/files/{uuid}', [\App\Http\Controllers\Api\FileAccessController::class, 'streamDirect'])->name('api.files.stream');
     Route::get('/files/{uuid}/signed-url', [\App\Http\Controllers\Api\FileAccessController::class, 'generateSignedUrl']);
@@ -313,13 +303,6 @@ if (config('database.default') === 'sqlite') {
         // Bootstrap cache
         Route::get('/bootstrap', [\App\Http\Controllers\Api\Mobile\BootstrapController::class, 'data']);
         Route::post('/bootstrap/refresh', [\App\Http\Controllers\Api\Mobile\BootstrapController::class, 'refreshCache']);
-
-        // Chunked upload compatibility (older embedded builds used these URLs)
-        Route::post('/chunk/init', [\App\Http\Controllers\Api\ChunkUploadController::class, 'init']);
-        Route::post('/chunk/chunk', [\App\Http\Controllers\Api\ChunkUploadController::class, 'chunk']);
-        Route::post('/chunk/complete', [\App\Http\Controllers\Api\ChunkUploadController::class, 'complete']);
-        Route::post('/chunk/{uuid}/cancel', [\App\Http\Controllers\Api\ChunkUploadController::class, 'cancel']);
-        Route::get('/chunk/{uuid}/status', [\App\Http\Controllers\Api\ChunkUploadController::class, 'status']);
 
         // Category files (paginated)
         Route::get('/patients/{uuid}/categories/{slug}/files', [\App\Http\Controllers\Api\CategoryFileController::class, 'files']);

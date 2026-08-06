@@ -192,7 +192,7 @@ class FileSyncService
         $uploadedChunks = [];
         try {
             $statusRes = $this->api->get("/chunk/{$uploadId}/status", [], 60);
-            $uploadedChunks = $statusRes['uploaded_chunks'] ?? [];
+            $uploadedChunks = $statusRes['received_chunks'] ?? $statusRes['uploaded_chunks'] ?? [];
         } catch (Throwable $e) {
             // New upload session
         }

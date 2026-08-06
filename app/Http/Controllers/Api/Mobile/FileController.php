@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Mobile;
 
 use App\Http\Requests\StoreFileRequest;
+use App\Http\Requests\UpdateFileMetadataRequest;
 use App\Services\Upload\UploadValidationService;
 use App\Http\Controllers\Controller;
 use App\Domains\Patients\Models\Patient;
@@ -412,7 +413,7 @@ class FileController extends Controller
         return response()->json(['message' => 'File deleted successfully']);
     }
 
-    public function update(Request $request, string $fileUuid)
+    public function update(UpdateFileMetadataRequest $request, string $fileUuid)
     {
         // ═══ SYNC-007 FIX: Bypass DoctorIsolationScope ═══════════════════
         $file = PatientFile::withoutGlobalScope(
@@ -426,11 +427,7 @@ class FileController extends Controller
             Gate::authorize('update', $file->patient);
         }
 
-        $validated = $request->validate([
-            'title' => 'sometimes|required|string|max:255',
-            'desc' => 'sometimes|string|nullable',
-            'category' => 'sometimes|string|nullable',
-        ]);
+        $validated = $request->validated();
 
         if (empty($validated)) {
             return response()->json(['message' => 'At least one field must be provided.'], 422);

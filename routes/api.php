@@ -106,21 +106,19 @@ Route::prefix('v1')->group(function () {
         // Profile
         Route::put('/profile', [DoctorController::class, 'updateProfile']);
         Route::put('/profile/password', [DoctorController::class, 'updatePassword']);
+    });
 
-        // Resumable Uploads
-        Route::post('/uploads/start', [\App\Http\Controllers\Api\UploadsController::class, 'start']);
-        Route::post('/uploads/chunk', [\App\Http\Controllers\Api\UploadsController::class, 'chunk']);
-        Route::get('/uploads/{id}/status', [\App\Http\Controllers\Api\UploadsController::class, 'status']);
-        Route::post('/uploads/{id}/resume', [\App\Http\Controllers\Api\UploadsController::class, 'resume']);
-        Route::post('/uploads/{id}/finish', [\App\Http\Controllers\Api\UploadsController::class, 'finish']);
-        Route::delete('/uploads/{id}', [\App\Http\Controllers\Api\UploadsController::class, 'destroy']);
-
-        // Chunked Upload Endpoints (frontend useUploads.js calls /api/v1/chunk/*)
-        Route::post('/chunk/init', [\App\Http\Controllers\Api\ChunkUploadController::class, 'init']);
-        Route::post('/chunk/chunk', [\App\Http\Controllers\Api\ChunkUploadController::class, 'chunk']);
-        Route::post('/chunk/complete', [\App\Http\Controllers\Api\ChunkUploadController::class, 'complete']);
-        Route::post('/chunk/{uuid}/cancel', [\App\Http\Controllers\Api\ChunkUploadController::class, 'cancel']);
-        Route::get('/chunk/{uuid}/status', [\App\Http\Controllers\Api\ChunkUploadController::class, 'status']);
+    // ── Chunked Upload Endpoints ──────────────────────────────────────────
+    // Single source of truth for /api/v1/chunk/*
+    // Production (MySQL): auth:sanctum + throttle:60,1
+    // Embedded (SQLite): unauthenticated for single-user device
+    $chunkMiddleware = $isEmbeddedLaravel ? [] : ['auth:sanctum', 'throttle:60,1'];
+    Route::prefix('chunk')->middleware($chunkMiddleware)->group(function () {
+        Route::post('/init', [\App\Http\Controllers\Api\ChunkUploadController::class, 'init']);
+        Route::post('/chunk', [\App\Http\Controllers\Api\ChunkUploadController::class, 'chunk']);
+        Route::post('/complete', [\App\Http\Controllers\Api\ChunkUploadController::class, 'complete']);
+        Route::post('/{uuid}/cancel', [\App\Http\Controllers\Api\ChunkUploadController::class, 'cancel']);
+        Route::get('/{uuid}/status', [\App\Http\Controllers\Api\ChunkUploadController::class, 'status']);
     });
 });
 
