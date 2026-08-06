@@ -260,10 +260,18 @@ async function submit() {
             desc: notes.value
           })
         } else {
-          await offlineUploadFile(file, targetPatientUuid, {
+          // Not awaited — mirrors the online branch above. This used to
+          // await the FULL chunked upload (every chunk + the server-side
+          // merge), which kept this modal's "saving" spinner up and the
+          // popup blocking the user until an entire video finished
+          // uploading. The upload now runs in the background (protected by
+          // the BackgroundSync foreground service) and the file appears in
+          // the category list immediately with an "uploading" badge that
+          // useOfflineUploads.js updates as chunks complete.
+          offlineUploadFile(file, targetPatientUuid, {
             category: props.categorySlug,
             desc: notes.value
-          })
+          }).catch(e => console.error('[AddRecordModal] Offline upload failed:', e))
         }
       }
       toast.success('بدء رفع الملفات بنجاح')

@@ -141,10 +141,10 @@
                     <svg class="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                     <span>{{ item.created_at ? new Date(item.created_at).toISOString().split('T')[0] : '—' }}</span>
                     <!-- Phase 7: Offline sync status badge -->
-                    <span v-if="item.sync_status && item.sync_status !== 'synced'" 
+                    <span v-if="item.sync_status && item.sync_status !== 'synced'"
                           class="px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap"
                           :class="syncStatusBadgeClass(item.sync_status)">
-                      {{ offlineStatusIcon(item.sync_status) }} {{ offlineStatusLabel(item.sync_status) }}
+                      {{ offlineStatusIcon(item.sync_status) }} {{ offlineStatusLabel(item.sync_status) }}<template v-if="item.sync_status === 'uploading' && typeof item.upload_progress === 'number'"> {{ item.upload_progress }}%</template>
                     </span>
                   </div>
                 </div>

@@ -72,6 +72,13 @@ class FileAccessController extends Controller
     }
 
     /**
+     * Every response the embedded device serves through this endpoint is
+     * capped to this many bytes, no matter what the client asked for. See
+     * rangeCappedResponse() for why.
+     */
+    private const DEVICE_MAX_CHUNK_BYTES = 2 * 1024 * 1024;
+
+    /**
      * Hand the file to the SAPI as a real file instead of echoing bytes by
      * hand. BinaryFileResponse also implements Range/206/416 itself, which is
      * what makes video seeking work.
@@ -91,6 +98,25 @@ class FileAccessController extends Controller
             preg_replace('/[^\x20-\x7E]/', '_', $name)
         );
 
+        // Proven via CDP network capture on-device: for a fresh, not-yet-
+        // synced video, the <video> element's very first request
+        // ("Range: bytes=0-") asks BinaryFileResponse for the WHOLE
+        // remainder of the file. The embedded WebView's native bridge
+        // buffers an entire response in memory before handing it to the
+        // WebView, and for a 100+MB file that buffering silently fails: the
+        // response it delivers has the file's real size in Content-Length
+        // (duplicated as "0, <realsize>" in the actual wire headers) but
+        // 0 bytes of body, so the player retries the identical request
+        // forever, never once succeeding. Capping every response to a small
+        // window sidesteps that failure entirely — every response is small
+        // enough to actually buffer, and the browser issues its own
+        // follow-up Range requests for the rest, exactly like it already
+        // does against production (nginx streams instead of buffering, so
+        // it never hit this).
+        if (config('database.default') === 'sqlite') {
+            return $this->rangeCappedResponse($request, $absolutePath, $mime, $disposition);
+        }
+
         $response = response()->file($absolutePath, [
             'Content-Type'        => $mime,
             'Content-Disposition' => $disposition,
@@ -103,6 +129,67 @@ class FileAccessController extends Controller
 
         return $response;
     }
+
+    /**
+     * Serve at most self::DEVICE_MAX_CHUNK_BYTES of $absolutePath, regardless
+     * of the Range the client requested or how much of the file remains —
+     * see fileResponse() for why this exists only for the embedded device.
+     * Always reports a correct Content-Range against the real file size when
+     * the response is partial, so the client knows there is more to fetch
+     * and issues its own follow-up Range request for it.
+     */
+    private function rangeCappedResponse(Request $request, string $absolutePath, string $mime, string $disposition)
+    {
+        $fileSize = filesize($absolutePath);
+        if ($fileSize === false) {
+            abort(404, 'File not found on disk.');
+        }
+
+        $start = 0;
+        $end = $fileSize - 1;
+
+        $rangeHeader = $request->headers->get('Range');
+        if ($rangeHeader && preg_match('/bytes=(\d*)-(\d*)/', $rangeHeader, $m)) {
+            $start = $m[1] === '' ? 0 : (int) $m[1];
+            $end = $m[2] === '' ? $fileSize - 1 : min((int) $m[2], $fileSize - 1);
+
+            if ($start > $end || $start >= $fileSize) {
+                return response('', 416, ['Content-Range' => "bytes */{$fileSize}"]);
+            }
+        }
+
+        $cappedEnd = min($end, $start + self::DEVICE_MAX_CHUNK_BYTES - 1);
+        $length = $cappedEnd - $start + 1;
+        $isPartial = $start !== 0 || $cappedEnd !== $fileSize - 1;
+
+        $headers = [
+            'Content-Type'        => $mime,
+            'Content-Disposition' => $disposition,
+            'Accept-Ranges'       => 'bytes',
+            'Content-Length'      => $length,
+            'Cache-Control'       => 'private, no-transform, max-age=3600',
+        ];
+
+        if ($isPartial) {
+            $headers['Content-Range'] = "bytes {$start}-{$cappedEnd}/{$fileSize}";
+        }
+
+        return response()->stream(function () use ($absolutePath, $start, $length) {
+            $stream = fopen($absolutePath, 'rb');
+            fseek($stream, $start);
+            $remaining = $length;
+            $bufferSize = 256 * 1024;
+            while ($remaining > 0 && !feof($stream)) {
+                $chunk = fread($stream, min($bufferSize, $remaining));
+                if ($chunk === false || $chunk === '') break;
+                echo $chunk;
+                $remaining -= strlen($chunk);
+                @flush();
+            }
+            fclose($stream);
+        }, $isPartial ? 206 : 200, $headers);
+    }
+
     private function resolveFile(Request $request, string $uuid): PatientFile
     {
         // ⚠️ Always bypass DoctorIsolationScope: on SQLite (mobile, no auth user)
