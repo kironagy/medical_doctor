@@ -1,0 +1,39 @@
+{
+    "namespace": "BackgroundSync",
+    "bridge_functions": [
+        {
+            "name": "BackgroundSync.Start",
+            "android": "com.medicalplus.backgroundsync.BackgroundSyncFunctions.Start",
+            "description": "Start the foreground service that keeps sync or a large upload running when the app is backgrounded or closed"
+        },
+        {
+            "name": "BackgroundSync.Progress",
+            "android": "com.medicalplus.backgroundsync.BackgroundSyncFunctions.Progress",
+            "description": "Update the ongoing notification's message and progress percentage"
+        },
+        {
+            "name": "BackgroundSync.Stop",
+            "android": "com.medicalplus.backgroundsync.BackgroundSyncFunctions.Stop",
+            "description": "Stop the foreground service and show a completion notification"
+        }
+    ],
+    "android": {
+        "min_version": 26,
+        "permissions": [
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+            "android.permission.POST_NOTIFICATIONS"
+        ],
+        "services": [
+            {
+                "name": ".SyncForegroundService",
+                "exported": false,
+                "foregroundServiceType": "dataSync"
+            }
+        ],
+        "dependencies": {
+            "implementation": []
+        }
+    },
+    "events": []
+}

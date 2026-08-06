@@ -12,6 +12,7 @@
         "laravel/prompts": "^0.3.21",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
+        "medicalplus/mobile-background-sync": "*",
         "nativephp/mobile": "^3.3",
         "nativephp/mobile-camera": "^1.0",
         "nativephp/mobile-dialog": "^1.0",
@@ -78,6 +79,12 @@
             "Illuminate\\Foundation\\ComposerScripts::prePackageUninstall"
         ]
     },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "packages/medicalplus/mobile-background-sync"
+        }
+    ],
     "extra": {
         "laravel": {
             "dont-discover": []

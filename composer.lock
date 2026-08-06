@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "722836eafe0b842b2288696b021ab1ca",
+    "content-hash": "db462c403db1ad50a391cb3233f055c1",
     "packages": [
         {
             "name": "bacon/bacon-qr-code",
@@ -2388,6 +2388,42 @@
                 }
             ],
             "time": "2026-03-08T20:05:35+00:00"
+        },
+        {
+            "name": "medicalplus/mobile-background-sync",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/medicalplus/mobile-background-sync",
+                "reference": "c6c40ebc4ce489dab7268d91cf1fe729cf8bbe83"
+            },
+            "require": {
+                "nativephp/mobile": "^3.0",
+                "php": "^8.2"
+            },
+            "type": "nativephp-plugin",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "MedicalPlus\\BackgroundSync\\BackgroundSyncServiceProvider"
+                    ]
+                },
+                "nativephp": {
+                    "manifest": "nativephp.json"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "MedicalPlus\\BackgroundSync\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Foreground service that keeps sync and large uploads running when the app is backgrounded or closed",
+            "transport-options": {
+                "relative": true
+            }
         },
         {
             "name": "monolog/monolog",

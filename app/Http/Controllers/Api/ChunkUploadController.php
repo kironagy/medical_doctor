@@ -11,6 +11,7 @@ use App\Services\Upload\UploadValidationService;
 use App\Domains\Patients\Models\Patient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use MedicalPlus\BackgroundSync\Facades\BackgroundSync;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class ChunkUploadController extends Controller
@@ -122,6 +123,15 @@ class ChunkUploadController extends Controller
                 'session' => $session->uuid
             ]);
 
+            // Elevates the process's priority for the duration of the upload,
+            // same reasoning as RunManualSyncJob. Chunks are still driven by
+            // the JS loop in useOfflineUploads.js, so this protects the
+            // process from being killed while the app is backgrounded/screen
+            // locked — it cannot keep the upload going if the WebView itself
+            // is destroyed by fully closing the app, since no more chunk
+            // requests get sent once that JS stops running.
+            BackgroundSync::start('جاري رفع الملف', $data['file_name']);
+
             $duration = (microtime(true) - $start) * 1000;
 
             Log::channel('upload')->info('chunk:init - Returning response', [
@@ -214,6 +224,11 @@ class ChunkUploadController extends Controller
                 $validated['checksum'] ?? null
             );
 
+            if ($session->total_chunks > 0) {
+                $percent = (int) round((((int) $validated['chunk_index'] + 1) / $session->total_chunks) * 100);
+                BackgroundSync::progress($session->original_name ?? '', min($percent, 100));
+            }
+
             $duration = (microtime(true) - $start) * 1000;
             return response()->json($result)->header('X-Server-Time', round($duration, 2));
         } catch (HttpException $e) {
@@ -281,6 +296,8 @@ class ChunkUploadController extends Controller
 
             $duration = (microtime(true) - $start) * 1000;
 
+            BackgroundSync::stop('اكتمل رفع ' . ($session->original_name ?? 'الملف'));
+
             return response()->json([
                 'uuid' => $patientFile->uuid,
                 'upload_status' => $patientFile->upload_status,
@@ -327,6 +344,10 @@ class ChunkUploadController extends Controller
                 'line'         => $e->getLine(),
                 'trace'        => $e->getTraceAsString(),
             ], 500);
+        } finally {
+            if (isset($e)) {
+                BackgroundSync::stop('فشل رفع الملف');
+            }
         }
     }
 
@@ -342,6 +363,7 @@ class ChunkUploadController extends Controller
             }
 
             $this->chunkService->cancel($session);
+            BackgroundSync::stop();
             return response()->json(['message' => 'Upload cancelled']);
         } catch (\Throwable $e) {
             Log::channel('upload')->error('chunk:cancel_error', [

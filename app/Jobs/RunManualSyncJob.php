@@ -11,6 +11,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use MedicalPlus\BackgroundSync\Facades\BackgroundSync;
 use Throwable;
 
 /**
@@ -50,6 +51,12 @@ class RunManualSyncJob implements ShouldQueue
     {
         self::writeState('running');
 
+        // Runs on PHPQueueWorker's dedicated runtime, off the UI request
+        // mutex — but the process itself still has no foreground presence
+        // once MainActivity is gone. This is what lets a sync started right
+        // before closing the app keep running instead of being killed with it.
+        BackgroundSync::start('جاري المزامنة', 'برجاء الانتظار...');
+
         try {
             $results = $engine->syncAll();
             self::writeState('idle', [
@@ -59,6 +66,7 @@ class RunManualSyncJob implements ShouldQueue
                 'finished_at'  => now()->toISOString(),
             ]);
             Log::info('[RunManualSyncJob] completed', $results);
+            BackgroundSync::stop('اكتملت المزامنة');
         } catch (Throwable $e) {
             // Recorded rather than rethrown: the state row is what the UI polls,
             // and a failed job row would leave the UI spinning forever.
@@ -68,6 +76,7 @@ class RunManualSyncJob implements ShouldQueue
                 'message'     => $e->getMessage(),
                 'finished_at' => now()->toISOString(),
             ]);
+            BackgroundSync::stop('فشلت المزامنة');
         }
     }
 

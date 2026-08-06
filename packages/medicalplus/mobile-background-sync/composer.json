@@ -1,0 +1,26 @@
+{
+    "name": "medicalplus/mobile-background-sync",
+    "description": "Foreground service that keeps sync and large uploads running when the app is backgrounded or closed",
+    "type": "nativephp-plugin",
+    "license": "MIT",
+    "version": "1.0.0",
+    "require": {
+        "php": "^8.2",
+        "nativephp/mobile": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "MedicalPlus\\BackgroundSync\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "MedicalPlus\\BackgroundSync\\BackgroundSyncServiceProvider"
+            ]
+        },
+        "nativephp": {
+            "manifest": "nativephp.json"
+        }
+    }
+}
