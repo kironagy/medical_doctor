@@ -51,7 +51,18 @@ if [ -f ".nativephp/production-preload.php" ]; then
     php .nativephp/production-preload.php
 fi
 
+# Strip dev-only composer packages (pint, phpunit, faker, psysh, mockery...)
+# before packaging so they don't bloat the shipped app. Restored after build.
+echo "📦 Installing production-only composer dependencies..."
+composer install --no-dev --optimize-autoloader --no-interaction
 
+# Bake config/routes/views into single cached files so the shipped app
+# boots Laravel once at build time instead of re-parsing everything on
+# every request (this is what makes tab navigation feel instant).
+echo "⚡ Caching config/routes/views for production boot speed..."
+php artisan config:cache --no-interaction
+php artisan route:cache --no-interaction
+php artisan view:cache --no-interaction
 
 # Build NativePHP application
 BUILD_LOG="nativephp/build-$PLATFORM-$DATE.log"
@@ -129,6 +140,13 @@ if [ -f "$ENV_BACKUP" ]; then
     rm "$ENV_BACKUP"
 fi
 
-# Clear stale config
+# Clear stale config/route/view cache
 php artisan config:clear --no-interaction 2>/dev/null || true
+php artisan route:clear --no-interaction 2>/dev/null || true
+php artisan view:clear --no-interaction 2>/dev/null || true
+
+# Restore dev composer dependencies for local development
+echo "🔄 Restoring development composer dependencies..."
+composer install --no-interaction
+
 echo "✅ Production build process complete"

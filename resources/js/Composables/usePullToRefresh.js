@@ -1,9 +1,9 @@
 import { ref, computed, onUnmounted, shallowRef } from 'vue'
 
-const THRESHOLD = 80
-const MAX_PULL = 150
-const DAMPING = 0.35
-const SNAP_DURATION = 280
+const THRESHOLD = 65
+const MAX_PULL = 140
+const DAMPING = 0.4
+const SNAP_DURATION = 220
 
 export function usePullToRefresh(options = {}) {
   const {
