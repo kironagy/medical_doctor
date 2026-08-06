@@ -75,9 +75,15 @@ import BaseButton from '@/Components/BaseButton.vue';
 
 const page = usePage()
 
-// If user is already authenticated or running in native app, navigate smoothly to workspace (SPA)
+// Skip the login screen only for a user who is ACTUALLY authenticated.
+// Being inside the native app is not authentication: this used to redirect to
+// /workspace whenever window.AndroidBridge existed, so a signed-out device
+// bounced /login → /workspace → (server redirects back) → /login forever. The
+// page re-rendered on every lap, which tore down the email input and closed
+// the keyboard as soon as it opened — unnoticed until app data was cleared,
+// because before that a stored session made the redirect legitimate.
 const user = computed(() => page.props.auth?.user)
-if ((user.value || (typeof window !== 'undefined' && (window.AndroidBridge || window.NativePHP || window.location.hostname === '127.0.0.1'))) && typeof window !== 'undefined' && window.location.pathname === '/login') {
+if (user.value && typeof window !== 'undefined' && window.location.pathname === '/login') {
   router.visit('/workspace', { replace: true });
 }
 

@@ -101,8 +101,6 @@ createInertiaApp({
 
         return vueApp.mount(el);
     },
-    progress: {
-        color: '#0f766e',
-        showSpinner: true,
-    },
+    // No top progress bar and no corner spinner on navigation.
+    progress: false,
 });
