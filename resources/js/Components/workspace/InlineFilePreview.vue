@@ -392,18 +392,42 @@ async function fetchLocalVideoBlobUrl(uuid, mimeType) {
  * body for it — so a preview that had just been pointed at a working stream
  * URL was dragged straight back onto the broken path and retried forever.
  */
-function onImageError(e) {
+async function onImageError(e) {
   const uuid = file.value?.uuid;
   if (!uuid) return;
 
   const current = e.target.src || '';
-  if (current.startsWith('blob:') || current.includes('127.0.0.2')) {
+  if (current.startsWith('data:') || current.startsWith('blob:')) {
     return;
   }
 
-  const localUrl = '/_native/cache/files/' + uuid;
-  if (!current.endsWith(localUrl)) {
-    e.target.src = localUrl;
+  // One attempt only, or a permanently unreadable file turns into an endless
+  // retry loop (that is what produced 93 identical 200-with-0-bytes requests).
+  if (e.target.dataset.recovered) {
+    return;
+  }
+  e.target.dataset.recovered = '1';
+
+  // Base64-over-JSON is the transport that demonstrably survives the bridge:
+  // it is exactly what CategoryBlock's onThumbError does, which is why
+  // thumbnails render while this preview did not. Images are small enough
+  // that pulling one whole is fine — video has the media server instead.
+  if (detectNative()) {
+    try {
+      const res = await axios.get(`/_native/cache/files/${uuid}/base64`);
+      if (res.data?.data) {
+        const mime = res.data.mime || file.value?.mime_type || guessMimeFromName(file.value?.file_name);
+        e.target.src = `data:${mime};base64,${res.data.data}`;
+        return;
+      }
+    } catch (err) {
+      console.warn('[InlineFilePreview] base64 image recovery failed', err);
+    }
+  }
+
+  const fallback = file.value?.url;
+  if (fallback && current !== fallback) {
+    e.target.src = fallback;
   }
 }
 
