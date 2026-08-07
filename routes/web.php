@@ -604,6 +604,20 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
     });
 
     // Manual sync pipeline endpoint
+    //
+    // Both branches now call SyncEngineService::syncAll() DIRECTLY and
+    // synchronously — no Job/queue indirection. This used to dispatch
+    // RunManualSyncJob and rely on config('queue.default') being 'sync' (set
+    // in AppServiceProvider::boot()) to force it to run inline; that
+    // indirection made "is it actually running synchronously or was it
+    // queued async" unverifiable from the response alone (queued=>true was a
+    // HARDCODED string returned immediately after dispatch() regardless of
+    // whether dispatch() blocked or not), and this endpoint is also not safe
+    // to run truly async here anyway: PHPQueueWorker cannot be relied on to
+    // process it (native_worker_boot() hard-crashes without the persistent
+    // runtime — see MainActivity.kt). A direct call removes every layer of
+    // ambiguity: this request blocks until syncAll() actually returns, and
+    // the response IS the real result.
     Route::post('/manual', function (\Illuminate\Http\Request $request) {
         try {
             if (config('database.default') === 'sqlite') {
@@ -617,13 +631,19 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
                 }
 
                 \App\Jobs\RunManualSyncJob::writeState('running');
-                \App\Jobs\RunManualSyncJob::dispatch();
+                $results = app(\App\Services\SyncEngineService::class)->syncAll();
+                \App\Jobs\RunManualSyncJob::writeState('idle', [
+                    'success'     => true,
+                    'stats'       => $results,
+                    'message'     => 'Sync completed successfully',
+                    'finished_at' => now()->toISOString(),
+                ]);
 
                 return response()->json([
                     'success' => true,
-                    'queued'  => true,
-                    'message' => 'Sync started in the background',
-                    'stats'   => [],
+                    'queued'  => false,
+                    'message' => 'Sync completed successfully',
+                    'stats'   => $results,
                 ]);
             }
 
@@ -636,6 +656,11 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
             ]);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('[ManualSync] Failed: ' . $e->getMessage());
+            \App\Jobs\RunManualSyncJob::writeState('idle', [
+                'success'     => false,
+                'message'     => $e->getMessage(),
+                'finished_at' => now()->toISOString(),
+            ]);
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     });
