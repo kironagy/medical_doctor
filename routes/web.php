@@ -443,10 +443,14 @@ Route::post('/_native/api/files/download', function (\Illuminate\Http\Request $r
 // bytes actually reach the server.
 Route::get('/_native/api/patients/{uuid}/categories/{slug}/local-files', function (string $uuid, string $slug) {
     try {
+        $hasRemoteUuid = \Illuminate\Support\Facades\Schema::hasColumn('patients', 'remote_uuid');
         $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-        )->where(function ($q) use ($uuid) {
-            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        )->where(function ($q) use ($uuid, $hasRemoteUuid) {
+            $q->where('uuid', $uuid);
+            if ($hasRemoteUuid) {
+                $q->orWhere('remote_uuid', $uuid);
+            }
         })->first();
 
         if (!$patient) {

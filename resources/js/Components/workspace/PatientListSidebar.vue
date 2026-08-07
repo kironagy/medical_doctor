@@ -103,7 +103,14 @@
     </button>
 
     <!-- Pagination & Settings Button at the bottom -->
-    <div class="border-t border-slate-100 dark:border-slate-800 p-3 bg-white dark:bg-slate-900 space-y-2.5 flex-shrink-0">
+    <!-- pb-safe pushes the Settings button above the system nav/gesture bar
+         (which otherwise covers it on 3-button-nav devices); it's added on
+         top of the existing p-3 so the button also has breathing room above
+         the bar, not flush against it. The bg-white/dark:bg-slate-900 here
+         extends into that safe-area gap too, so it reads as the app's own
+         background instead of transparent (which let the patient list peek
+         through underneath the button). -->
+    <div class="border-t border-slate-100 dark:border-slate-800 p-3 pb-safe bg-white dark:bg-slate-900 space-y-2.5 flex-shrink-0">
       <!-- Pagination -->
       <div v-if="patientsMeta && patientsMeta.last_page > 1" class="flex items-center justify-between gap-2 text-xs font-bold">
         <button
