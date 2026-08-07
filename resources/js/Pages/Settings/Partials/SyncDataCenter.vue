@@ -235,13 +235,26 @@ function formatDate(dateStr) {
   }
 }
 
+// ── FIX: this used to poll every 3s unconditionally, including while a
+// sync was actively running. On this device's single-threaded PHP executor
+// (one request processed at a time, ~500ms+ boot overhead each — see
+// AppServiceProvider) that meant every 3s tick queued TWO more requests
+// (dashboard + pending-summary) behind whatever the in-flight sync was
+// still doing. Each queued request has its own client-side timeout
+// (refreshPendingSummary: 5s), so they piled up, timed out, and were
+// immediately replaced by the next tick's requests — the exact "endless
+// canceled requests" loop reported while a sync was running for a single
+// small file. Skip ticks while isSyncing is true, and poll far less often;
+// startSync() already refreshes both right after a manual sync finishes,
+// so this interval only needs to catch drift, not track sync progress.
 onMounted(() => {
   refreshPendingSummary()
   fetchDashboardStats()
   pollTimer = setInterval(() => {
+    if (isSyncing.value) return
     refreshPendingSummary()
     fetchDashboardStats()
-  }, 3000)
+  }, 15000)
 })
 
 onUnmounted(() => {
