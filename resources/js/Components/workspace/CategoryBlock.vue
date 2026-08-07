@@ -982,11 +982,28 @@ watch(searchQuery, () => {
 })
 
 // Mark category loaded when expanded for the first time, and load data
+//
+// All categories default to expanded, so { immediate: true } used to fire
+// loadCategoryData() for every CategoryBlock instance in the same tick —
+// 6 categories x 2 requests each (files + local-files) hitting the embedded
+// engine's single-threaded PHP executor simultaneously. On classic-mode
+// builds (~500ms boot overhead per request, one request at a time — see
+// AppServiceProvider::boot()) that flood alone can take 10-20+ seconds to
+// drain, and anything else the user does meanwhile (like starting an
+// upload) queues up behind all of it and can hit its own client-side
+// timeout. Stagger each category's first load by its position in
+// allCategories so they queue up gently instead of all landing at once.
 watch(expanded, (val) => {
   if (val) {
     markCategoryLoaded(props.slug)
     initialLoadDone.value = true
-    loadCategoryData(1)
+    const index = props.allCategories.findIndex(c => c.slug === props.slug)
+    const staggerMs = index > 0 ? index * 250 : 0
+    if (staggerMs > 0) {
+      setTimeout(() => loadCategoryData(1), staggerMs)
+    } else {
+      loadCategoryData(1)
+    }
   }
 }, { immediate: true })
 

@@ -201,10 +201,38 @@ class RemoteApiService
         return $client;
     }
 
+    /**
+     * Resolve an endpoint to its full production URL.
+     *
+     * Two disjoint route families live on production (routes/api.php):
+     *   /api/v1/mobile/*  — patients, notes, visits, files, etc. (nested
+     *                        under the 'mobile' prefix group)
+     *   /api/v1/chunk/*   — chunk upload endpoints (a SIBLING of the mobile
+     *                        group, explicitly NOT nested under it — see the
+     *                        "Single source of truth for /api/v1/chunk/*"
+     *                        comment there)
+     *
+     * config('app.mobile_api_url') is `{APP_URL}/api/v1/mobile`. Every
+     * FileSyncService::uploadLargeFileResumable() call passed '/chunk/init'
+     * etc. through that base, producing /api/v1/mobile/chunk/init — a URL
+     * that was never registered, so production 404'd every single chunk
+     * upload (confirmed via nginx access log: "POST /api/v1/mobile/chunk/init
+     * ... 404"). Every other endpoint (patients, notes, files) genuinely
+     * does live under /mobile and was unaffected — this bug was 100%
+     * specific to file uploads, which is exactly the symptom reported: sync
+     * "completes" (patients/notes/deletes all push fine) but files never
+     * reach the server. Route /chunk/* to the /api/v1 root instead.
+     */
     private function resolveUrl(string $endpoint): string
     {
-        $baseUrl = rtrim(config('app.mobile_api_url', config('app.url')), '/');
         $endpoint = '/' . ltrim($endpoint, '/');
+
+        if (str_starts_with($endpoint, '/chunk/')) {
+            $apiRoot = rtrim(config('app.url'), '/') . '/api/v1';
+            return $apiRoot . $endpoint;
+        }
+
+        $baseUrl = rtrim(config('app.mobile_api_url', config('app.url')), '/');
         return $baseUrl . $endpoint;
     }
 
