@@ -423,7 +423,7 @@ import FileActions from './FileActions.vue'
 import { useNativeBridge } from '@/Composables/useNativeBridge'
 import { useOfflineUploads } from '@/Composables/useOfflineUploads'
 import { useSyncEngine } from '@/Composables/useSyncEngine'
-import { apiUrl, getApiConfig } from '@/Utils/api'
+import { isNativeApp, apiUrl, getApiConfig } from '@/Utils/api'
 
 const { isCameraAvailable, isFilePickerAvailable, takePhoto, pickFiles, detectNative } = useNativeBridge()
 
@@ -448,7 +448,7 @@ async function onThumbError(e, item) {
     }
   }
   const fallback = item.url || null
-  if (fallback && e.target.src !== fallback) {
+  if (fallback) {
     e.target.src = fallback
   } else {
     e.target.style.display = 'none'
@@ -468,20 +468,21 @@ const props = defineProps({
 const { toggleCategory, isCategoryExpanded, canEdit, canDelete, selectedPatient, openPreview, refreshWorkspaceData, markCategoryLoaded, isCategoryLoaded, isMobile, allFiles, allNotes, updateFileLocally, removeFileLocally, workspaceData } = useWorkspace()
 const { uploadFile: onlineUploadFile, cancelUpload, pauseUpload, resumeUpload, retryUpload, uploads } = useUploads()
 
-// ── Phase 7: Route file uploads to offline composable when device is offline ──
-// When syncOnline is false, upload the file locally via useOfflineUploads
-// (saves to storage/app/uploads/pending/ and records in offline_files table).
-// When online, use the existing chunked upload composable (useUploads).
+// ── Phase 7: Route file uploads to local embedded uploader when running on Mobile App ──
+// On the mobile app (NativePHP Android), ALL uploads write locally to embedded SQLite + storage
+// so the file appears in the app immediately without network delay or server auth blocking.
+// The SyncEngine background service pushes local files to the remote server automatically.
 const uploadFile = (file, patientId, options) => {
   const isOnline = syncOnline.value;
-  trace('[TRACE_F1] CategoryBlock.uploadFile() ENTERED - fileName: ' + file?.name + ' patientId: ' + patientId + ' isOnline: ' + isOnline)
-  if (!isOnline && typeof offlineUploadFile === 'function') {
-    trace('[TRACE_F2] OFFLINE - calling offlineUploadFile() from useOfflineUploads')
+  const isNative = isNativeApp() || detectNative();
+  trace('[TRACE_F1] CategoryBlock.uploadFile() ENTERED - fileName: ' + file?.name + ' patientId: ' + patientId + ' isOnline: ' + isOnline + ' isNative: ' + isNative)
+  if ((isNative || !isOnline) && typeof offlineUploadFile === 'function') {
+    trace('[TRACE_F2] MOBILE/OFFLINE - calling offlineUploadFile() from useOfflineUploads')
     const patientUuid = selectedPatient.value?.uuid || patientId
     return offlineUploadFile(file, patientUuid, options);
   }
   if (typeof onlineUploadFile === 'function') {
-    trace('[TRACE_F2b] ONLINE - calling onlineUploadFile() from useUploads')
+    trace('[TRACE_F2b] ONLINE WEBSITE - calling onlineUploadFile() from useUploads')
     return onlineUploadFile(file, patientId, options);
   }
   trace('[TRACE_F2c] NEITHER available - returning null!')
