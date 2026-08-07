@@ -110,9 +110,11 @@ Route::prefix('v1')->group(function () {
 
     // ── Chunked Upload Endpoints ──────────────────────────────────────────
     // Single source of truth for /api/v1/chunk/*
-    // Production (MySQL): auth:sanctum + throttle:60,1
+    // Production (MySQL): auth:sanctum + throttle:300,1
     // Embedded (SQLite): unauthenticated for single-user device
-    $chunkMiddleware = $isEmbeddedLaravel ? [] : ['auth:sanctum', 'throttle:60,1'];
+    // Throttle raised from 60,1: a single 50 MB manual sync at 2 MB chunks is
+    // already 27 requests, and one sync run pushes many files back-to-back.
+    $chunkMiddleware = $isEmbeddedLaravel ? [] : ['auth:sanctum', 'throttle:300,1'];
     Route::prefix('chunk')->middleware($chunkMiddleware)->group(function () {
         Route::post('/init', [\App\Http\Controllers\Api\ChunkUploadController::class, 'init']);
         Route::post('/chunk', [\App\Http\Controllers\Api\ChunkUploadController::class, 'chunk']);

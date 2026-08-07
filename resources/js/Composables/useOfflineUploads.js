@@ -83,31 +83,6 @@ export function useOfflineUploads() {
   // ── Internal helpers ────────────────────────────────────────────────
 
   /**
-   * Upload a file to the local offline endpoint.
-   * This saves it to disk + SQLite with sync_status = pending_upload.
-   */
-  async function saveFileOffline(file, patientUuid, metadata = {}) {
-    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null;
-    const headers = {
-      'Content-Type': 'multipart/form-data',
-      ...(token ? { 'Authorization': 'Bearer ' + token } : {})
-    };
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('patient_uuid', patientUuid)
-    if (metadata.title) fd.append('title', metadata.title)
-    if (metadata.desc) fd.append('desc', metadata.desc)
-    if (metadata.category) fd.append('category', metadata.category)
-
-    const res = await axios.post('/_native/api/offline/uploads', fd, {
-      headers,
-      timeout: 120000,
-    })
-
-    return res.data
-  }
-
-  /**
    * Save a video or large file locally using the chunked upload endpoints (/api/v1/chunk/init, /api/v1/chunk/chunk, /api/v1/chunk/complete).
    * This avoids single giant POST requests and works cleanly with embedded Laravel.
    *

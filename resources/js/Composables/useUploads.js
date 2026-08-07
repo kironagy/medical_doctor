@@ -3,6 +3,7 @@ import { reactive, ref } from "vue";
 import { router } from "@inertiajs/vue3";
 import { useUploadDiagnostics } from "./useUploadDiagnostics";
 import { useWorkspace } from "./useWorkspace";
+import { guardLocalOrigin } from "../Utils/api";
 
 // ─── Upload Configuration ────────────────────────────────────────────────────
 // These defaults were measured to produce highest sustained throughput on this
@@ -58,6 +59,7 @@ let idCounter = 0;
 // Decouple upload chunks from global application interceptors to prevent
 // shared pipeline contention.
 const uploadHttp = axios.create();
+guardLocalOrigin(uploadHttp);
 // ── FIX-PERF-5: set a default timeout so control requests cannot hang
 // forever. Individual requests override this where they need more time.
 uploadHttp.defaults.timeout = 60000; // 60 s
@@ -672,7 +674,11 @@ export function useUploads() {
 
                 const response = await uploadHttp.post("/api/v1/chunk/chunk", fd, {
                     signal: controller.signal,
-                    timeout: 300000, // 5 minutes per chunk — ample for 5 MB on any connection
+                    // Scale with chunk size instead of a flat 5 min: a fixed timeout either
+                    // stalls small chunks for way too long on a dead connection, or is too
+                    // tight for oversized chunks on a slow link. Floor 30 MB/300s assumes a
+                    // conservative ~100 KB/s minimum sustained throughput, plus a 30 s floor.
+                    timeout: Math.min(300000, Math.max(30000, Math.round(blob.size / 100 /* KB/s */) )),
                     onUploadProgress: (e) => {
                         d?.onChunkUploadProgress(chunkIndex, e.loaded, e.total);
                         if (e.lengthComputable) {

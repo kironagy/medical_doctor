@@ -126,19 +126,6 @@ return Application::configure(basePath: dirname(__DIR__))
                     $sqliteError = $pdoEx->errorInfo[2] ?? $pdoEx->getMessage();
                 }
 
-                \Illuminate\Support\Facades\Log::error('UPLOAD/API EXCEPTION RESPONSE', [
-                    'url'          => $request->fullUrl(),
-                    'method'       => $request->method(),
-                    'headers'      => $request->headers->all(),
-                    'exception'    => get_class($e),
-                    'message'      => $e->getMessage(),
-                    'sqlstate'     => $sqlState,
-                    'sqlite_error' => $sqliteError,
-                    'file'         => $e->getFile(),
-                    'line'         => $e->getLine(),
-                    'trace'        => $e->getTraceAsString(),
-                ]);
-
                 // ── FIX-REL-1: map exception types Laravel would otherwise ──
                 // convert to their real statuses AFTER this closure runs (the
                 // callback short-circuits Handler::render(), so ValidationException,
@@ -180,6 +167,27 @@ return Application::configure(basePath: dirname(__DIR__))
                 $status = $e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface
                     ? $e->getStatusCode()
                     : 500;
+
+                // ── Moved AFTER status mapping: the early returns above (422
+                // validation, 401 auth, 403 authz, 419 CSRF, 404 not-found)
+                // are all expected client-facing outcomes, not server bugs —
+                // logging full request headers + stack trace for every one of
+                // them (e.g. a routine 422 on a form) was pure noise. Only
+                // exceptions that fall through to here (real 5xx / unmapped
+                // errors) get the heavy diagnostic log.
+                \Illuminate\Support\Facades\Log::error('UPLOAD/API EXCEPTION RESPONSE', [
+                    'url'          => $request->fullUrl(),
+                    'method'       => $request->method(),
+                    'status'       => $status,
+                    'headers'      => $request->headers->all(),
+                    'exception'    => get_class($e),
+                    'message'      => $e->getMessage(),
+                    'sqlstate'     => $sqlState,
+                    'sqlite_error' => $sqliteError,
+                    'file'         => $e->getFile(),
+                    'line'         => $e->getLine(),
+                    'trace'        => $e->getTraceAsString(),
+                ]);
 
                 $debugFields = app()->hasDebugModeEnabled() ? [
                     'sqlstate'     => $sqlState,

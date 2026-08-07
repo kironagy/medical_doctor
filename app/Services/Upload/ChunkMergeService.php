@@ -41,13 +41,21 @@ class ChunkMergeService
             if ($locked->final_path) {
                 $finalRelPath = $locked->final_path;
                 $finalAbsPath = $disk->path($finalRelPath);
-                // Verify final file exists and size matches
+                // Verify final file exists and size matches the locked session's
+                // declared total_size — a merge that silently wrote a truncated
+                // or oversized file must never become a PatientFile row.
                 if (!file_exists($finalAbsPath)) {
                     throw new RuntimeException("Final file not found after direct write: {$finalAbsPath}");
                 }
                 $size = filesize($finalAbsPath) ?: 0;
                 if ($size === 0) {
                     throw new RuntimeException("Direct-write file is empty: {$finalAbsPath}");
+                }
+                if ($size !== (int) $locked->total_size) {
+                    throw new RuntimeException(
+                        "Direct-write file size mismatch for session {$locked->uuid}: " .
+                        "expected {$locked->total_size} bytes, got {$size} bytes at {$finalAbsPath}"
+                    );
                 }
 
                 // ── FIX-REL-3 item 1: checksum bypass on direct-write path.
@@ -116,6 +124,14 @@ class ChunkMergeService
                 $mergeTime = microtime(true) - $t0;
                 $finalHash = hash_final($hashCtx);
                 $size = filesize($finalAbsPath) ?: 0;
+
+                if ($size !== (int) $locked->total_size) {
+                    @unlink($finalAbsPath);
+                    throw new RuntimeException(
+                        "Merged file size mismatch for session {$locked->uuid}: " .
+                        "expected {$locked->total_size} bytes, got {$size} bytes at {$finalAbsPath}"
+                    );
+                }
 
                 $wholeFileInMemory = $peakMem >= ($size * 0.8);
                 if ($wholeFileInMemory) {
