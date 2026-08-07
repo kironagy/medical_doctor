@@ -579,21 +579,21 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
         return response()->json(['success' => true, 'message' => 'Sync cancelled']);
     });
 
-    // Progress of the queued sync — polled by the client while it runs.
+    // Progress of the queued sync — polled by the client every 2s while it
+    // runs (useSyncEngine.js:waitForQueuedSync). This MUST be a cheap read.
+    //
+    // It used to re-run app(SyncEngineService::class)->syncAll() inline
+    // whenever status === 'running' — which is true for the sync's entire
+    // duration, so basically every single poll. RunManualSyncJob is already
+    // running that exact pipeline concurrently on PHPQueueWorker's dedicated
+    // runtime (see its class doc for why). Each poll piling on ANOTHER full
+    // syncAll() run meant N concurrent pipelines fighting over the same
+    // single-threaded phpExecutor mutex and the same SQLite file, which is
+    // what made every other request (pending-summary, dashboard, chunk
+    // uploads) queue up and start failing/timing out while a sync was
+    // "stuck" in progress — the poll requests themselves were the load.
     Route::get('/state', function () {
         $state = \App\Jobs\RunManualSyncJob::readState();
-
-        if ($state['status'] === 'running' && config('database.default') === 'sqlite') {
-            try {
-                $results = app(\App\Services\SyncEngineService::class)->syncAll();
-                \App\Jobs\RunManualSyncJob::writeState('idle', $results);
-                $state = \App\Jobs\RunManualSyncJob::readState();
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::error('[SyncState] Execution error: ' . $e->getMessage());
-                \App\Jobs\RunManualSyncJob::writeState('failed');
-                $state = \App\Jobs\RunManualSyncJob::readState();
-            }
-        }
 
         return response()->json([
             'success' => true,
