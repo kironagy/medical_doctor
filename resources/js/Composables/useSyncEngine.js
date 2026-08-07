@@ -18,6 +18,7 @@
 import axios from 'axios'
 import { ref, computed } from 'vue'
 import { useWorkspace } from './useWorkspace'
+import { isNativeApp } from '../Utils/api'
 
 // ─── Shared reactive state ──────────────────────────────────────────────
 const isOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true)
@@ -70,6 +71,13 @@ if (typeof window !== 'undefined') {
  * Called strictly when the user clicks "Sync Now".
  */
 async function triggerSync() {
+    // /_native/* routes only exist in the embedded mobile build — on the
+    // website they 404, and previously fired anyway (see refreshPendingSummary
+    // below for the same issue at import time).
+    if (!isNativeApp()) {
+        return { success: false, error: 'Sync is only available in the mobile app' }
+    }
+
     if (isSyncing.value) {
         console.log('[SyncEngine] ⚠ Sync already in progress, skipping duplicate trigger')
         return lastSyncResult.value
@@ -137,6 +145,7 @@ async function triggerSync() {
  * or no token — never touches local data on failure.
  */
 async function refreshFromServer() {
+    if (!isNativeApp()) return
     if (typeof navigator !== 'undefined' && !navigator.onLine) return
     const apiToken = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null
     if (!apiToken) return
@@ -155,6 +164,7 @@ async function refreshFromServer() {
  * Refresh the summary of pending SQLite operations.
  */
 async function refreshPendingSummary() {
+    if (!isNativeApp()) return
     try {
         const res = await axios.get(PENDING_ENDPOINT, { timeout: 5000 })
         pendingSummary.value = res.data || { patients: 0, files: 0, deletes: 0, notes: 0, total: 0 }
