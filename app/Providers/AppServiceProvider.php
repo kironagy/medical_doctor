@@ -23,6 +23,7 @@ class AppServiceProvider extends ServiceProvider
                 storage_path('framework/cache/data'),
                 storage_path('framework/sessions'),
                 storage_path('app/uploads/pending'),
+                storage_path('logs'),
             ];
             foreach ($paths as $path) {
                 if (!is_dir($path)) {
@@ -30,6 +31,34 @@ class AppServiceProvider extends ServiceProvider
                 }
             }
         }
+
+        // ── Singleton: RemoteApiService ──────────────────────────────────
+        // RemoteApiService — not ApiService — is where the production Bearer
+        // token actually lives ($this->token, set via setToken()). It MUST be
+        // the singleton, not just ApiService: ApiService::class was bound
+        // singleton below it (kept for BC), but ApiService merely WRAPS a
+        // RemoteApiService instance it auto-resolves once at construction.
+        // FileSyncService — the class that actually performs chunk uploads —
+        // type-hints RemoteApiService directly in its own constructor. Since
+        // RemoteApiService itself was never bound as singleton, Laravel's
+        // container handed FileSyncService a SEPARATE, freshly-constructed
+        // instance from the one living inside the ApiService singleton — two
+        // different objects, each independently loading its own token from
+        // session/file at construction time. When
+        // routes/web.php's POST /manual set the token via
+        // app(ApiService::class)->setToken(...), that write landed on the
+        // ApiService-owned instance; FileSyncService's instance had no
+        // guaranteed way to see it. This is exactly the class of bug the
+        // ApiService singleton comment below already describes and was
+        // trying to prevent — it just didn't reach the one class (RemoteApiService)
+        // where the token is actually stored and where the real HTTP calls are made.
+        // Net effect: SyncEngineService::syncAll()'s own auth guard (via the
+        // ApiService-owned instance) could see a valid token and proceed,
+        // while FileSyncService's chunk/init calls — using a different,
+        // possibly tokenless instance — silently never left the device.
+        // Binding RemoteApiService itself as the singleton makes every
+        // consumer share the one true token state, request-wide.
+        $this->app->singleton(\App\Services\Mobile\RemoteApiService::class);
 
         // ── Singleton: ApiService ──────────────────────────────────────
         // ApiService manages the production API token. It must be a singleton
