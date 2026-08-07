@@ -68,48 +68,59 @@ export function getApiConfig() {
   return token ? { headers: { Authorization: 'Bearer ' + token } } : {}
 }
 
-/**
- * Absolute origin of the embedded PHP engine. On native the WebView's page
- * origin can be the production domain (pulled there while online — see
- * MainActivity REMOTE_SERVER load), so a bare relative URL like '/api/v1/...'
- * would resolve AGAINST PRODUCTION instead of the local engine. Every local
- * write/read must use this absolute origin, never a relative path.
- */
 export const LOCAL_ORIGIN = 'http://127.0.0.1'
 
 /**
- * Build an absolute URL to the local embedded engine. On the website this
- * just returns the path unchanged (relative, same-origin is already local).
+ * NOTE ON RELATIVE URLS — do NOT rewrite them to an absolute local origin.
+ *
+ * It's tempting to think a relative URL like '/api/v1/chunk/init' is unsafe
+ * because the WebView's page origin can be production (pulled there while
+ * online — see MainActivity REMOTE_SERVER load), so the browser resolves it
+ * to https://prof-hosam-fekry.online/api/v1/chunk/init. That's true, but it's
+ * NOT a bug on its own: WebViewManager's shouldInterceptRequest() classifies
+ * every request by URL PATH alone via RequestRouter (see RequestRouter.kt) —
+ * a POST to any /api/ or /_native/ path is intercepted and served by the
+ * embedded engine regardless of what host is in the URL. The request never
+ * actually leaves the device as long as interception succeeds.
+ *
+ * Forcing an absolute http://127.0.0.1 origin here breaks that: it makes
+ * every local call cross-origin from the page's perspective (https prod →
+ * http 127.0.0.1), which triggers a CORS preflight (OPTIONS) for requests
+ * that used to be same-origin and preflight-free. This was tried and caused
+ * every local endpoint (categories, workspace, files, chunk/init — not just
+ * uploads) to silently fail after only the OPTIONS leg completed. Keep
+ * relative URLs relative.
+ *
+ * The real risk this guards against is interception FAILING (an exception in
+ * shouldInterceptRequest/PHPWebViewClient) and WebView falling back to a real
+ * network request — which, for a relative URL resolved against a production
+ * page origin, actually reaches production. That fallback path is closed on
+ * the native side (WebViewManager.kt: the outer try/catch and the EXTERNAL
+ * branch both block any write whose resolved host isn't local before letting
+ * WebView touch the real network), not by mangling URLs in JS.
  */
 export function localApiUrl(path) {
   path = path.startsWith('/') ? path : '/' + path
-  return isNativeApp() ? LOCAL_ORIGIN + path : path
+  return path
 }
 
 /**
- * Install a request interceptor on the given axios instance that pins every
- * relative request to the local engine's absolute origin on native, and
- * blocks (fails loudly, does not silently send) any request whose URL is
- * already absolute and points somewhere other than the local engine or a
- * data:/blob: URL. The ONLY code path allowed to reach production is
- * RemoteApiService on the PHP side (Settings → Manual Sync); nothing
- * initiated from WebView JS should ever leave the device.
+ * Install a request interceptor that blocks (fails loudly, never silently
+ * sends) any request whose URL is ALREADY absolute and points somewhere
+ * other than the local engine — e.g. a hardcoded https://prof-hosam-fekry...
+ * URL written by mistake. Relative URLs are left untouched; see the note on
+ * localApiUrl() above for why. The ONLY code path allowed to reach
+ * production is RemoteApiService on the PHP side (Settings → Manual Sync).
  */
 export function guardLocalOrigin(axiosInstance) {
   axiosInstance.interceptors.request.use((config) => {
     if (!isNativeApp()) return config
 
     const url = config.url || ''
-    if (url.startsWith('/')) {
-      config.url = LOCAL_ORIGIN + url
-      return config
-    }
-
     if (/^https?:\/\//i.test(url) && !url.startsWith(LOCAL_ORIGIN)) {
       const method = (config.method || 'get').toUpperCase()
       const msg = `[SECURITY] Blocked ${method} ${url} — native app must never contact a non-local host directly`
       console.error(msg)
-      // eslint-disable-next-line no-console
       if (window.NativePHP?.logSecurityEvent) {
         try { window.NativePHP.logSecurityEvent(msg) } catch (e) { /* best effort */ }
       }

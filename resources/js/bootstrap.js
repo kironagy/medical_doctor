@@ -4,8 +4,8 @@ window.axios = axios;
 
 window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 
-// Pin every relative axios request to the local embedded engine on native —
-// see guardLocalOrigin() for why this is required (page origin can be
-// production while online, which would otherwise silently redirect all
-// relative-URL writes there).
+// Block any request whose URL is already absolute and non-local — see
+// guardLocalOrigin() / localApiUrl() in Utils/api.js for why relative URLs
+// are intentionally left alone (RequestRouter on the native side already
+// routes them locally by path, and forcing them absolute breaks CORS).
 guardLocalOrigin(axios);
