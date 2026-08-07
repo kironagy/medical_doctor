@@ -11,7 +11,6 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
-use MedicalPlus\BackgroundSync\Facades\BackgroundSync;
 use Throwable;
 
 /**
@@ -51,12 +50,23 @@ class RunManualSyncJob implements ShouldQueue
     {
         self::writeState('running');
 
-        // Runs on PHPQueueWorker's dedicated runtime, off the UI request
-        // mutex — but the process itself still has no foreground presence
-        // once MainActivity is gone. This is what lets a sync started right
-        // before closing the app keep running instead of being killed with it.
-        BackgroundSync::start('جاري المزامنة', 'برجاء الانتظار...');
-
+        // ── BackgroundSync::start()/stop() intentionally NOT called here ──
+        // They used to run here on the assumption this job always executes
+        // on PHPQueueWorker's dedicated runtime — a real background thread,
+        // separate from the UI request. That assumption no longer holds:
+        // PHPQueueWorker cannot safely start on a classic-mode build (its
+        // native boot hard-depends on the persistent runtime's TSRM having
+        // already been initialized — see MainActivity.kt's runtime_mode
+        // branch), so config('queue.default') is forced to 'sync' on device,
+        // meaning this handle() now always runs INLINE on the same
+        // single-threaded UI request executor that serves every other PHP
+        // request in the app. Calling BackgroundSync::start() from that
+        // context hung indefinitely — confirmed by a POST /_native/api/
+        // sync/manual request that never returned in device logs — which
+        // freezes the entire app (that executor thread never frees up to
+        // serve anything else) until force-killed. There is also no real
+        // "background" left to show a persistent notification for: the sync
+        // now blocks the UI directly, visibly, for its duration.
         try {
             $results = $engine->syncAll();
             self::writeState('idle', [
@@ -66,7 +76,6 @@ class RunManualSyncJob implements ShouldQueue
                 'finished_at'  => now()->toISOString(),
             ]);
             Log::info('[RunManualSyncJob] completed', $results);
-            BackgroundSync::stop('اكتملت المزامنة');
         } catch (Throwable $e) {
             // Recorded rather than rethrown: the state row is what the UI polls,
             // and a failed job row would leave the UI spinning forever.
@@ -76,7 +85,6 @@ class RunManualSyncJob implements ShouldQueue
                 'message'     => $e->getMessage(),
                 'finished_at' => now()->toISOString(),
             ]);
-            BackgroundSync::stop('فشلت المزامنة');
         }
     }
 

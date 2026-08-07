@@ -50,21 +50,33 @@ class AppServiceProvider extends ServiceProvider
         // Register model observers
         PatientFile::observe(PatientFileObserver::class);
 
-        // ── Device: run queued work on the dedicated worker runtime ────────
-        // The embedded Android runtime serialises every PHP request through a
-        // single global mutex, and QUEUE_CONNECTION=sync makes every dispatched
-        // job execute inline inside the caller's request — so a sync or a
-        // thumbnail job holds that lock and the whole UI stalls behind it.
+        // ── Device: run queued work synchronously ───────────────────────────
+        // This USED to point the queue at the 'database' driver so
+        // PHPQueueWorker (a separate native PHP TSRM context that loops
+        // `queue:work --once`) could process jobs off the UI thread's mutex,
+        // keeping the app responsive during a sync. That worker has a hard
+        // native dependency: native_worker_boot() (php_bridge.c) assumes
+        // tsrm_startup() already ran inside the PERSISTENT runtime's
+        // php_embed_init(). MainActivity only boots the persistent runtime
+        // when bundle_meta.json's runtime_mode isn't "classic" — and this
+        // app IS built with runtime_mode=classic, so persistent boot never
+        // runs, TSRM is never initialized, and starting the worker crashed
+        // the whole app with a native SIGSEGV within ~2s of launch (confirmed
+        // via a "Fatal signal 11 ... in tid ... (php-queue-worke)" crash
+        // log). Every queued job — including RunManualSyncJob — sat in the
+        // `jobs` table forever with attempts=0: files never reached
+        // production even though the UI marked them synced locally.
         //
-        // NativePHP's PHPQueueWorker loops `queue:work --once` on a SEPARATE PHP
-        // runtime that explicitly does not contend with UI requests, so pointing
-        // the queue at the database driver moves that work off the UI lock and
-        // lets the app keep responding while it runs.
-        //
-        // Scoped to SQLite so the production server (MySQL) keeps its own
-        // QUEUE_CONNECTION exactly as configured.
+        // The 'sync' driver runs a dispatched job inline in the calling
+        // request instead — no worker, no TSRM dependency, no crash risk.
+        // The trade-off is the same one production/MySQL already accepts
+        // (see routes/web.php's non-SQLite /manual branch, which has always
+        // called SyncEngineService::syncAll() inline): the app is
+        // unresponsive for the duration of a manual sync. That's a real UX
+        // regression versus a working background worker, but a predictable
+        // blocking wait beats a silently-stuck queue or a crash.
         if (config('database.default') === 'sqlite') {
-            config(['queue.default' => 'database']);
+            config(['queue.default' => 'sync']);
         }
 
         // Only run on NativePHP (mobile) environment
