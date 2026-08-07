@@ -460,10 +460,14 @@ class FileController extends Controller
         // refresh" report. Match remote_uuid too, exactly like
         // FileAccessController::resolveFile(), so a synced patient is found
         // by whichever id the caller happens to hold.
+        $hasRemoteUuid = \Illuminate\Support\Facades\Schema::hasColumn('patients', 'remote_uuid');
         $patient = Patient::withoutGlobalScope(
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-        )->where(function ($q) use ($uuid) {
-            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        )->where(function ($q) use ($uuid, $hasRemoteUuid) {
+            $q->where('uuid', $uuid);
+            if ($hasRemoteUuid) {
+                $q->orWhere('remote_uuid', $uuid);
+            }
         })->first();
 
         if ($patient) {

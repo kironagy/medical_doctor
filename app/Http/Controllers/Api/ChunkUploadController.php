@@ -474,9 +474,15 @@ class ChunkUploadController extends Controller
         // sync_status to 'pending_sync' — a status the SyncEngine never queries
         // (it only picks up 'pending_create'/'pending_update'). Result: the
         // patient stopped syncing to production and its files waited forever.
+        $hasRemoteUuid = \Illuminate\Support\Facades\Schema::hasColumn('patients', 'remote_uuid');
         $patient = is_numeric($patientId)
             ? Patient::withoutGlobalScopes()->find((int) $patientId)
-            : Patient::withoutGlobalScopes()->where('uuid', $patientId)->orWhere('remote_uuid', $patientId)->first();
+            : Patient::withoutGlobalScopes()->where(function ($q) use ($patientId, $hasRemoteUuid) {
+                $q->where('uuid', $patientId);
+                if ($hasRemoteUuid) {
+                    $q->orWhere('remote_uuid', $patientId);
+                }
+            })->first();
 
         if ($patient) {
             Log::channel('upload')->info('chunk:init - resolvePatient patient found locally');

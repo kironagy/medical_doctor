@@ -116,10 +116,14 @@ class NoteController extends Controller
         // SYNC-007 bypass — see Mobile\FileController::resolvePatient(): with
         // the scope applied an existing patient reads as missing and the stub
         // below overwrites it with a "Patient (xxxxxxxx)" placeholder.
+        $hasRemoteUuid = \Illuminate\Support\Facades\Schema::hasColumn('patients', 'remote_uuid');
         $patient = Patient::withoutGlobalScope(
             \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-        )->where(function ($q) use ($uuid) {
-            $q->where('uuid', $uuid)->orWhere('remote_uuid', $uuid);
+        )->where(function ($q) use ($uuid, $hasRemoteUuid) {
+            $q->where('uuid', $uuid);
+            if ($hasRemoteUuid) {
+                $q->orWhere('remote_uuid', $uuid);
+            }
         })->first();
 
         if ($patient) {
