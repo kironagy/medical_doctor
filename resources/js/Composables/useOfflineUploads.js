@@ -377,14 +377,9 @@ export function useOfflineUploads() {
     }
 
     try {
-      let fileData
-      if (isVideo) {
-        fileData = await saveFileChunkedOffline(file, patientUuid, metadata, popupJob)
-        popupJob.status = 'completed'
-        popupJob.progress = 100
-      } else {
-        fileData = await saveFileOffline(file, patientUuid, metadata)
-      }
+      const fileData = await saveFileChunkedOffline(file, patientUuid, metadata, popupJob)
+      popupJob.status = 'completed'
+      popupJob.progress = 100
 
       const job = createJob(file, patientUuid, metadata, fileData)
 
