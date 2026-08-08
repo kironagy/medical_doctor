@@ -2,7 +2,6 @@
 
 namespace App\Services\Sync;
 
-use App\Contracts\Repositories\FileCacheRepositoryInterface;
 use App\Domains\Media\Models\PatientFile;
 use App\Services\Mobile\RemoteApiService;
 use App\Domains\Patients\Models\Patient;
@@ -539,14 +538,17 @@ class DownloadSyncService
             $summary['files']++;
         }
 
-        // Auto-cache physical file locally for offline access
-        try {
-            if (app()->bound(FileCacheRepositoryInterface::class)) {
-                app(FileCacheRepositoryInterface::class)->cache($fileUuid);
-            }
-        } catch (Throwable $cacheE) {
-            Log::debug('[DownloadSyncService] Auto-cache file binary skipped: ' . $cacheE->getMessage(), ['uuid' => $fileUuid]);
-        }
+        // Deliberately NOT eager-caching the binary here. This used to call
+        // FileCacheRepository::cache($fileUuid) for every remote file on
+        // every sync, turning Manual Sync into a full re-download of every
+        // patient's entire media library instead of just pushing local
+        // changes — a single sync generated dozens of full-file GET requests
+        // (confirmed via nginx access log: 69 /files/{uuid}/stream calls for
+        // one sync of 10 patients) and was the actual reason "sync" took
+        // minutes even for a sub-1MB upload. Bytes are fetched lazily via
+        // FileCacheRepository on first view instead (see
+        // /_native/api/files/{uuid}/stream-url), which is what most files
+        // never opened offline actually need.
     }
 
     /**

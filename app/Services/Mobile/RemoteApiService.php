@@ -212,23 +212,35 @@ class RemoteApiService
      *                        "Single source of truth for /api/v1/chunk/*"
      *                        comment there)
      *
-     * config('app.mobile_api_url') is `{APP_URL}/api/v1/mobile`. Every
-     * FileSyncService::uploadLargeFileResumable() call passed '/chunk/init'
-     * etc. through that base, producing /api/v1/mobile/chunk/init — a URL
-     * that was never registered, so production 404'd every single chunk
-     * upload (confirmed via nginx access log: "POST /api/v1/mobile/chunk/init
-     * ... 404"). Every other endpoint (patients, notes, files) genuinely
-     * does live under /mobile and was unaffected — this bug was 100%
-     * specific to file uploads, which is exactly the symptom reported: sync
-     * "completes" (patients/notes/deletes all push fine) but files never
-     * reach the server. Route /chunk/* to the /api/v1 root instead.
+     * config('app.mobile_api_url') is `{production host}/api/v1/mobile`.
+     * Every FileSyncService::uploadLargeFileResumable() call passed
+     * '/chunk/init' etc. through that base, producing /api/v1/mobile/chunk/init
+     * — a URL that was never registered, so production 404'd every single
+     * chunk upload (confirmed via nginx access log: "POST
+     * /api/v1/mobile/chunk/init ... 404"). Every other endpoint (patients,
+     * notes, files) genuinely does live under /mobile and was unaffected —
+     * this bug was 100% specific to file uploads, which is exactly the
+     * symptom reported: sync "completes" (patients/notes/deletes all push
+     * fine) but files never reach the server. Route /chunk/* to the /api/v1
+     * root instead.
+     *
+     * That root MUST be derived from mobile_api_url's own host, not from
+     * config('app.url') — app.url is "http://127.0.0.1", the loopback
+     * address the on-device embedded server binds to locally. It is not
+     * reachable as an outbound destination from this HTTP client, so chunk
+     * calls built on it never reach anything (confirmed: zero upload_sessions
+     * rows created on production for any newly-synced file, and curl to
+     * {app.url}/api/v1/chunk/init does not resolve to production at all).
+     * mobile_api_url's host is the actual production domain, so strip its
+     * trailing /mobile segment instead of substituting a different base.
      */
     private function resolveUrl(string $endpoint): string
     {
         $endpoint = '/' . ltrim($endpoint, '/');
 
         if (str_starts_with($endpoint, '/chunk/')) {
-            $apiRoot = rtrim(config('app.url'), '/') . '/api/v1';
+            $mobileBase = rtrim(config('app.mobile_api_url', config('app.url')), '/');
+            $apiRoot = preg_replace('#/mobile$#', '', $mobileBase);
             return $apiRoot . $endpoint;
         }
 
