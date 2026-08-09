@@ -229,7 +229,7 @@
             </div>
 
             <!-- Pagination -->
-            <div v-if="mergedTotalPages > 1" class="flex items-center justify-center gap-1 mt-4">
+            <div v-if="totalPages > 1" class="flex items-center justify-center gap-1 mt-4">
               <button
                 @click="goToPage(currentPage - 1)"
                 :disabled="currentPage <= 1"
@@ -251,9 +251,9 @@
               </template>
               <button
                 @click="goToPage(currentPage + 1)"
-                :disabled="currentPage >= mergedTotalPages"
+                :disabled="currentPage >= totalPages"
                 class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-                :class="currentPage >= mergedTotalPages ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'"
+                :class="currentPage >= totalPages ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'"
               >
                 {{ $t('category.next') }}
               </button>
@@ -796,7 +796,7 @@ const hasActiveFilters = computed(() => {
 
 const displayedPages = computed(() => {
   const pages = []
-  const total = mergedTotalPages.value
+  const total = totalPages.value
   const current = currentPage.value
   if (total <= 7) {
     for (let i = 1; i <= total; i++) pages.push(i)

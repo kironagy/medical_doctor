@@ -79,33 +79,27 @@ class AppServiceProvider extends ServiceProvider
         // Register model observers
         PatientFile::observe(PatientFileObserver::class);
 
-        // ── Device: run queued work synchronously ───────────────────────────
-        // This USED to point the queue at the 'database' driver so
+        // ── Device: run queued work on the dedicated worker runtime ────────
         // PHPQueueWorker (a separate native PHP TSRM context that loops
-        // `queue:work --once`) could process jobs off the UI thread's mutex,
+        // `queue:work --once`) processes jobs off the UI thread's mutex,
         // keeping the app responsive during a sync. That worker has a hard
         // native dependency: native_worker_boot() (php_bridge.c) assumes
         // tsrm_startup() already ran inside the PERSISTENT runtime's
-        // php_embed_init(). MainActivity only boots the persistent runtime
-        // when bundle_meta.json's runtime_mode isn't "classic" — and this
-        // app IS built with runtime_mode=classic, so persistent boot never
-        // runs, TSRM is never initialized, and starting the worker crashed
-        // the whole app with a native SIGSEGV within ~2s of launch (confirmed
-        // via a "Fatal signal 11 ... in tid ... (php-queue-worke)" crash
-        // log). Every queued job — including RunManualSyncJob — sat in the
-        // `jobs` table forever with attempts=0: files never reached
-        // production even though the UI marked them synced locally.
+        // php_embed_init(). This previously crashed the app with a native
+        // SIGSEGV, because the build shipped runtime_mode=classic, which
+        // never boots the persistent runtime, so TSRM was never initialized
+        // before the worker tried to start (confirmed via a "Fatal signal 11
+        // ... in tid ... (php-queue-worke)" crash log at the time).
         //
-        // The 'sync' driver runs a dispatched job inline in the calling
-        // request instead — no worker, no TSRM dependency, no crash risk.
-        // The trade-off is the same one production/MySQL already accepts
-        // (see routes/web.php's non-SQLite /manual branch, which has always
-        // called SyncEngineService::syncAll() inline): the app is
-        // unresponsive for the duration of a manual sync. That's a real UX
-        // regression versus a working background worker, but a predictable
-        // blocking wait beats a silently-stuck queue or a crash.
+        // bundle_meta.json's runtime_mode is now "persistent" (see
+        // config/nativephp.php) and has been verified stable on-device:
+        // persistent boot completes (~480ms) and PHPQueueWorker starts
+        // cleanly afterward on its own TSRM context with no crash. The
+        // 'database' driver is safe again — dispatched jobs (RunManualSyncJob)
+        // are now actually picked up by the worker instead of sitting in the
+        // `jobs` table forever with attempts=0.
         if (config('database.default') === 'sqlite') {
-            config(['queue.default' => 'sync']);
+            config(['queue.default' => 'database']);
         }
 
         // Only run on NativePHP (mobile) environment

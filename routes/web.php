@@ -605,19 +605,20 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
 
     // Manual sync pipeline endpoint
     //
-    // Both branches now call SyncEngineService::syncAll() DIRECTLY and
-    // synchronously — no Job/queue indirection. This used to dispatch
-    // RunManualSyncJob and rely on config('queue.default') being 'sync' (set
-    // in AppServiceProvider::boot()) to force it to run inline; that
-    // indirection made "is it actually running synchronously or was it
-    // queued async" unverifiable from the response alone (queued=>true was a
-    // HARDCODED string returned immediately after dispatch() regardless of
-    // whether dispatch() blocked or not), and this endpoint is also not safe
-    // to run truly async here anyway: PHPQueueWorker cannot be relied on to
-    // process it (native_worker_boot() hard-crashes without the persistent
-    // runtime — see MainActivity.kt). A direct call removes every layer of
-    // ambiguity: this request blocks until syncAll() actually returns, and
-    // the response IS the real result.
+    // On device (SQLite), dispatches RunManualSyncJob to the 'database' queue
+    // and returns immediately — PHPQueueWorker (its own persistent PHP
+    // context, see AppServiceProvider::boot()) picks it up and runs
+    // SyncEngineService::syncAll() off the main runtime's request thread, so
+    // UI requests (opening a patient, loading files) are no longer queued
+    // behind the sync. Progress is read via the existing
+    // GET /_native/api/sync/state, already polled by the frontend
+    // (useSyncEngine.js:waitForQueuedSync).
+    //
+    // This used to call syncAll() directly inline, back when 'database' queue
+    // dispatch was unsafe (see AppServiceProvider::boot()'s comment on why
+    // that was disabled). That precondition is now fixed, so this reverts to
+    // the originally-intended dispatch — the endpoint's job is only to
+    // enqueue and hand back a response the client can start polling against.
     Route::post('/manual', function (\Illuminate\Http\Request $request) {
         try {
             if (config('database.default') === 'sqlite') {
@@ -631,19 +632,13 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
                 }
 
                 \App\Jobs\RunManualSyncJob::writeState('running');
-                $results = app(\App\Services\SyncEngineService::class)->syncAll();
-                \App\Jobs\RunManualSyncJob::writeState('idle', [
-                    'success'     => true,
-                    'stats'       => $results,
-                    'message'     => 'Sync completed successfully',
-                    'finished_at' => now()->toISOString(),
-                ]);
+                \App\Jobs\RunManualSyncJob::dispatch();
 
                 return response()->json([
                     'success' => true,
-                    'queued'  => false,
-                    'message' => 'Sync completed successfully',
-                    'stats'   => $results,
+                    'queued'  => true,
+                    'message' => 'Sync started in the background',
+                    'stats'   => [],
                 ]);
             }
 

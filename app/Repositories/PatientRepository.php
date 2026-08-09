@@ -6,8 +6,10 @@ use App\Contracts\Repositories\PatientRepositoryInterface;
 use App\Repositories\Eloquent\EloquentPatientRepository;
 use App\Domains\Sync\Services\SyncQueueService;
 use App\Services\Mobile\RemoteApiService;
+use App\Domains\Media\Models\PatientFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 /**
@@ -92,6 +94,42 @@ class PatientRepository implements PatientRepositoryInterface
                 Log::warning('[PatientRepository] Remote delete for uncached patient failed: ' . $e->getMessage(), [
                     'uuid' => $uuid,
                 ]);
+            }
+        }
+    }
+
+    /**
+     * Wipe every physical file (image, video, thumbnail, HLS segment) that
+     * belongs to this patient's uploads from local disk storage. Force-deleting
+     * a patient previously only removed the `patient_files` DB rows via the
+     * table's FK cascadeOnDelete — the actual bytes on `storage/app` were
+     * never touched and piled up as orphaned files. withTrashed() covers
+     * files a user already soft-deleted individually before the patient
+     * itself was force-deleted.
+     */
+    private function deletePatientFiles(int $patientId): void
+    {
+        $files = PatientFile::withTrashed()->where('patient_id', $patientId)->get();
+        if ($files->isEmpty()) {
+            return;
+        }
+
+        $disk = Storage::disk('local');
+        foreach ($files as $file) {
+            foreach (array_filter([$file->file_path, $file->thumbnail_path, $file->hls_path]) as $path) {
+                try {
+                    if ($disk->isDirectory($path)) {
+                        $disk->deleteDirectory($path);
+                    } else {
+                        $disk->delete($path);
+                    }
+                } catch (Throwable $e) {
+                    Log::warning('[PatientRepository] Failed to delete patient file from storage', [
+                        'patient_id' => $patientId,
+                        'path' => $path,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
         }
     }
@@ -225,9 +263,14 @@ class PatientRepository implements PatientRepositoryInterface
     public function forceDelete(string $uuid): void
     {
         if (!$this->isOfflineDevice()) {
-            \App\Domains\Patients\Models\Patient::withoutGlobalScope(
+            $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-            )->withTrashed()->where('uuid', $uuid)->first()?->forceDelete();
+            )->withTrashed()->where('uuid', $uuid)->first();
+
+            if ($patient) {
+                $this->deletePatientFiles($patient->id);
+                $patient->forceDelete();
+            }
             return;
         }
 

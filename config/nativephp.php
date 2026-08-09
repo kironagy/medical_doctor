@@ -226,7 +226,7 @@ return [
     */
 
     'runtime' => [
-        'mode' => 'classic', // 'classic' or 'persistent'
+        'mode' => 'persistent', // 'classic' or 'persistent'
         'reset_instances' => true,
         'gc_between_dispatches' => false,
     ],
