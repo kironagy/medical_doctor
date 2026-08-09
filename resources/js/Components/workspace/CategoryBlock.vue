@@ -639,7 +639,13 @@ const categoryFiles = computed(() => {
   const localFiles = (allFiles.value || []).filter(f => f.category === props.slug)
   if (initialLoadDone.value) {
     const serverUuids = new Set((serverFiles.value || []).map(f => f.uuid))
-    const newLocalFiles = localFiles.filter(f => f && f.uuid && !serverUuids.has(f.uuid))
+    // allFiles is the patient's FULL unpaginated file list (see comment above on
+    // its origin), so "not in this page's serverFiles" alone doesn't mean "new,
+    // not yet synced" — most files simply live on a different page. Only merge
+    // in ones that are genuinely still pending upload; anything already synced
+    // just isn't on this page and must not be force-added, or every page ends up
+    // showing the same full set.
+    const newLocalFiles = localFiles.filter(f => f && f.uuid && !serverUuids.has(f.uuid) && f.sync_status !== 'synced')
     return newLocalFiles.length > 0 ? [...newLocalFiles, ...serverFiles.value] : serverFiles.value
   }
   return localFiles
@@ -738,7 +744,7 @@ const filteredFilesRaw = computed(() => {
 const totalItems = computed(() => {
   if (initialLoadDone.value && serverMeta.value.total !== undefined) {
     const serverUuids = new Set(serverFiles.value.map(f => f.uuid))
-    const newCount = allFiles.value.filter(f => f.category === props.slug && !serverUuids.has(f.uuid)).length
+    const newCount = allFiles.value.filter(f => f.category === props.slug && !serverUuids.has(f.uuid) && f.sync_status !== 'synced').length
     return serverMeta.value.total + newCount
   }
   return filteredFilesRaw.value.length
