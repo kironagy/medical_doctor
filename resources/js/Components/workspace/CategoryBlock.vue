@@ -501,7 +501,7 @@ const hasLoaded = computed(() => isCategoryLoaded(props.slug))
 
 // Pagination & filters (server-side now)
 const currentPage = ref(1)
-const perPage = 6
+const perPage = 12
 const searchQuery = ref('')
 const dateFilter = ref('')
 const timeFilter = ref('')
@@ -553,8 +553,13 @@ async function loadCategoryData(page = 1) {
     const freshServerNotes = !serverRequestFailed ? (response.data.notes || []) : [];
     const freshFileUuids = new Set(freshServerFiles.map(f => f.uuid));
 
+    // allFiles is the patient's full unpaginated file list — a file missing from
+    // freshFileUuids (this page's server response) is usually just on a different
+    // page, not a new unsynced upload. Only merge in genuinely pending ones, or
+    // every page ends up showing the patient's entire file list (see the same
+    // fix applied to categoryFiles/totalItems below).
     const workspaceLocalFiles = (allFiles.value || []).filter(
-      f => f.category === props.slug && !freshFileUuids.has(f.uuid)
+      f => f.category === props.slug && !freshFileUuids.has(f.uuid) && f.sync_status !== 'synced'
     );
 
     // allFiles comes from the workspace payload, which for a SYNCED patient is
