@@ -774,12 +774,11 @@ watch(() => allFiles.value, (newAllFiles) => {
 
 
 
-// Paginated file slice — merge any newly uploaded files immediately
-// Paginated file slice — always paginate from filteredFilesRaw which merges new local uploads
-const files = computed(() => {
-  const start = (currentPage.value - 1) * perPage
-  return filteredFilesRaw.value.slice(start, start + perPage)
-})
+// filteredFilesRaw is already windowed to the current page: loadCategoryData()
+// fetches with page/per_page and serverFiles holds only that page's rows. Re-slicing
+// here by currentPage was double-paginating an already-paginated array — page 2
+// sliced indices [6:12] out of a 4-item page-2 result, always empty past page 1.
+const files = computed(() => filteredFilesRaw.value)
 
 // Filtered notes (only search — no pagination)
 const notes = computed(() => {
@@ -1323,12 +1322,9 @@ const mergedCategoryItems = computed(() => {
   return [...fileItems, ...noteItems].sort((a, b) => new Date(b.created_at || Date.now()) - new Date(a.created_at || Date.now()))
 })
 
-// Paginated view: 6 items per page from merged list
-const paginatedItems = computed(() => {
-  const all = mergedCategoryItems.value
-  const start = (currentPage.value - 1) * perPage
-  return all.slice(start, start + perPage)
-})
+// files.value is already the current server page; re-slicing mergedCategoryItems
+// by currentPage here double-paginated it the same way `files` did above.
+const paginatedItems = computed(() => mergedCategoryItems.value)
 
 async function deleteNoteDirectly(note) {
   const confirmed = await dialog.confirm({
