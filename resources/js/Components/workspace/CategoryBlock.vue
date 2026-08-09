@@ -1330,10 +1330,6 @@ const paginatedItems = computed(() => {
   return all.slice(start, start + perPage)
 })
 
-const mergedTotalPages = computed(() => {
-  return Math.max(1, Math.ceil(mergedCategoryItems.value.length / perPage))
-})
-
 async function deleteNoteDirectly(note) {
   const confirmed = await dialog.confirm({
     title: 'حذف الملاحظة',
