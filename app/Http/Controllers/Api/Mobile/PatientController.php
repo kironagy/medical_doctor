@@ -109,6 +109,23 @@ class PatientController extends Controller
             $validated['uuid'] = (string) \Illuminate\Support\Str::uuid();
         }
 
+        // This exact store() also runs on-device for genuinely offline
+        // creation (POST /api/v1/mobile/patients only registers when
+        // database.default === 'sqlite' — see routes/web.php's "Mobile API
+        // Aliases (EMBEDDED APP ONLY)" block) where sync_status must stay
+        // whatever PatientRepository::create() already assigned
+        // (pending_create). Only force it here when this row is actually
+        // being created on the PRODUCTION server (via /mobile/patients in
+        // api.php, called by SyncEngineService) — a patient that exists as
+        // a row on production is by definition synced, and forcing it
+        // explicitly (rather than relying on the `patients.sync_status`
+        // column's DB default, which apparently isn't reliably 'synced' on
+        // this server) is what stops it showing "pending" forever even
+        // though the device already believes the sync succeeded.
+        if (config('database.default') !== 'sqlite') {
+            $validated['sync_status'] = 'synced';
+        }
+
         // ── IDEMPOTENCY CHECK ──────────────────────────────────────────
         if (!empty($validated['uuid'])) {
             $existing = Patient::where('uuid', $validated['uuid'])->first();

@@ -353,8 +353,15 @@ export function useOfflineUploads() {
 
     try {
       const fileData = await saveFileChunkedOffline(file, patientUuid, metadata, popupJob)
-      popupJob.status = 'completed'
-      popupJob.progress = 100
+      // popupJob only exists for videos (see the `if (isVideo)` block above) —
+      // images/documents leave it null, so setting .status unconditionally
+      // threw here and skipped everything below, including addFileLocally().
+      // That's why an offline image upload never appeared until the patient
+      // view was fully refetched (e.g. leaving and re-entering).
+      if (popupJob) {
+        popupJob.status = 'completed'
+        popupJob.progress = 100
+      }
 
       const job = createJob(file, patientUuid, metadata, fileData)
 
