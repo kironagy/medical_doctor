@@ -486,17 +486,16 @@ export function useUploads() {
                 if (completeRes?.data?.uuid) {
                     const fileUuid = completeRes.data.uuid;
                     const mimeType = job.file?.type || "application/octet-stream";
-                    // ── FIX: Build local streaming URL ────────────────────────
-                    // The server returns a URL built with app.url (production),
-                    // but the file is stored locally on the device. Using the
-                    // production URL causes a 404 since the file isn't on the
-                    // remote server yet. Use the local streaming endpoint instead.
-                    const localUrl = `/_native/cache/files/${fileUuid}`;
-                    const localThumbnailUrl = mimeType.startsWith('image/')
-                        ? localUrl
-                        : mimeType.startsWith('video/')
-                            ? `/_native/cache/files/${fileUuid}/thumbnail`
-                            : null;
+                    // Online mutations now go straight to production (see the
+                    // RequestRouter.kt routing cutover) and the backend rejects
+                    // chunk uploads outright when offline — so a successful
+                    // complete() response here always means the file is truly
+                    // on production already, with a real, working URL of its
+                    // own. Using that instead of a hardcoded local-cache path,
+                    // and marking it synced instead of a stale "pending_sync",
+                    // is what stops every upload showing a permanent pending
+                    // badge (and vanishing on refresh, once the real synced
+                    // row diverged from this stale local placeholder).
                     addFileLocally({
                         uuid:          fileUuid,
                         patient_id:    patientId,
@@ -509,9 +508,9 @@ export function useUploads() {
                         created_at:    new Date().toISOString(),
                         updated_at:    new Date().toISOString(),
                         upload_status: "ready",
-                        sync_status:   "pending_sync",
-                        url:           localUrl,
-                        thumbnail_url: localThumbnailUrl,
+                        sync_status:   "synced",
+                        url:           completeRes.data.url,
+                        thumbnail_url: completeRes.data.thumbnail_url,
                         type:          completeRes.data.type,
                     });
                 }
@@ -824,13 +823,9 @@ export function useUploads() {
             if (completeRes?.data?.uuid) {
                 const fileUuid = completeRes.data.uuid;
                 const mimeType = job.file?.type || "application/octet-stream";
-                // ── FIX: Build local streaming URL (same fix as startUpload) ─
-                const localUrl = `/_native/cache/files/${fileUuid}`;
-                const localThumbnailUrl = mimeType.startsWith('image/')
-                    ? localUrl
-                    : mimeType.startsWith('video/')
-                        ? `/_native/cache/files/${fileUuid}/thumbnail`
-                        : null;
+                // Same reasoning as the primary upload path in startUpload():
+                // this only succeeds when truly on production now, so use its
+                // real URL/status instead of a stale local-pending placeholder.
                 addFileLocally({
                     uuid:          fileUuid,
                     patient_id:    job.patientId,
@@ -843,9 +838,9 @@ export function useUploads() {
                     created_at:    new Date().toISOString(),
                     updated_at:    new Date().toISOString(),
                     upload_status: "ready",
-                    sync_status:   "pending_sync",
-                    url:           localUrl,
-                    thumbnail_url: localThumbnailUrl,
+                    sync_status:   "synced",
+                    url:           completeRes.data.url,
+                    thumbnail_url: completeRes.data.thumbnail_url,
                     type:          completeRes.data.type,
                 });
             }

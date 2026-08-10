@@ -121,7 +121,6 @@
 import { ref, watch } from 'vue'
 import { useToast } from '@/Composables/useToast'
 import { useUploads } from '@/Composables/useUploads'
-import { useOfflineUploads } from '@/Composables/useOfflineUploads'
 import { useWorkspace } from '@/Composables/useWorkspace'
 import { useSyncEngine } from '@/Composables/useSyncEngine'
 import { apiUrl } from '@/Utils/api'
@@ -138,7 +137,6 @@ const emit = defineEmits(['update:modelValue', 'saved', 'noteAdded'])
 
 const toast = useToast()
 const { uploadFile: onlineUploadFile } = useUploads()
-const { uploadFile: offlineUploadFile } = useOfflineUploads()
 const { addNoteLocally } = useWorkspace()
 const { triggerSync, isOnline: syncIsOnline } = useSyncEngine()  // BUG-015: use SyncEngine state
 
@@ -250,29 +248,21 @@ async function submit() {
     }
     saving.value = true
     try {
-      // ── BUG-015 FIX: Use SyncEngine's isOnline instead of navigator.onLine ──
-      const online = syncIsOnline.value
+      // File uploads always go through the online path now. There is no
+      // offline upload anymore — the backend rejects chunk uploads outright
+      // when the device is offline (see ChunkUploadController's offline
+      // guard), so the old online/offline branch here only ever produced a
+      // local "pending"/"uploading" placeholder that could never actually
+      // resolve, and stuck around showing pending forever (or vanished on
+      // refresh once it no longer matched the real, absent server row). If
+      // the device is genuinely offline, this simply fails with a clear
+      // error below instead of a silent dead-end optimistic entry.
       const targetPatientUuid = props.patient?.uuid || props.patient?.id || props.patient
       for (const file of selectedFiles.value) {
-        if (online && typeof onlineUploadFile === 'function') {
-          onlineUploadFile(file, targetPatientUuid, {
-            category: props.categorySlug,
-            desc: notes.value
-          })
-        } else {
-          // Not awaited — mirrors the online branch above. This used to
-          // await the FULL chunked upload (every chunk + the server-side
-          // merge), which kept this modal's "saving" spinner up and the
-          // popup blocking the user until an entire video finished
-          // uploading. The upload now runs in the background (protected by
-          // the BackgroundSync foreground service) and the file appears in
-          // the category list immediately with an "uploading" badge that
-          // useOfflineUploads.js updates as chunks complete.
-          offlineUploadFile(file, targetPatientUuid, {
-            category: props.categorySlug,
-            desc: notes.value
-          }).catch(e => console.error('[AddRecordModal] Offline upload failed:', e))
-        }
+        onlineUploadFile(file, targetPatientUuid, {
+          category: props.categorySlug,
+          desc: notes.value
+        })
       }
       toast.success('بدء رفع الملفات بنجاح')
       emit('saved')

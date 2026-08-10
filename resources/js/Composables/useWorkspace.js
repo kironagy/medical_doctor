@@ -282,23 +282,34 @@ function openPreview(file, siblings = [], loadMoreFn = null) {
 }
 
 function closePreview() {
+    // Always clear state directly rather than calling history.back(). Now
+    // that online navigation can involve real page loads (production is
+    // fetched directly per the routing cutover), back() is no longer
+    // guaranteed to land on this SPA's own pushState entry — it can walk
+    // straight through it into an actual prior page load, wiping all app
+    // state. Confirmed on-device: this was the exact cause of closing an
+    // image preview also closing the whole patient view. replaceState (not
+    // back()) relabels the current history slot without navigating, so a
+    // later hardware back-press still lands correctly on "#patient" instead
+    // of leaving a phantom entry that needs an extra press to get past.
+    showPreview.value = false;
+    previewFile.value = null;
+    previewSiblings.value = [];
+    loadMoreSiblings.value = null;
     if (typeof window !== "undefined" && window.location.hash === "#preview") {
-        window.history.back(); // Triggers popstate which closes it
-    } else {
-        showPreview.value = false;
-        previewFile.value = null;
-        previewSiblings.value = [];
-        loadMoreSiblings.value = null;
+        const hash = selectedPatientId.value ? "#patient" : "";
+        window.history.replaceState(null, "", window.location.pathname + window.location.search + hash);
     }
 }
 
 function closePatient() {
+    // Same reasoning as closePreview() — direct state clear + replaceState,
+    // not history.back(). See that function's comment for why.
+    selectedPatientId.value = null;
+    workspaceData.value = null;
+    mobilePatientListOpen.value = true;
     if (typeof window !== "undefined" && window.location.hash === "#patient") {
-        window.history.back(); // Triggers popstate which closes it
-    } else {
-        selectedPatientId.value = null;
-        workspaceData.value = null;
-        mobilePatientListOpen.value = true;
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
     }
 }
 
