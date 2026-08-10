@@ -59,11 +59,49 @@ async function waitForQueuedSync() {
     return { success: true, stats: {}, message: 'Sync still running in the background' }
 }
 const PENDING_ENDPOINT = '/_native/api/sync/pending-summary'
+const NETWORK_STATUS_ENDPOINT = '/_native/api/sync/network-status'
 
-// Update online state when browser online/offline events fire (purely for UI status icon)
+/**
+ * Re-check real connectivity via an actual outbound request instead of
+ * trusting navigator.onLine.
+ *
+ * Why this exists: the 'online'/'offline' DOM events below are not reliable
+ * in this WebView — NetworkStateManager.kt hit the identical failure mode on
+ * the native side (see its class doc) and fixed it by querying
+ * ConnectivityManager fresh on every check instead of caching a value
+ * updated by a registered callback, because that callback "did not always
+ * fire" after toggling connectivity without restarting the app. The DOM
+ * events here are the JS-side equivalent of that same unreliable callback,
+ * so isOnline could get stuck offline even once the network was back,
+ * blocking uploads/add-patient with a false "internet required" state until
+ * the whole app was killed and relaunched. This hits a local endpoint that
+ * does a real reachability check against production, called whenever the
+ * app becomes visible/focused again — the exact moment a user returns after
+ * toggling connectivity — not on a timer (see this file's "NO timers" note).
+ */
+async function checkRealConnectivity() {
+    if (!isNativeApp()) return
+    try {
+        const { data } = await axios.get(NETWORK_STATUS_ENDPOINT, { timeout: 4000 })
+        isOnline.value = !!data?.online
+    } catch (e) {
+        // The embedded local server itself is unreachable — extremely rare
+        // (it's on-device). Leave isOnline as last known rather than guess.
+    }
+}
+
+// Update online state when browser online/offline events fire, then
+// self-correct with a real probe — see checkRealConnectivity() above.
 if (typeof window !== 'undefined') {
     window.addEventListener('online', () => { isOnline.value = true })
     window.addEventListener('offline', () => { isOnline.value = false })
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkRealConnectivity()
+    })
+    window.addEventListener('focus', checkRealConnectivity)
+    window.addEventListener('pageshow', checkRealConnectivity)
+    checkRealConnectivity()
 }
 
 /**

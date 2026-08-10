@@ -20,7 +20,12 @@
       لا يوجد مرضى محفوظين Offline بعد
     </div>
 
-    <div v-for="pkg in packages" :key="pkg.patient_uuid" class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+    <div
+      v-for="pkg in packages"
+      :key="pkg.patient_uuid"
+      @click="openPatient(pkg)"
+      class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm cursor-pointer hover:border-teal-400 dark:hover:border-teal-600 transition-colors"
+    >
       <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
           <p class="font-bold text-slate-900 dark:text-white truncate">{{ pkg.patient_name || pkg.patient_uuid }}</p>
@@ -42,7 +47,7 @@
 
           <button
             type="button"
-            @click="doRefresh(pkg)"
+            @click.stop="doRefresh(pkg)"
             :disabled="!isOnline || isBusy(pkg.patient_uuid)"
             class="p-2 rounded-lg text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             title="تحديث"
@@ -54,7 +59,7 @@
 
           <button
             type="button"
-            @click="doDelete(pkg)"
+            @click.stop="doDelete(pkg)"
             :disabled="isBusy(pkg.patient_uuid)"
             class="p-2 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             title="حذف"
@@ -74,10 +79,16 @@ import { onMounted } from 'vue'
 import { useOfflinePackages } from '@/Composables/useOfflinePackages'
 import { useSyncEngine } from '@/Composables/useSyncEngine'
 import { useToast } from '@/Composables/useToast'
+import { useWorkspace } from '@/Composables/useWorkspace'
 
 const { packages, loadingList, fetchPackages, refreshPackage, deletePackage, isBusy } = useOfflinePackages()
 const { isOnline } = useSyncEngine()
+const { selectPatient } = useWorkspace()
 const toast = useToast()
+
+function openPatient(pkg) {
+  selectPatient(pkg.patient_uuid)
+}
 
 onMounted(fetchPackages)
 

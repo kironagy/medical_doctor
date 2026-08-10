@@ -760,6 +760,31 @@ Route::prefix('_native/api/sync')->withoutMiddleware([
             return response()->json(['patients' => 0, 'files' => 0, 'deletes' => 0, 'notes' => 0, 'total' => 0]);
         }
     });
+
+    // Real connectivity probe for useSyncEngine.js's `isOnline`.
+    //
+    // navigator.onLine + the browser 'online'/'offline' events are NOT a
+    // reliable signal in this WebView — NetworkStateManager.kt's class doc
+    // documents the same failure mode on the native side: after toggling
+    // connectivity off then back on WITHOUT restarting the app,
+    // onAvailable()/onCapabilitiesChanged() "did not always fire", leaving
+    // its old NetworkCallback-cached state stuck at OFFLINE. That's why
+    // NetworkStateManager now queries ConnectivityManager fresh on every
+    // call instead of caching a callback-updated value. The JS-side isOnline
+    // had the exact same bug via the DOM events, with no equivalent fix —
+    // this endpoint gives it one: an actual outbound reachability check,
+    // done fresh on every request, called by useSyncEngine.js whenever the
+    // app regains focus/visibility (not polled — see this file's own
+    // "NO timers" design note above).
+    Route::get('/network-status', function () {
+        try {
+            $remoteOrigin = preg_replace('#/api/v1/mobile/?$#', '', config('app.mobile_api_url'));
+            \Illuminate\Support\Facades\Http::timeout(3)->connectTimeout(2)->head($remoteOrigin);
+            return response()->json(['online' => true]);
+        } catch (\Throwable $e) {
+            return response()->json(['online' => false]);
+        }
+    });
 });
 
 // ── Phase 6 — Local File Cache (OUTSIDE auth middleware) ────────────

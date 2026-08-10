@@ -513,6 +513,10 @@ export function useUploads() {
                         thumbnail_url: completeRes.data.thumbnail_url,
                         type:          completeRes.data.type,
                     });
+                    // Lets a category watching `uploads` pick out exactly which
+                    // file this job produced (see CategoryBlock.vue) instead of
+                    // guessing from allFiles by category/recency.
+                    job.resultFileUuid = fileUuid;
                 }
             }
             job.status   = "completed";
@@ -843,6 +847,7 @@ export function useUploads() {
                     thumbnail_url: completeRes.data.thumbnail_url,
                     type:          completeRes.data.type,
                 });
+                job.resultFileUuid = fileUuid;
             }
             job.status   = "completed";
             job.progress = 100;

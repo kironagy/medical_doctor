@@ -1038,13 +1038,33 @@ function onNoteAdded(note) {
   }, 4000)
 }
 
-// After upload completes, sync from server in background (file shows instantly via reactive merge)
+// After upload completes, show the file immediately in this category's list
+// (categoryFiles' allFiles-merge can't do this itself: it deliberately skips
+// sync_status==='synced' local files to avoid re-showing older files that
+// simply live on another page — but addFileLocally() now marks a brand-new
+// upload 'synced' too, since online uploads land on production directly. So
+// a just-finished upload matched that same "already synced, must be an older
+// page" exclusion and never appeared here until the background reload below
+// happened to land it — hence "uploads don't show up in the same place".
+// Splicing the exact file this job produced (via job.resultFileUuid, set in
+// useUploads.js) sidesteps the ambiguity entirely.
 const localCompleteCount = ref(0)
+const mergedUploadJobIds = new Set()
 watch(uploads, (list) => {
   let c = 0
   for (let i = 0; i < list.length; i++) {
     const j = list[i]
-    if (j.metadata?.category === props.slug && j.status === 'completed') c++
+    if (j.metadata?.category !== props.slug || j.status !== 'completed') continue
+    c++
+    if (j.resultFileUuid && !mergedUploadJobIds.has(j.id)) {
+      mergedUploadJobIds.add(j.id)
+      if (initialLoadDone.value) {
+        const file = (allFiles.value || []).find(f => f.uuid === j.resultFileUuid)
+        if (file && !serverFiles.value.some(f => f.uuid === file.uuid)) {
+          serverFiles.value = [file, ...serverFiles.value]
+        }
+      }
+    }
   }
   if (c > localCompleteCount.value) {
     localCompleteCount.value = c

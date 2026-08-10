@@ -6,6 +6,7 @@ use App\Domains\Patients\Models\Patient;
 use App\Domains\Users\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class PatientFile extends Model
@@ -53,6 +54,18 @@ class PatientFile extends Model
         // synced yet (still local-only, pending upload) has bytes ONLY on this
         // device, so that's the one case that must use the local endpoint.
         if (config('database.default') === 'sqlite') {
+            // Exception to the rule above: OfflinePackageService pulls full
+            // bytes to disk for an explicit per-patient offline snapshot and
+            // marks those rows sync_status='synced' too (same shape as
+            // production). Without this check, playback for those files was
+            // routed to the remote URL — unreachable while actually offline,
+            // which is exactly when this snapshot exists to be used — so
+            // videos would play whatever the OS had buffered from the dead
+            // request (a second or two) and then stall. Bytes on disk win
+            // whenever they're actually present, regardless of sync_status.
+            if ($this->file_path && Storage::disk('local')->exists($this->file_path) && Storage::disk('local')->size($this->file_path) > 0) {
+                return '/_native/cache/files/' . $this->uuid;
+            }
             // remote_uuid ?: uuid — same fallback already used throughout
             // FileAccessController/FileCacheRepository/FileSyncService. Files
             // synced before the $fillable fix (remote_uuid, sha256, hls_path
@@ -73,6 +86,17 @@ class PatientFile extends Model
     public function getThumbnailUrlAttribute()
     {
         if (config('database.default') === 'sqlite') {
+            // Same local-bytes-first exception as getUrlAttribute() — an
+            // offline package's images have no separate thumbnail_path (only
+            // the full file), so the image branch below already serves them
+            // locally via this same route.
+            if ($this->thumbnail_path && Storage::disk('local')->exists($this->thumbnail_path)) {
+                return '/_native/cache/files/' . $this->uuid . '/thumbnail';
+            }
+            if ($this->file_path && Storage::disk('local')->exists($this->file_path) && Storage::disk('local')->size($this->file_path) > 0
+                && $this->mime_type && str_starts_with($this->mime_type, 'image/')) {
+                return '/_native/cache/files/' . $this->uuid;
+            }
             if ($this->sync_status === 'synced') {
                 $remoteBase = $this->remoteOrigin() . '/api/v1/files/' . ($this->remote_uuid ?: $this->uuid);
                 if ($this->mime_type && str_starts_with($this->mime_type, 'image/')) {

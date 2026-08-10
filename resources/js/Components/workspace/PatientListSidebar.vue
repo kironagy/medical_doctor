@@ -102,7 +102,7 @@
     <button
       v-if="isMobile"
       @click="$emit('add-patient')"
-      class="absolute bottom-24 left-6 z-50 w-12 h-12 bg-primary-600 hover:bg-primary-700 active:scale-95 text-white rounded-full flex items-center justify-center shadow-lg transition-transform"
+      class="absolute bottom-40 left-6 z-50 w-12 h-12 bg-primary-600 hover:bg-primary-700 active:scale-95 text-white rounded-full flex items-center justify-center shadow-lg transition-transform"
     >
       <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
     </button>
