@@ -101,6 +101,15 @@ class OfflinePackageService
 
     private function reconcile(string $patientUuid, int $ownerUserId, bool $isInitialDownload): OfflinePackage
     {
+        // A patient with a large video can easily take several minutes to
+        // pull in full (see RemoteApiService::download()'s raised timeout).
+        // The embedded runtime's default max_execution_time would otherwise
+        // fatally kill this whole request partway through — not a graceful
+        // per-file failure, the entire download just dies. 0 = unlimited;
+        // this request is explicitly user-initiated and long-running by
+        // nature, not a runaway loop.
+        @set_time_limit(0);
+
         $package = $this->packages->findOrCreate($patientUuid, $ownerUserId);
         $package = $this->packages->updateStatus($package, OfflinePackage::STATUS_DOWNLOADING, ['error' => null]);
 

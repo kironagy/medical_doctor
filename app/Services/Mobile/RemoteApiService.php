@@ -126,8 +126,15 @@ class RemoteApiService
 
     /**
      * Download a file from production server and sink directly to disk.
+     *
+     * Default timeout raised from the original 180s — that was tuned for
+     * small already-synced files (the old lazy file-cache path), but
+     * OfflinePackageService uses this same method to pull EVERY file in a
+     * downloaded patient's package, including full-size videos, which can
+     * easily exceed 180s on a slow mobile connection. A short timeout there
+     * doesn't fail gracefully — it aborts the whole package download.
      */
-    public function download(string $endpoint, string $destinationPath): bool
+    public function download(string $endpoint, string $destinationPath, int $timeoutSeconds = 900): bool
     {
         $url = $this->resolveUrl($endpoint);
 
@@ -142,7 +149,7 @@ class RemoteApiService
                 $headers['Authorization'] = 'Bearer ' . $this->token;
             }
 
-            $response = Http::timeout(180)
+            $response = Http::timeout($timeoutSeconds)
                 ->withHeaders($headers)
                 ->withOptions(['sink' => $destinationPath])
                 ->get($url);
