@@ -55,6 +55,53 @@ class OfflinePackageTest extends TestCase
         ]);
     }
 
+    /**
+     * Reproduces a real on-device bug found via the app's own laravel.log:
+     * a user who logs in and immediately taps "Download Offline" can reach
+     * this endpoint before the fire-and-forget bootstrap/refresh call (see
+     * Login.vue) has finished populating the local `users` table — which,
+     * since Phase 1, is the ONLY thing that ever writes a local user row
+     * (login itself now goes straight to production). Confirmed failure:
+     * "No local user to own this offline package." (401). The fix resolves
+     * the owner on demand via /api/v1/me using the Bearer token instead of
+     * just failing.
+     */
+    public function test_download_succeeds_when_no_local_user_exists_yet_but_token_is_present()
+    {
+        Storage::fake('local');
+        $uuid = 'f1e2d3c4-b5a6-4708-9192-a3b4c5d6e7fc';
+
+        $this->assertSame(0, User::count());
+
+        Http::fake([
+            '*/api/v1/me' => Http::response([
+                'id' => 42,
+                'name' => 'Dr Remote',
+                'email' => 'remote-doctor@test.com',
+                'role' => 'doctor',
+            ], 200),
+            "*/patients/{$uuid}" => Http::response(['data' => ['uuid' => $uuid, 'name' => 'Remote Patient']], 200),
+            "*/patients/{$uuid}/notes*" => Http::response(['data' => []], 200),
+            "*/patients/{$uuid}/visits*" => Http::response(['data' => []], 200),
+            "*/patients/{$uuid}/files*" => Http::response(['data' => []], 200),
+        ]);
+
+        $response = $this->postJson(
+            "/_native/api/offline-package/{$uuid}",
+            [],
+            ['Authorization' => 'Bearer fake-token-from-localstorage']
+        );
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('status', OfflinePackage::STATUS_READY);
+
+        $user = User::where('email', 'remote-doctor@test.com')->first();
+        $this->assertNotNull($user, 'Local user row should have been created from /api/v1/me');
+
+        $package = OfflinePackage::where('patient_uuid', $uuid)->first();
+        $this->assertSame($user->id, $package->owner_user_id);
+    }
+
     public function test_download_creates_ready_package_with_local_patient_and_file_bytes()
     {
         $doctor = $this->doctor();

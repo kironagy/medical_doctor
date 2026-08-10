@@ -10,6 +10,16 @@ const busyPatientUuids = ref(new Set()) // uuids currently downloading/refreshin
 
 const BASE = '/_native/api/offline-package'
 
+// The controller falls back to resolving the local device's "current user"
+// row via this token when it doesn't exist yet (e.g. right after a fresh
+// login, before the fire-and-forget bootstrap/refresh call has finished
+// populating it) — so this must actually be sent, same as useWorkspace.js's
+// addPatient() already does for the same reason.
+function authHeaders() {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null
+    return token ? { headers: { Authorization: 'Bearer ' + token } } : {}
+}
+
 export function useOfflinePackages() {
     const { isOnline } = useSyncEngine()
 
@@ -33,7 +43,7 @@ export function useOfflinePackages() {
     async function fetchPackages() {
         loadingList.value = true
         try {
-            const res = await axios.get(`${BASE}`)
+            const res = await axios.get(`${BASE}`, authHeaders())
             packages.value = res.data?.data || []
         } catch (e) {
             console.error('[useOfflinePackages] fetchPackages failed', e)
@@ -48,7 +58,7 @@ export function useOfflinePackages() {
         }
         busyPatientUuids.value.add(patientUuid)
         try {
-            const res = await axios.post(`${BASE}/${patientUuid}`)
+            const res = await axios.post(`${BASE}/${patientUuid}`, {}, authHeaders())
             upsertLocal(res.data)
             return res.data
         } finally {
@@ -62,7 +72,7 @@ export function useOfflinePackages() {
         }
         busyPatientUuids.value.add(patientUuid)
         try {
-            const res = await axios.post(`${BASE}/${patientUuid}/refresh`)
+            const res = await axios.post(`${BASE}/${patientUuid}/refresh`, {}, authHeaders())
             upsertLocal(res.data)
             return res.data
         } finally {
@@ -73,7 +83,7 @@ export function useOfflinePackages() {
     async function deletePackage(patientUuid) {
         busyPatientUuids.value.add(patientUuid)
         try {
-            await axios.delete(`${BASE}/${patientUuid}`)
+            await axios.delete(`${BASE}/${patientUuid}`, authHeaders())
             packages.value = packages.value.filter((p) => p.patient_uuid !== patientUuid)
         } finally {
             busyPatientUuids.value.delete(patientUuid)
