@@ -23,6 +23,10 @@ class NoteController extends Controller
 
     public function store(Request $request, string $patientUuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $user = $request->user();
         $patient = $this->resolvePatient($patientUuid);
 
@@ -72,6 +76,10 @@ class NoteController extends Controller
 
     public function update(Request $request, string $patientUuid, string $uuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $user = $request->user();
         if (!$user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
@@ -95,6 +103,10 @@ class NoteController extends Controller
 
     public function destroy(Request $request, string $patientUuid, string $uuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $user = $request->user();
         if (!$user) {
             return response()->json(['message' => 'Unauthenticated'], 401);

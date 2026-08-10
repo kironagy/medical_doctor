@@ -87,6 +87,10 @@ class FileController extends Controller
 
     public function store(StoreFileRequest $request, ?string $uuid = null)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $patientUuid = $uuid ?: $request->input('patient_uuid');
         if (!$patientUuid) {
             return response()->json(['message' => 'patient_uuid is required'], 422);
@@ -316,6 +320,10 @@ class FileController extends Controller
 
     public function destroy(Request $request, string $fileUuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         // ═══ SYNC-007 FIX: Bypass DoctorIsolationScope ═══════════════════
         // On SQLite with no authenticated user, DoctorIsolationScope filters
         // by primary_doctor_id which is null — causing 404 before our logic runs.
@@ -415,6 +423,10 @@ class FileController extends Controller
 
     public function update(UpdateFileMetadataRequest $request, string $fileUuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         // ═══ SYNC-007 FIX: Bypass DoctorIsolationScope ═══════════════════
         $file = PatientFile::withoutGlobalScope(
                 \App\Domains\Auth\Scopes\DoctorIsolationScope::class

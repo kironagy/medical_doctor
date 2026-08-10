@@ -339,6 +339,23 @@ Route::prefix('_native/api/offline')->name('offline.')->withoutMiddleware([
     Route::get('/notes', [\App\Http\Controllers\Api\Mobile\NoteController::class, 'pendingIndex'])->name('notes.index');
 });
 
+// ── Phase 3 — Offline Patient Package (OUTSIDE auth middleware) ──────────
+// Explicit per-patient download/refresh/list/delete. Deliberately a distinct
+// prefix from the legacy `_native/api/offline/*` group above (offline
+// uploads/notes queueing) — this is the new, isolated download-a-snapshot
+// feature, not part of the old pending-write sync system.
+// Always routed to the embedded Laravel instance regardless of connectivity
+// (RequestRouter.kt Rule 2 — _native/* is always local).
+// 🚫 CSRF excluded — same reasoning as other _native routes.
+Route::prefix('_native/api/offline-package')->name('offline-package.')->withoutMiddleware([
+    \Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class,
+])->group(function () {
+    Route::get('/', [\App\Http\Controllers\OfflinePackageController::class, 'index'])->name('index');
+    Route::post('/{patientUuid}', [\App\Http\Controllers\OfflinePackageController::class, 'download'])->name('download');
+    Route::post('/{patientUuid}/refresh', [\App\Http\Controllers\OfflinePackageController::class, 'refresh'])->name('refresh');
+    Route::delete('/{patientUuid}', [\App\Http\Controllers\OfflinePackageController::class, 'destroy'])->name('destroy');
+});
+
 // ═══ SYNC-005 FIX: Removed competing sync endpoints ═══════════════════
 // The POST /_native/api/sync/patients and POST /_native/api/sync/files
 // routes have been removed. Sync is now handled exclusively by the

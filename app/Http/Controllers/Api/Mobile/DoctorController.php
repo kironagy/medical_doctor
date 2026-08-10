@@ -81,6 +81,10 @@ class DoctorController extends Controller
 
     public function updateProfile(Request $request)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $user = $request->user();
 
         $validated = $request->validate([
@@ -109,6 +113,10 @@ class DoctorController extends Controller
 
     public function updatePassword(Request $request)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $validated = $request->validate([
             'current_password' => 'required|current_password',
             'new_password' => 'required|string|min:8|confirmed',

@@ -30,6 +30,10 @@ class CategoryController extends Controller
 
     public function update(Request $request)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $user = $request->user();
         $validated = $request->validate([
             'categories' => 'required|array',
@@ -40,17 +44,6 @@ class CategoryController extends Controller
             'categories.*.order' => 'nullable|integer',
             'categories.*.is_visible' => 'nullable|boolean',
         ]);
-
-        if (config('database.default') === 'sqlite') {
-            $repo = app(\App\Contracts\Repositories\CategoryRepositoryInterface::class);
-            $userId = $user?->id;
-            if (!$userId) {
-                $localUser = \App\Domains\Users\Models\User::first();
-                $userId = $localUser?->id;
-            }
-            $repo->refresh($userId, $validated['categories']);
-            return response()->json($validated['categories']);
-        }
 
         $isSuperAdmin = $user && ($user->role === 'super-admin' || $user->hasRole('super-admin'));
 
@@ -74,6 +67,10 @@ class CategoryController extends Controller
 
     public function addCategory(Request $request)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $user = $request->user();
         $validated = $request->validate([
             'slug' => 'required|string|unique_custom_category',
@@ -124,6 +121,10 @@ class CategoryController extends Controller
 
     public function deleteCategory(Request $request, string $slug)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $user = $request->user();
         $isSuperAdmin = $user && ($user->role === 'super-admin' || $user->hasRole('super-admin'));
 

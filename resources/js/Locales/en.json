@@ -578,6 +578,9 @@
     "other_doctor": "Other doctor",
     "read_only": "Read Only",
     "download": "Download Files",
+    "download_offline": "Download Offline",
+    "refresh_offline": "Refresh Offline Copy",
+    "retry_offline": "Retry Offline Download",
     "share": "Share",
     "edit": "Edit",
     "delete": "Delete Patient"

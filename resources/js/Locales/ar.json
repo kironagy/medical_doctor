@@ -577,6 +577,9 @@
     "other_doctor": "طبيب آخر",
     "read_only": "للعرض فقط",
     "download": "تحميل الملفات",
+    "download_offline": "حفظ Offline",
+    "refresh_offline": "تحديث النسخة المحفوظة",
+    "retry_offline": "إعادة محاولة الحفظ",
     "share": "مشاركة",
     "edit": "تعديل",
     "delete": "مسح المريض"

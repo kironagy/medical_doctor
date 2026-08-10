@@ -32,6 +32,10 @@ class ShareController extends Controller
 
     public function store(Request $request, string $uuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('update', $patient);
 
@@ -70,6 +74,10 @@ class ShareController extends Controller
 
     public function destroy(string $uuid, string $shareId)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('update', $patient);
 

@@ -68,7 +68,12 @@
             <span v-if="patient.sync_status && patient.sync_status !== 'synced'" class="text-[10px] px-1.5 py-0.5 rounded-md font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 flex-shrink-0 me-1">
               ⏳
             </span>
-            
+
+            <!-- Available Offline Badge -->
+            <span v-if="readyPatientUuids.has(patient.uuid)" :title="$t('patient_summary.download_offline')" class="flex-shrink-0 me-1 text-emerald-600 dark:text-emerald-400">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+            </span>
+
             <!-- Name (Far Left in RTL, so it floats left) -->
             <p class="text-sm font-bold text-slate-900 dark:text-white truncate text-left">
               {{ patient.name }}
@@ -198,6 +203,11 @@ import SyncCenterModal from './SyncCenterModal.vue'
 import { useSyncEngine } from '@/Composables/useSyncEngine'
 const { isOnline, isSyncing, pendingSummary, triggerSync, refreshFromServer } = useSyncEngine()
 const showSyncCenter = ref(false)
+
+// ── Offline Package availability (per-patient "available offline" badge) ──
+import { useOfflinePackages } from '@/Composables/useOfflinePackages'
+const { readyPatientUuids, fetchPackages } = useOfflinePackages()
+fetchPackages()
 
 async function handleSyncNow() {
   const result = await triggerSync()

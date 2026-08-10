@@ -63,6 +63,10 @@ class NoteController extends Controller
 
     public function store(Request $request, ?string $uuid = null)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $patientUuid = $uuid ?: $request->input('patient_uuid');
         if (!$patientUuid) {
             return response()->json(['message' => 'patient_uuid is required'], 422);
@@ -109,6 +113,10 @@ class NoteController extends Controller
 
     public function update(Request $request, string $uuid, string $noteUuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         // ═══════════════════════════════════════════════════════════════
         //  CAPTURE BEARER TOKEN (same as store() — needed for sync engine)
         // ═══════════════════════════════════════════════════════════════
@@ -168,6 +176,10 @@ class NoteController extends Controller
 
     public function destroy(Request $request, string $uuid, string $noteUuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         // ═══════════════════════════════════════════════════════════════
         //  CAPTURE BEARER TOKEN (same as store() — needed for sync engine)
         // ═══════════════════════════════════════════════════════════════

@@ -7,6 +7,7 @@ use App\Repositories\Eloquent\EloquentPatientRepository;
 use App\Domains\Sync\Services\SyncQueueService;
 use App\Services\Mobile\RemoteApiService;
 use App\Domains\Media\Models\PatientFile;
+use App\Exceptions\OfflineWriteNotAllowedException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -14,13 +15,18 @@ use Throwable;
 
 /**
  * ───────────────────────────────────────────────────────────────────────────
- * PatientRepository — Offline-First Pure Persistence Repository
+ * PatientRepository — Online-Direct Persistence Repository
  * ───────────────────────────────────────────────────────────────────────────
  *
- * In the Offline-First Architecture, SQLite is the sole source of truth
- * during mobile application usage. This repository performs all CRUD operations
- * directly against SQLite via Eloquent inside DB::transaction(), setting
- * sync_status flags and pushing queue records into sync_queue atomically.
+ * Production (MySQL) is the sole source of truth. Every write here is a
+ * normal single-database write. The embedded on-device instance (SQLite)
+ * only ever reaches these methods when the device is genuinely offline (see
+ * RequestRouter.kt — online mutations are routed directly to production and
+ * never touch this instance at all), in which case the write is rejected
+ * rather than staged as a local pending_* row — there is no local-first
+ * write path anymore. $queueService and deleteRemoteDirectly() are now
+ * unreachable from this class; left in place pending the Phase 5 removal of
+ * the old sync system rather than touched here.
  * ───────────────────────────────────────────────────────────────────────────
  */
 class PatientRepository implements PatientRepositoryInterface
@@ -136,88 +142,31 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function create(array $data): array
     {
-        if (!$this->isOfflineDevice()) {
-            $data['sync_status'] = 'synced';
-            return $this->local->create($data);
+        if ($this->isOfflineDevice()) {
+            throw new OfflineWriteNotAllowedException();
         }
 
-        return DB::transaction(function () use ($data) {
-            $data['sync_status'] = 'pending_create';
-            $data['client_updated_at'] = now();
-            $patient = $this->local->create($data);
-
-            $this->queueService->push('patient', $patient['uuid'], 'create', $patient);
-            return $patient;
-        });
+        $data['sync_status'] = 'synced';
+        return $this->local->create($data);
     }
 
     public function update(string $uuid, array $data): array
     {
-        if (!$this->isOfflineDevice()) {
-            $data['sync_status'] = 'synced';
-            return $this->local->update($uuid, $data);
+        if ($this->isOfflineDevice()) {
+            throw new OfflineWriteNotAllowedException();
         }
 
-        return DB::transaction(function () use ($uuid, $data) {
-            $data['sync_status'] = 'pending_update';
-            $data['client_updated_at'] = now();
-            $patient = $this->local->update($uuid, $data);
-
-            $this->queueService->push('patient', $uuid, 'update', $patient);
-            return $patient;
-        });
+        $data['sync_status'] = 'synced';
+        return $this->local->update($uuid, $data);
     }
 
     public function delete(string $uuid): void
     {
-        if (!$this->isOfflineDevice()) {
-            \App\Domains\Patients\Models\Patient::where('uuid', $uuid)->delete();
-            return;
+        if ($this->isOfflineDevice()) {
+            throw new OfflineWriteNotAllowedException();
         }
 
-        DB::transaction(function () use ($uuid) {
-            $hasRemoteUuid = \Illuminate\Support\Facades\Schema::hasColumn('patients', 'remote_uuid');
-            $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
-                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-            )->where(function ($q) use ($uuid, $hasRemoteUuid) {
-                $q->where('uuid', $uuid);
-                if ($hasRemoteUuid) {
-                    $q->orWhere('remote_uuid', $uuid);
-                }
-            })->first();
-
-            if (!$patient) {
-                $this->deleteRemoteDirectly($uuid);
-                return;
-            }
-
-            if ($patient->sync_status === 'pending_create') {
-                // Confirmed live: create() always pushes a sync_queue
-                // 'create' row with a full payload snapshot. Force-deleting
-                // here without cancelling it left that row stuck pending
-                // forever — SyncEngineService::processPendingDeletes()
-                // never sees it (this patient never had sync_status
-                // 'pending_delete'), and PatientSyncService::processItem()
-                // just fails it repeatedly ("Local patient record not
-                // found") since the local row this branch just deleted no
-                // longer exists to build a create payload from. push() with
-                // operation 'delete' against an existing 'create' item
-                // cancels it outright (SyncQueueService Rule B) instead of
-                // enqueueing a pointless delete for a patient that was
-                // never on the server.
-                $this->queueService->push('patient', $patient->uuid, 'delete');
-                $patient->forceDelete();
-                return;
-            }
-
-            $patient->update([
-                'sync_status'       => 'pending_delete',
-                'client_updated_at' => now(),
-            ]);
-            $patient->delete();
-
-            $this->queueService->push('patient', $patient->uuid, 'delete');
-        });
+        \App\Domains\Patients\Models\Patient::where('uuid', $uuid)->delete();
     }
 
     public function search(string $term): array
@@ -247,88 +196,27 @@ class PatientRepository implements PatientRepositoryInterface
 
     public function restore(string $uuid): void
     {
-        if (!$this->isOfflineDevice()) {
-            $this->local->restore($uuid);
-            $this->local->update($uuid, ['sync_status' => 'synced']);
-            return;
+        if ($this->isOfflineDevice()) {
+            throw new OfflineWriteNotAllowedException();
         }
 
-        DB::transaction(function () use ($uuid) {
-            $this->local->restore($uuid);
-            $this->local->update($uuid, ['sync_status' => 'pending_update', 'client_updated_at' => now()]);
-            $this->queueService->push('patient', $uuid, 'update');
-        });
+        $this->local->restore($uuid);
+        $this->local->update($uuid, ['sync_status' => 'synced']);
     }
 
     public function forceDelete(string $uuid): void
     {
-        if (!$this->isOfflineDevice()) {
-            $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
-                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-            )->withTrashed()->where('uuid', $uuid)->first();
-
-            if ($patient) {
-                $this->deletePatientFiles($patient->id);
-                $patient->forceDelete();
-            }
-            return;
+        if ($this->isOfflineDevice()) {
+            throw new OfflineWriteNotAllowedException();
         }
 
-        DB::transaction(function () use ($uuid) {
-            $hasRemoteUuid = \Illuminate\Support\Facades\Schema::hasColumn('patients', 'remote_uuid');
-            $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
-                \App\Domains\Auth\Scopes\DoctorIsolationScope::class
-            )->withTrashed()->where(function ($q) use ($uuid, $hasRemoteUuid) {
-                $q->where('uuid', $uuid);
-                if ($hasRemoteUuid) {
-                    $q->orWhere('remote_uuid', $uuid);
-                }
-            })->first();
+        $patient = \App\Domains\Patients\Models\Patient::withoutGlobalScope(
+            \App\Domains\Auth\Scopes\DoctorIsolationScope::class
+        )->withTrashed()->where('uuid', $uuid)->first();
 
-            if (!$patient) {
-                $this->deleteRemoteDirectly($uuid);
-                return;
-            }
-
-            // Was previously immediate forceDelete() + queue push. That wiped
-            // the local row before the server ever knew about it: if the
-            // queue item was never processed (manual Sync button uses a
-            // different consumer than the background SyncEngineService),
-            // the delete never reached production, and the row was already
-            // gone locally with nothing left to retry from. Mark
-            // pending_delete instead, same as delete() above — the local
-            // list already excludes pending_delete (paginated() filters it),
-            // so it disappears from the UI immediately, while
-            // SyncEngineService::processPendingDeletes() pushes the real
-            // delete to the server and only then removes the row for good.
-            if ($patient->sync_status === 'pending_create') {
-                // Confirmed live: create() always pushes a sync_queue
-                // 'create' row with a full payload snapshot. Force-deleting
-                // here without cancelling it left that row stuck pending
-                // forever — SyncEngineService::processPendingDeletes()
-                // never sees it (this patient never had sync_status
-                // 'pending_delete'), and PatientSyncService::processItem()
-                // just fails it repeatedly ("Local patient record not
-                // found") since the local row this branch just deleted no
-                // longer exists to build a create payload from. push() with
-                // operation 'delete' against an existing 'create' item
-                // cancels it outright (SyncQueueService Rule B) instead of
-                // enqueueing a pointless delete for a patient that was
-                // never on the server.
-                $this->queueService->push('patient', $patient->uuid, 'delete');
-                $patient->forceDelete();
-                return;
-            }
-
-            $patient->update([
-                'sync_status'       => 'pending_delete',
-                'client_updated_at' => now(),
-            ]);
-            if (!$patient->trashed()) {
-                $patient->delete();
-            }
-
-            $this->queueService->push('patient', $patient->uuid, 'delete');
-        });
+        if ($patient) {
+            $this->deletePatientFiles($patient->id);
+            $patient->forceDelete();
+        }
     }
 }

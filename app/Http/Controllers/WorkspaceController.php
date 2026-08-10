@@ -173,6 +173,8 @@ class WorkspaceController extends Controller
                 'patient' => $patient,
                 'message' => 'Patient created successfully',
             ]);
+        } catch (\App\Exceptions\OfflineWriteNotAllowedException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             $errorId = substr(str_shuffle('0123456789abcdefghijklmnopqrstuvwxyz'), 0, 8);
             Log::error('[WorkspaceController] storePatient failed [' . $errorId . ']: ' . $e->getMessage(), [
@@ -220,6 +222,8 @@ class WorkspaceController extends Controller
                 'patient' => $patient,
                 'message' => 'Patient updated successfully',
             ]);
+        } catch (\App\Exceptions\OfflineWriteNotAllowedException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('[WorkspaceController] updatePatient failed: ' . $e->getMessage());
             return response()->json(['message' => 'Failed to update patient'], 500);

@@ -204,13 +204,18 @@ class RemoteApiService
     /**
      * Resolve an endpoint to its full production URL.
      *
-     * Two disjoint route families live on production (routes/api.php):
+     * Three disjoint route families live on production (routes/api.php and
+     * routes/web.php's unconditional api/v1 group):
      *   /api/v1/mobile/*  — patients, notes, visits, files, etc. (nested
      *                        under the 'mobile' prefix group)
      *   /api/v1/chunk/*   — chunk upload endpoints (a SIBLING of the mobile
      *                        group, explicitly NOT nested under it — see the
      *                        "Single source of truth for /api/v1/chunk/*"
      *                        comment there)
+     *   /api/v1/files/*   — raw file bytes/metadata (FileAccessController,
+     *                        routes/web.php:199-204), also a sibling of
+     *                        /mobile. Used by OfflinePackageService to pull
+     *                        a downloaded patient's file bytes.
      *
      * config('app.mobile_api_url') is `{production host}/api/v1/mobile`.
      * Every FileSyncService::uploadLargeFileResumable() call passed
@@ -238,7 +243,7 @@ class RemoteApiService
     {
         $endpoint = '/' . ltrim($endpoint, '/');
 
-        if (str_starts_with($endpoint, '/chunk/')) {
+        if (str_starts_with($endpoint, '/chunk/') || str_starts_with($endpoint, '/files/')) {
             $mobileBase = rtrim(config('app.mobile_api_url', config('app.url')), '/');
             $apiRoot = preg_replace('#/mobile$#', '', $mobileBase);
             return $apiRoot . $endpoint;

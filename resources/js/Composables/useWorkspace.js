@@ -9,6 +9,10 @@ const archivedPatients = ref([]);
 const archivedPatientsMeta = ref(null);
 const selectedPatientId = ref(null);
 const workspaceData = shallowRef(null);
+// Set when a patient couldn't be loaded AND the device is offline — lets the
+// UI show a clear "not available offline, download it first" message instead
+// of a silently blank/broken workspace.
+const patientOfflineUnavailable = ref(false);
 const loading = ref(false);
 const loadingPatient = ref(false);
 const loadingPatients = ref(false);
@@ -190,6 +194,7 @@ async function selectPatient(uuid) {
     showSettings.value = false;
     selectedPatientId.value = uuid;
     loadingPatient.value = true;
+    patientOfflineUnavailable.value = false;
     expandedCategories.value = {};
     lazyLoadedCategories.value = {};
     try {
@@ -247,6 +252,16 @@ async function selectPatient(uuid) {
             }
         } else {
             workspaceData.value = null;
+            // Both the production fetch and the local-device fallback failed.
+            // If we're genuinely offline, this patient simply has no
+            // downloaded package — that's an expected, explainable state,
+            // not a broken app. (navigator.onLine is unreliable in this
+            // WebView per useOfflineUploads.js's own comment, but it's a
+            // reasonable-enough signal here since we only use it to pick the
+            // wording, not to gate any actual write behavior.)
+            if (typeof navigator !== "undefined" && navigator.onLine === false) {
+                patientOfflineUnavailable.value = true;
+            }
         }
     } finally {
         loadingPatient.value = false;
@@ -1028,6 +1043,7 @@ export function useWorkspace() {
         selectedPatientId,
         selectedPatient,
         workspaceData,
+        patientOfflineUnavailable,
         loading,
         loadingPatient,
         loadingPatients,

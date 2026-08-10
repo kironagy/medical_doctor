@@ -35,6 +35,20 @@
               <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/60 text-teal-700 dark:text-teal-300">Sync Data</span>
             </button>
 
+            <!-- Downloaded Patients (المرضى المحفوظين Offline) -->
+            <button
+              type="button"
+              @click="openOfflinePackages"
+              class="w-full flex items-center justify-between px-5 py-3 border border-teal-500/30 dark:border-teal-500/20 text-teal-700 dark:text-teal-400 bg-teal-50/10 hover:bg-teal-50/30 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
+            >
+              <span class="flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                المرضى المحفوظين Offline
+              </span>
+            </button>
+
             <!-- 1. Change Appearance (تغيير المظهر) -->
             <button
               type="button"
@@ -148,6 +162,27 @@
         </div>
       </div>
     </Transition>
+
+    <!-- Offline Packages Manager Overlay -->
+    <Transition name="fade">
+      <div v-if="showOfflinePackages" class="fixed inset-0 z-[160] flex items-center justify-center p-4 overflow-y-auto">
+        <div class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm" @click="showOfflinePackages = false"></div>
+        <div class="relative bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 md:p-8 border border-slate-200 dark:border-slate-800 z-10">
+          <div class="flex items-center justify-between mb-4 border-b pb-3 border-slate-200 dark:border-slate-800">
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <svg class="w-5 h-5 text-teal-600 dark:text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              المرضى المحفوظين Offline
+            </h3>
+            <button @click="showOfflinePackages = false" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-800 text-sm font-bold">
+              إغلاق
+            </button>
+          </div>
+          <OfflinePackagesManager />
+        </div>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -160,6 +195,7 @@ import { useToast } from '@/Composables/useToast'
 import axios from 'axios'
 import CategoryManagerModal from '@/Components/workspace/CategoryManagerModal.vue'
 import SyncDataCenter from '@/Pages/Settings/Partials/SyncDataCenter.vue'
+import OfflinePackagesManager from '@/Components/workspace/OfflinePackagesManager.vue'
 
 defineProps({
   modelValue: Boolean
@@ -177,11 +213,19 @@ const downloadingApp = ref(false)
 
 const showCategoryManager = ref(false)
 const showSyncDataCenter = ref(false)
+const showOfflinePackages = ref(false)
 
 function openSyncDataCenter() {
   emit('update:modelValue', false) // close settings modal
   setTimeout(() => {
     showSyncDataCenter.value = true
+  }, 200)
+}
+
+function openOfflinePackages() {
+  emit('update:modelValue', false) // close settings modal
+  setTimeout(() => {
+    showOfflinePackages.value = true
   }, 200)
 }
 

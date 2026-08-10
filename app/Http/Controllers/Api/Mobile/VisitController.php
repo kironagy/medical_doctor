@@ -62,6 +62,10 @@ class VisitController extends Controller
 
     public function store(Request $request, string $uuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $patient = $this->resolvePatient($uuid);
 
         // ── SQLite guard: Skip Gate when no authenticated user ──────────
@@ -133,6 +137,10 @@ class VisitController extends Controller
 
     public function update(Request $request, string $uuid, string $visitId)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $patient = $this->resolvePatient($uuid);
 
         // ── SQLite guard: Skip Gate when no authenticated user ──────────
@@ -188,6 +196,10 @@ class VisitController extends Controller
 
     public function destroy(Request $request, string $uuid, string $visitId)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $patient = $this->resolvePatient($uuid);
 
         // ── SQLite guard: Skip Gate when no authenticated user ──────────

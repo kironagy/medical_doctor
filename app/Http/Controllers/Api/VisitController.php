@@ -22,6 +22,10 @@ class VisitController extends Controller
 
     public function store(Request $request, string $patientUuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('update', $patient);
 
@@ -45,6 +49,10 @@ class VisitController extends Controller
 
     public function update(Request $request, string $patientUuid, string $visitId)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('update', $patient);
 
@@ -70,6 +78,10 @@ class VisitController extends Controller
 
     public function destroy(Request $request, string $patientUuid, string $visitId)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();
         Gate::authorize('update', $patient);
 

@@ -17,6 +17,10 @@ class UploadController extends Controller
 
     public function store(StoreFileRequest $request, string $patientUuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $validated = $request->validated();
 
         $patient = Patient::where('uuid', $patientUuid)->firstOrFail();

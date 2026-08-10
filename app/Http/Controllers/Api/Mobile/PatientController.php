@@ -83,6 +83,13 @@ class PatientController extends Controller
      */
     public function store(Request $request)
     {
+        // Online mutations never reach this instance anymore (RequestRouter.kt
+        // routes them straight to production) — reaching here on sqlite means
+        // the device is genuinely offline, and offline create is not supported.
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:255',
@@ -279,6 +286,10 @@ class PatientController extends Controller
 
     public function update(Request $request, string $uuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $patient = Patient::where('uuid', $uuid)->firstOrFail();
         Gate::authorize('update', $patient);
 

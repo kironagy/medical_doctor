@@ -158,8 +158,19 @@
               <PatientSummary :patient="currentPatient" :isPrimaryDoctor="isPrimaryDoctor" @edit="openEditPatient" @delete="handleDelete" @share="showShareModal = true" @download="handleDownloadFiles" />
             </div>
 
+            <!-- Not available offline: no downloaded package for this patient -->
+            <div v-if="patientOfflineUnavailable && !workspaceData" class="workspace-section text-center py-14 px-4 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded-xl">
+              <svg class="w-10 h-10 mx-auto text-amber-500 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.7-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" /></svg>
+              <p class="text-slate-700 dark:text-slate-300 font-bold">
+                هذا المريض غير متاح Offline
+              </p>
+              <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                يلزم الاتصال بالإنترنت لتحميل نسخة منه للعرض بدون اتصال
+              </p>
+            </div>
+
             <!-- Section 2: Dynamic Categories -->
-            <div ref="recordsRef" class="workspace-section space-y-4">
+            <div v-else ref="recordsRef" class="workspace-section space-y-4">
               <CategoryBlock
                 v-for="cat in categories"
                 :key="cat.slug"
@@ -285,6 +296,7 @@ setCategories,
 selectedPatientId,
 closePatient,
 workspaceData,
+patientOfflineUnavailable,
 loadingPatient,
 loadingPatients,
 isMobile,

@@ -30,6 +30,13 @@ class ChunkUploadController extends Controller
 
     public function init(InitChunkUploadRequest $request)
     {
+        // Online mutations never reach this instance anymore (RequestRouter.kt
+        // routes them straight to production) — reaching here on sqlite means
+        // the device is genuinely offline, and offline upload is not supported.
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $start = microtime(true);
         $mimeType = $request->input('mime_type');
         $fileName = $request->input('file_name');
@@ -202,6 +209,10 @@ class ChunkUploadController extends Controller
 
     public function chunk(StoreChunkRequest $request)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $start = microtime(true);
         $validated = $request->validated();
 
@@ -285,6 +296,10 @@ class ChunkUploadController extends Controller
 
     public function complete(CompleteChunkUploadRequest $request)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         if ($request->hasSession()) {
             $request->session()->save();
         }

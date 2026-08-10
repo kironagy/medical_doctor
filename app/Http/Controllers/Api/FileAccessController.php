@@ -417,6 +417,10 @@ class FileAccessController extends Controller
 
     public function update(Request $request, string $uuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         if ($request->user() && $request->user()->cannot('update', $file->patient)) {
@@ -440,6 +444,10 @@ class FileAccessController extends Controller
 
     public function destroy(Request $request, string $uuid)
     {
+        if (config('database.default') === 'sqlite') {
+            throw new \App\Exceptions\OfflineWriteNotAllowedException();
+        }
+
         $file = PatientFile::where('uuid', $uuid)->firstOrFail();
 
         if ($request->user() && $request->user()->cannot('update', $file->patient)) {
