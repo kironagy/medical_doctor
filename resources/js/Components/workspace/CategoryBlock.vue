@@ -205,12 +205,8 @@
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                       مسح
                     </button>
-                    <button v-if="item.mime_type?.startsWith('image/')" type="button" @click.stop="printFile(item)" class="flex-1 py-1.5 text-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all">
-                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                      طباعة
-                    </button>
                     <!-- Phase 7: Offline file with retry button -->
-                    <button v-else-if="item.sync_status === 'failed'" type="button" @click.stop="retryOfflineUpload(item)" class="flex-1 py-1.5 text-center bg-amber-50 hover:bg-amber-100 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all">
+                    <button v-if="item.sync_status === 'failed'" type="button" @click.stop="retryOfflineUpload(item)" class="flex-1 py-1.5 text-center bg-amber-50 hover:bg-amber-100 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all">
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                       إعادة المحاولة
                     </button>
@@ -219,10 +215,10 @@
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                       إلغاء
                     </button>
-                    <a v-else :href="item.url" download class="flex-1 py-1.5 text-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all" target="_blank" @click.stop>
+                    <button v-else type="button" :disabled="downloadingUuid === item.uuid" @click.stop="downloadFileItem(item)" class="flex-1 py-1.5 text-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all disabled:opacity-50">
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                       تحميل
-                    </a>
+                    </button>
                   </template>
                 </div>
               </div>
@@ -1050,7 +1046,19 @@ function onNoteAdded(note) {
 // useUploads.js) sidesteps the ambiguity entirely.
 const localCompleteCount = ref(0)
 const mergedUploadJobIds = new Set()
-watch(uploads, (list) => {
+// Fine-grained signature instead of watch(uploads, ...): `uploads` is a ref
+// whose value is a reactive array of reactive job objects. Vue only deep-
+// tracks a watch source automatically when it IS a reactive object; a ref
+// pointing to one still needs `deep: true` to react to a nested mutation
+// like `job.status = 'completed'` — array push/splice trigger fine (that's
+// an array-level change), but flipping an existing job's status afterward
+// does not, so this watcher previously fired once when the upload started
+// and never again when it finished. `{ deep: true }` would work but re-runs
+// this on every progress-byte tick (job.uploadedBytes) for every mounted
+// category, which is wasteful. A getter that reads only the fields this
+// logic cares about gets precise re-triggering without that cost.
+watch(() => uploads.value.map(j => `${j.id}:${j.status}:${j.resultFileUuid || ''}`).join(','), () => {
+  const list = uploads.value
   let c = 0
   for (let i = 0; i < list.length; i++) {
     const j = list[i]
@@ -1419,11 +1427,34 @@ async function deleteOfflineUpload(item) {
   }
 }
 
-function printFile(file) {
-  if (!file.url) return
-  const win = window.open(file.url, '_blank')
-  win.onload = () => {
-    win.print()
+const downloadingUuid = ref(null)
+
+// Plain <a href download> is a documented dead end inside this app's WebView
+// (no DownloadListener registered, so the tap silently does nothing). Native
+// downloads go through NativeFiles.Save via the bridge instead, same as
+// InlineFilePreview.vue's downloadFile().
+async function downloadFileItem(item) {
+  if (!item?.url && !item?.uuid) return
+  if (!detectNative()) {
+    window.open(item.url, '_blank')
+    return
+  }
+  if (downloadingUuid.value === item.uuid) return
+  downloadingUuid.value = item.uuid
+  try {
+    const res = await axios.post('/_native/api/files/download', {
+      uuid: item.uuid,
+      file_name: item.file_name || item.title || `file-${item.uuid}`,
+    })
+    if (res.data?.success) {
+      toast.success('بدأ التحميل')
+    } else {
+      toast.error(res.data?.error || 'فشل التحميل')
+    }
+  } catch (e) {
+    toast.error('فشل التحميل')
+  } finally {
+    downloadingUuid.value = null
   }
 }
 

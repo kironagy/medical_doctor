@@ -12,67 +12,39 @@ class AuthController extends Controller
 {
     public function showLogin(Request $request)
     {
-        // [BUG-TRACE] Entry point + the exact state before any decision is made.
-        Log::info('[BUG-TRACE][AuthController::showLogin] ENTRY', [
-            'database_default' => config('database.default'),
-            'user_count' => \App\Domains\Users\Models\User::count(),
-            'auth_check_before' => Auth::check(),
-        ]);
-
         if (config('database.default') === 'sqlite') {
             $user = \App\Domains\Users\Models\User::first();
-            // [BUG-TRACE]
-            Log::info('[BUG-TRACE][AuthController::showLogin] sqlite branch', [
-                'user_found' => (bool) $user,
-                'user_id' => $user?->id,
-            ]);
             if ($user) {
-                // [BUG-TRACE]
-                Log::info('[BUG-TRACE][AuthController::showLogin] before Auth::login()');
                 Auth::login($user);
-                // [BUG-TRACE]
-                Log::info('[BUG-TRACE][AuthController::showLogin] after Auth::login()', [
-                    'auth_check_after' => Auth::check(),
-                ]);
                 return redirect('/workspace');
             }
         }
 
         if (Auth::check()) {
-            // [BUG-TRACE]
-            Log::info('[BUG-TRACE][AuthController::showLogin] already authenticated -> redirect /dashboard');
             return redirect('/dashboard');
         }
 
-        // [BUG-TRACE] Reaching this line means the Login page WILL be rendered.
-        Log::info('[BUG-TRACE][AuthController::showLogin] FALLTHROUGH -> rendering Auth/Login page', [
-            'database_default' => config('database.default'),
-            'user_count' => \App\Domains\Users\Models\User::count(),
-            'auth_check' => Auth::check(),
-        ]);
         return Inertia::render('Auth/Login');
     }
 
     public function login(Request $request)
     {
-        // ⚠️ TEMPORARY — checkpoint instrumentation for root-cause
-        // investigation. Every branch of this method gets an unconditional
-        // Log::error checkpoint (device LOG_LEVEL=error strips info/warning)
-        // so a single login attempt shows exactly which line execution
-        // reached last, instead of inferring it from which log lines are
-        // absent. Remove once the root cause is confirmed.
-        Log::error('[LOGIN-DIAG] ENTER AuthController@login');
-
         $credentials = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required'],
         ]);
 
         $attemptSuccess = Auth::attempt($credentials, $request->boolean('remember'));
-        Log::error('[LOGIN-DIAG] Auth::attempt result', ['success' => $attemptSuccess]);
 
         if ($attemptSuccess) {
             $request->session()->regenerate();
+            // Drop any stale "return to where I was" URL captured by the
+            // guest-redirect before this login — a page visited in a
+            // previous, now-expired session must never hijack this login's
+            // destination (this was silently sending fresh logins back to
+            // whatever page had bounced them to /login, sometimes forming
+            // a login <-> that-page loop).
+            $request->session()->forget('url.intended');
 
             // Obtain API token for mobile API requests and sync
             try {
@@ -108,21 +80,14 @@ class AuthController extends Controller
                 return redirect('/admin/doctors');
             }
 
-            return redirect()->intended('/dashboard');
+            return redirect('/dashboard');
         }
 
 
         // If local authentication fails, attempt authentication against remote production API
         // (essential for clean installs where the local SQLite database contains 0 users)
-        Log::error('[LOGIN-DIAG] entering remote fallback');
         try {
-            Log::error('[LOGIN-DIAG] calling remote api');
             $tokenResponse = ApiService::loginToRemote($credentials['email'], $credentials['password']);
-            Log::error('[LOGIN-DIAG] remote api success', [
-                'has_token' => isset($tokenResponse['token']),
-                'has_user'  => isset($tokenResponse['user']),
-                'keys'      => is_array($tokenResponse) ? array_keys($tokenResponse) : gettype($tokenResponse),
-            ]);
             if (isset($tokenResponse['token']) && isset($tokenResponse['user'])) {
                 $remoteUser = $tokenResponse['user'];
 
@@ -143,19 +108,11 @@ class AuthController extends Controller
                     ]
                 );
                 \App\Domains\Users\Models\User::reguard();
-                Log::error('[LOGIN-DIAG] updateOrCreate finished', [
-                    'user_id' => $localUser->id,
-                    'exists_in_db' => \App\Domains\Users\Models\User::where('id', $localUser->id)->exists(),
-                    'count' => \App\Domains\Users\Models\User::count(),
-                ]);
 
                 // Authenticate the user session locally
                 Auth::login($localUser, $request->boolean('remember'));
                 $request->session()->regenerate();
-                Log::error('[LOGIN-DIAG] Auth::login finished', [
-                    'auth' => Auth::check(),
-                    'id'   => Auth::id(),
-                ]);
+                $request->session()->forget('url.intended');
 
                 // Save remote API token and store credentials for the sync engine
                 app(ApiService::class)->setToken($tokenResponse['token']);
@@ -169,7 +126,7 @@ class AuthController extends Controller
                 if ($localUser->role === 'super-admin' || $localUser->hasRole('super-admin')) {
                     return redirect('/admin/doctors');
                 }
-                return redirect()->intended('/dashboard');
+                return redirect('/dashboard');
             }
         } catch (\Throwable $e) {
             // Log::error (not warning): device LOG_LEVEL=error filters warning
@@ -206,6 +163,7 @@ class AuthController extends Controller
         // Clean up stored credentials
         session()->forget('auth_credentials');
         session()->forget('api_token');
+        session()->forget('url.intended');
 
         Auth::logout();
         $request->session()->invalidate();

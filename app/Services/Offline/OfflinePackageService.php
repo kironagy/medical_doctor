@@ -251,6 +251,10 @@ class OfflinePackageService
     {
         $seenUuids = [];
         $failures = [];
+        // endpoint => [destinationPath, displayName] — downloaded concurrently
+        // in one batch after the metadata loop below, instead of one blocking
+        // HTTP round trip per file (see RemoteApiService::downloadMany()).
+        $toDownload = [];
 
         foreach ($this->paginate("/patients/{$patientUuid}/files") as $item) {
             $fileUuid = $item['uuid'];
@@ -287,9 +291,18 @@ class OfflinePackageService
                 && Storage::disk('local')->size($relativePath) > 0;
 
             if (!$alreadyOnDisk) {
-                $ok = $this->remote->download("/files/{$fileUuid}", Storage::disk('local')->path($relativePath));
+                $toDownload["/files/{$fileUuid}"] = [
+                    Storage::disk('local')->path($relativePath),
+                    $item['file_name'] ?? $fileUuid,
+                ];
+            }
+        }
+
+        if ($toDownload) {
+            $results = $this->remote->downloadMany(array_map(fn ($job) => $job[0], $toDownload));
+            foreach ($results as $endpoint => $ok) {
                 if (!$ok) {
-                    $failures[] = $item['file_name'] ?? $fileUuid;
+                    $failures[] = $toDownload[$endpoint][1];
                 }
             }
         }

@@ -61,19 +61,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
         ]);
-        // [BUG-TRACE] There is no custom Authenticate middleware in this app —
-        // the framework's default `auth` middleware handles guest redirects.
-        // This hook fires at the exact moment it decides to redirect an
-        // unauthenticated request to /login, so we can see WHICH route
-        // triggered the redirect to the login page.
-        $middleware->redirectGuestsTo(function (\Illuminate\Http\Request $request) {
-            \Illuminate\Support\Facades\Log::info('[BUG-TRACE][AuthMiddleware] Guest redirected to login', [
-                'path' => $request->path(),
-                'method' => $request->method(),
-                'database_default' => config('database.default'),
-            ]);
-            return route('login');
-        });
+        $middleware->redirectGuestsTo(fn () => route('login'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->report(function (\Throwable $e) {

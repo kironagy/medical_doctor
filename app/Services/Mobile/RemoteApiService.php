@@ -169,6 +169,66 @@ class RemoteApiService
     }
 
     /**
+     * Download several files concurrently instead of one blocking request
+     * per file — an offline-package pull with N files previously took N
+     * sequential round trips (connection setup + wait, one at a time). A
+     * small fixed pool overlaps the network wait time across files while
+     * still writing each one to its own destination path, so a slow/failed
+     * file can't corrupt another — same per-file success/failure contract
+     * as download(), just batched.
+     *
+     * @param  array<string, string>  $jobs  endpoint => destinationPath
+     * @return array<string, bool>  endpoint => success
+     */
+    public function downloadMany(array $jobs, int $timeoutSeconds = 900, int $poolSize = 4): array
+    {
+        $results = [];
+        foreach (array_chunk($jobs, $poolSize, true) as $batch) {
+            foreach ($batch as $destinationPath) {
+                $dir = dirname($destinationPath);
+                if (!is_dir($dir)) {
+                    mkdir($dir, 0755, true);
+                }
+            }
+
+            $headers = ['Accept' => '*/*'];
+            if ($this->token) {
+                $headers['Authorization'] = 'Bearer ' . $this->token;
+            }
+
+            $responses = Http::pool(fn ($pool) => array_map(
+                fn ($endpoint, $destinationPath) => $pool->as($endpoint)
+                    ->timeout($timeoutSeconds)
+                    ->withHeaders($headers)
+                    ->withOptions(['sink' => $destinationPath])
+                    ->get($this->resolveUrl($endpoint)),
+                array_keys($batch),
+                array_values($batch)
+            ));
+
+            foreach ($batch as $endpoint => $destinationPath) {
+                $response = $responses[$endpoint] ?? null;
+                $success = !($response instanceof \Throwable)
+                    && $response?->successful()
+                    && file_exists($destinationPath)
+                    && filesize($destinationPath) > 0;
+
+                if (!$success) {
+                    if ($response instanceof \Throwable) {
+                        Log::error('[RemoteApiService] pooled download failed for ' . $endpoint . ': ' . $response->getMessage());
+                    }
+                    if (file_exists($destinationPath)) {
+                        @unlink($destinationPath);
+                    }
+                }
+                $results[$endpoint] = $success;
+            }
+        }
+
+        return $results;
+    }
+
+    /**
      * Internal request builder with retry support.
      */
     private function request(string $method, string $endpoint, array $options = [], int $timeoutSeconds = 30): array

@@ -92,10 +92,16 @@ export function useOfflineUploads() {
    * nothing happening until the whole file (all chunks + merge) is done.
    */
   async function saveFileChunkedOffline(file, patientUuid, metadata = {}, job = null) {
-    // ── FIX-PERF-4: read the shared configuration instead of a hardcoded
-    // constant. configureUploads() in app.js sets chunkSize to 2 MB on device,
-    // and that change would have had no effect on this path before this fix.
-    const CHUNK_SIZE = getUploadConfig().chunkSize || (5 * 1024 * 1024)
+    // ── PERF: this path only ever runs online — ChunkUploadController::chunk()
+    // throws immediately on a sqlite (offline) connection, and RequestRouter.kt
+    // confirms /api/v1/chunk/* is routed EXTERNAL (straight to production over
+    // the real network) whenever the device is online. It therefore never
+    // touches the embedded php_embed bridge, so the 2 MB device-wide chunk
+    // size in app.js — chosen specifically to cap THAT bridge's mutex-bound
+    // memory pressure — doesn't apply here. Use the larger, already-proven
+    // "highest sustained throughput" size instead (still far under the
+    // server's 50 MB/chunk limit): fewer round trips for the same bytes.
+    const CHUNK_SIZE = Math.max(getUploadConfig().chunkSize || 0, 5 * 1024 * 1024)
     const token = typeof localStorage !== 'undefined' ? localStorage.getItem('np_api_token') : null;
     const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
 
