@@ -178,9 +178,14 @@ class RemoteApiService
      * as download(), just batched.
      *
      * @param  array<string, string>  $jobs  endpoint => destinationPath
+     * @param  ?callable  $onBatchComplete  Invoked after each pooled batch
+     *         finishes with (array<string,bool> $batchResults) — endpoint =>
+     *         success, scoped to just that batch. Lets a caller (currently
+     *         OfflinePackageService) report incremental progress without this
+     *         method knowing anything about notifications or file sizes.
      * @return array<string, bool>  endpoint => success
      */
-    public function downloadMany(array $jobs, int $timeoutSeconds = 900, int $poolSize = 4): array
+    public function downloadMany(array $jobs, int $timeoutSeconds = 900, int $poolSize = 4, ?callable $onBatchComplete = null): array
     {
         $results = [];
         foreach (array_chunk($jobs, $poolSize, true) as $batch) {
@@ -222,6 +227,10 @@ class RemoteApiService
                     }
                 }
                 $results[$endpoint] = $success;
+            }
+
+            if ($onBatchComplete) {
+                $onBatchComplete(array_intersect_key($results, $batch));
             }
         }
 

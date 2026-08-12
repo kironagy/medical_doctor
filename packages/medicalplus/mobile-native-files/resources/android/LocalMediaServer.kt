@@ -265,6 +265,7 @@ object LocalMediaServer {
             "png" -> "image/png"
             "webp" -> "image/webp"
             "pdf" -> "application/pdf"
+            "zip" -> "application/zip"
             else -> "application/octet-stream"
         }
     }

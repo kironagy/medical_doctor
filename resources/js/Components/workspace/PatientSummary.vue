@@ -74,7 +74,7 @@
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-2">
         <!-- Action Buttons — hidden completely when read-only access -->
         <div v-if="!isReadOnly" class="flex flex-wrap items-center gap-2">
-          <button @click="$emit('download')" class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:hover:bg-indigo-900/20 border border-indigo-200 text-indigo-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors">
+          <button v-if="!detectNative()" @click="$emit('download')" class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:hover:bg-indigo-900/20 border border-indigo-200 text-indigo-600 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-3 3m0 0l-3-3m3 3V4" /></svg>
             {{ $t('patient_summary.download') }}
           </button>
@@ -127,6 +127,7 @@ import { useWorkspace } from '@/Composables/useWorkspace'
 import { useOfflinePackages } from '@/Composables/useOfflinePackages'
 import { useSyncEngine } from '@/Composables/useSyncEngine'
 import { useToast } from '@/Composables/useToast'
+import { useNativeBridge } from '@/Composables/useNativeBridge'
 
 const props = defineProps({
   patient: Object,
@@ -139,6 +140,7 @@ const { isShared, isReadOnly, sharedByName } = useWorkspace()
 const { getPackage, isBusy, fetchPackages, downloadPackage, refreshPackage } = useOfflinePackages()
 const { isOnline } = useSyncEngine()
 const toast = useToast()
+const { detectNative } = useNativeBridge()
 
 onMounted(fetchPackages)
 

@@ -10,9 +10,10 @@
     <button v-if="canEdit" @click.stop="openMove" class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 dark:text-slate-200 hover:text-amber-600 dark:hover:text-amber-400 shadow-sm transition-colors hover:scale-110 active:scale-95" :title="$t('file_actions.move')">
       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
     </button>
-    <a v-if="file.url" :href="file.url" target="_blank" @click.stop class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 shadow-sm transition-colors hover:scale-110 active:scale-95" :title="$t('file_actions.download')">
-      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-    </a>
+    <button v-if="file.url" @click.stop="downloadFile" :disabled="downloading" class="p-1.5 bg-white/90 dark:bg-slate-800/90 rounded-full text-slate-700 dark:text-slate-200 hover:text-emerald-600 dark:hover:text-emerald-400 shadow-sm transition-colors hover:scale-110 active:scale-95 disabled:opacity-60" :title="$t('file_actions.download')">
+      <svg v-if="!downloading" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+      <svg v-else class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+    </button>
     <!-- Cache Offline (Phase 6) -->
     <button
       v-if="!isCached"
@@ -92,12 +93,13 @@
                 <span class="font-medium text-sm">Move</span>
               </button>
 
-              <a v-if="file.url" :href="file.url" target="_blank" class="w-full flex items-center gap-4 p-3.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700 transition-all text-start active:scale-[0.98]">
+              <button v-if="file.url" :disabled="downloading" @click="downloadFile" class="w-full flex items-center gap-4 p-3.5 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700 transition-all text-start active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed">
                 <div class="w-9 h-9 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                  <svg v-if="!downloading" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                  <svg v-else class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" /><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                 </div>
-                <span class="font-medium text-sm">Download</span>
-              </a>
+                <span class="font-medium text-sm">{{ downloading ? 'Downloading...' : 'Download' }}</span>
+              </button>
 
               <!-- Cache Offline (Phase 6) -->
               <button
@@ -222,6 +224,7 @@ import { ref, computed, watch } from 'vue'
 import { useDialog } from '@/Composables/useDialog'
 import { useToast } from '@/Composables/useToast'
 import { useWorkspace } from '@/Composables/useWorkspace'
+import { useNativeBridge } from '@/Composables/useNativeBridge'
 import BaseButton from '@/Components/BaseButton.vue'
 import axios from 'axios'
 
@@ -240,6 +243,8 @@ const {
   removeFromCache,
   checkCacheStatus,
 } = useWorkspace()
+
+const { detectNative } = useNativeBridge()
 
 const isCached = computed(() => !!(props.file?.uuid && cachedFiles.value[props.file.uuid]))
 const caching = ref(false)
@@ -312,11 +317,40 @@ function viewFile() {
   if (props.mode === 'sheet') emit('close')
 }
 
-function downloadFile() {
-  if (props.file?.url) {
+const downloading = ref(false)
+
+// Plain <a href download> silently does nothing inside the app's WebView (no
+// DownloadListener registered). Native downloads go through NativeFiles.Save
+// via the bridge instead, same as InlineFilePreview.vue's downloadFile() —
+// it also resolves an offline-cached file's bytes on-device, so this works
+// whether the doctor is online or offline.
+async function downloadFile() {
+  if (downloading.value || !props.file?.url) return
+
+  if (!detectNative()) {
     window.open(props.file.url, '_blank')
+    if (props.mode === 'sheet') emit('close')
+    return
   }
-  if (props.mode === 'sheet') emit('close')
+
+  downloading.value = true
+  try {
+    const res = await axios.post('/_native/api/files/download', {
+      uuid: props.file.uuid,
+      file_name: props.file.file_name || props.file.title || `file-${props.file.uuid}`,
+    })
+    if (res.data?.success) {
+      toast.success('Download started')
+    } else {
+      toast.error(res.data?.error || 'Download failed')
+    }
+  } catch (e) {
+    console.error('Download failed:', e)
+    toast.error('Download failed')
+  } finally {
+    downloading.value = false
+    if (props.mode === 'sheet') emit('close')
+  }
 }
 
 function openEdit() {

@@ -57,7 +57,7 @@
             <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
             {{ $t('workspace.export_pdf') }}
           </button>
-          <button @click="handleDownloadFiles" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-start">
+          <button v-if="!detectNative()" @click="handleDownloadFiles" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-start">
             <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-3 3m0 0l-3-3m3 3V4" /></svg>
             {{ $t('workspace.download_files') || 'Download Files' }}
           </button>
@@ -259,6 +259,7 @@ import { router } from '@inertiajs/vue3'
 import { useWorkspace } from '@/Composables/useWorkspace'
 import { useDialog } from '@/Composables/useDialog'
 import { useToast } from '@/Composables/useToast'
+import { useNativeBridge } from '@/Composables/useNativeBridge'
 import axios from 'axios'
 import PatientListSidebar from '@/Components/workspace/PatientListSidebar.vue'
 import WorkspaceHeader from '@/Components/workspace/WorkspaceHeader.vue'
@@ -336,6 +337,7 @@ addNoteLocally,
 
 const dialog = useDialog()
 const toast = useToast()
+const { detectNative } = useNativeBridge()
 
 const { t, locale } = useI18n()
 const isRtl = computed(() => locale.value === 'ar')
@@ -591,16 +593,43 @@ async function handleDownloadFiles() {
   try {
     const res = await axios.post(`/api/v1/workspace/${selectedPatient.value.uuid}/download-files`)
     const jobId = res.data.jobId
-    
-    toast.info('Preparing files for download...', { timeout: 3000 })
-    
+
+    toast.info('Preparing files for download...', 3000)
+
+    // Zip creation is server-side and can take a while for a patient with
+    // many/large files — cap the polling instead of spinning forever with
+    // no feedback if it never reaches 'completed' (e.g. the export job is
+    // stuck or failed silently on the server).
+    let attempts = 0
+    const maxAttempts = 90 // 90 * 2s = 3 minutes
     const interval = setInterval(async () => {
+      attempts++
+      if (attempts > maxAttempts) {
+        clearInterval(interval)
+        toast.error('Download preparation timed out — please try again')
+        return
+      }
       try {
         const statusRes = await axios.get(`/api/v1/workspace/downloads/${jobId}/status`)
         if (statusRes.data.status === 'completed') {
           clearInterval(interval)
-          toast.success('Download started!')
-          window.location.href = statusRes.data.url
+          // A plain navigation to the zip URL is a dead end inside the app's
+          // WebView (no DownloadListener registered) — hand it to
+          // NativeFiles via the bridge instead, same as single-file
+          // downloads (FileActions.vue / InlineFilePreview.vue).
+          if (detectNative()) {
+            const nativeRes = await axios.post(`/_native/api/workspace/${selectedPatient.value.uuid}/download-zip`, {
+              url: statusRes.data.url,
+            })
+            if (nativeRes.data?.success) {
+              toast.success('Download started!')
+            } else {
+              toast.error(nativeRes.data?.error || 'Error saving zip')
+            }
+          } else {
+            toast.success('Download started!')
+            window.location.href = statusRes.data.url
+          }
         } else if (statusRes.data.status === 'error') {
           clearInterval(interval)
           toast.error(statusRes.data.message || 'Error creating zip')

@@ -12,6 +12,7 @@ use App\Repositories\OfflinePackageRepository;
 use App\Services\Mobile\RemoteApiService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use MedicalPlus\BackgroundSync\Facades\BackgroundSync;
 use Throwable;
 
 /**
@@ -251,9 +252,12 @@ class OfflinePackageService
     {
         $seenUuids = [];
         $failures = [];
-        // endpoint => [destinationPath, displayName] — downloaded concurrently
-        // in one batch after the metadata loop below, instead of one blocking
-        // HTTP round trip per file (see RemoteApiService::downloadMany()).
+        // endpoint => [destinationPath, displayName, size] — downloaded
+        // concurrently in one batch after the metadata loop below, instead of
+        // one blocking HTTP round trip per file (see
+        // RemoteApiService::downloadMany()). size feeds the progress
+        // notification below — production's own reported size, not a stat()
+        // of the (not yet downloaded) local file.
         $toDownload = [];
 
         foreach ($this->paginate("/patients/{$patientUuid}/files") as $item) {
@@ -294,17 +298,50 @@ class OfflinePackageService
                 $toDownload["/files/{$fileUuid}"] = [
                     Storage::disk('local')->path($relativePath),
                     $item['file_name'] ?? $fileUuid,
+                    (int) ($item['size'] ?? 0),
                 ];
             }
         }
 
         if ($toDownload) {
-            $results = $this->remote->downloadMany(array_map(fn ($job) => $job[0], $toDownload));
+            $totalBytes = array_sum(array_map(fn ($job) => $job[2], $toDownload));
+            $downloadedBytes = 0;
+            $label = $localPatient->name ?? 'Patient';
+
+            BackgroundSync::start(
+                'تحميل ملفات ' . $label,
+                $this->formatBytes(0) . ' / ' . $this->formatBytes($totalBytes)
+            );
+
+            $results = $this->remote->downloadMany(
+                array_map(fn ($job) => $job[0], $toDownload),
+                onBatchComplete: function (array $batchResults) use (&$downloadedBytes, $toDownload, $totalBytes) {
+                    foreach ($batchResults as $endpoint => $ok) {
+                        if ($ok) {
+                            $downloadedBytes += $toDownload[$endpoint][2];
+                        }
+                    }
+                    $percent = $totalBytes > 0 ? (int) round(($downloadedBytes / $totalBytes) * 100) : null;
+                    $remaining = max(0, $totalBytes - $downloadedBytes);
+                    BackgroundSync::progress(
+                        $this->formatBytes($downloadedBytes) . ' / ' . $this->formatBytes($totalBytes)
+                            . ' (' . $this->formatBytes($remaining) . ' متبقي)',
+                        $percent
+                    );
+                }
+            );
+
             foreach ($results as $endpoint => $ok) {
                 if (!$ok) {
                     $failures[] = $toDownload[$endpoint][1];
                 }
             }
+
+            BackgroundSync::stop(
+                $failures
+                    ? 'فشل تحميل بعض ملفات ' . $label
+                    : 'اكتمل تحميل ملفات ' . $label
+            );
         }
 
         // Reconciliation: a file removed on the server (e.g. another doctor
@@ -342,6 +379,19 @@ class OfflinePackageService
         }
 
         return null;
+    }
+
+    private function formatBytes(int $bytes): string
+    {
+        if ($bytes <= 0) {
+            return '0 MB';
+        }
+
+        $units = ['B', 'KB', 'MB', 'GB'];
+        $i = (int) floor(log($bytes, 1024));
+        $i = max(0, min($i, count($units) - 1));
+
+        return round($bytes / (1024 ** $i), 1) . ' ' . $units[$i];
     }
 
     /**

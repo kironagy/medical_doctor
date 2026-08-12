@@ -371,24 +371,22 @@ Route::post('/_native/api/files/download', function (\Illuminate\Http\Request $r
         }
 
         if ($absolutePath) {
-            // ── FIX-PERF-9: cap base64 download at 5 MB.
-            // file_get_contents + base64_encode + json() = 3× the file in PHP
-            // heap, guaranteed OOM for anything over ~80 MB at 256M limit.
-            // Clients that need larger files must use the chunked download path
-            // (FileAccessController offset/length API).
-            $maxBytes = 5 * 1024 * 1024;
-            $fileSize = filesize($absolutePath);
-            if ($fileSize === false || $fileSize > $maxBytes) {
+            // ── FIX-PERF-9 superseded: this used to base64-encode the whole
+            // file into the JSON response (file_get_contents + base64_encode +
+            // json() = 3× the file in PHP heap), capped at 5 MB to avoid OOM —
+            // which meant any offline-cached video over 5 MB simply refused to
+            // download. Routed through the loopback media server instead (the
+            // same one video playback already streams from): DownloadManager
+            // reads the bytes straight off disk, so memory stays flat and
+            // there is no size ceiling.
+            $served = $native->serve($absolutePath, $uuid);
+            if (empty($served['success']) || empty($served['url'])) {
                 return response()->json([
                     'success' => false,
-                    'error'   => 'File too large for inline download; use the chunked API (/_native/cache/files/{uuid}/base64?offset=&length=).',
-                    'size'    => $fileSize,
-                    'max'     => $maxBytes,
-                ], 413);
+                    'error'   => $served['error'] ?? 'could not prepare file for download',
+                ], 500);
             }
-            return response()->json(
-                $native->saveBytes(base64_encode(file_get_contents($absolutePath)), $fileName, $mime)
-            );
+            return response()->json($native->save($served['url'], $fileName, $mime));
         }
 
         // Not on this device — let DownloadManager pull it from production.
@@ -403,6 +401,13 @@ Route::post('/_native/api/files/download', function (\Illuminate\Http\Request $r
         return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
     }
 })->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
+
+// ── Save a patient's exported zip to the device's Downloads folder ────
+// Same rationale as /_native/api/files/download above, for the "download all
+// files" zip built by ExportPatientFilesJob. Always local — the zip only
+// ever exists on the device that generated it.
+Route::post('/_native/api/workspace/{uuid}/download-zip', [\App\Http\Controllers\WorkspaceController::class, 'downloadZipNative'])
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class]);
 
 // ── Local files for a patient+category (OUTSIDE auth middleware) ──────
 // The workspace loads a category's files from /api/v1/patients/{uuid}/
