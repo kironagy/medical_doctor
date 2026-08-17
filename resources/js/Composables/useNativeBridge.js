@@ -82,11 +82,14 @@ function getLabel(alias) {
 }
 
 function hasNativeBridge() {
-  return typeof window !== 'undefined' && !!window.NativePHP
+  return typeof window !== 'undefined' && (
+    !!window.NativePHP ||
+    !!(window.native && (window.native.camera || window.native.files))
+  )
 }
 
 function isNativeAndroid() {
-  return typeof navigator !== 'undefined' && navigator.userAgent.includes('Android')
+  return hasNativeBridge() && typeof navigator !== 'undefined' && navigator.userAgent.includes('Android')
 }
 
 // ── UI helpers ─────────────────────────────────────────────────────
@@ -231,7 +234,7 @@ function requestNativePermission(androidPerm) {
 // ── Exported composable ────────────────────────────────────────────
 export function useNativeBridge() {
   function detectNative() {
-    return hasNativeBridge() || isNativeAndroid()
+    return hasNativeBridge()
   }
 
   function detectPlatform() {

@@ -12,7 +12,10 @@
  * a regular browser.
  */
 export function isNativeApp() {
-  return typeof window !== 'undefined' && !!window.NativePHP
+  return typeof window !== 'undefined' && (
+    !!window.NativePHP ||
+    !!(window.native && (window.native.camera || window.native.files))
+  )
 }
 
 /**
