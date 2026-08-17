@@ -68,6 +68,13 @@ class FileAccessController extends Controller
             }
         }
 
+        // Last resort: the bytes may be sitting next to where file_path says
+        // they should be, under one of the other names the row knows about —
+        // see PatientFile::existingAbsolutePath() for why that happens.
+        if ($file && ($abs = $file->existingAbsolutePath())) {
+            return $abs;
+        }
+
         return null;
     }
 
@@ -79,6 +86,46 @@ class FileAccessController extends Controller
     private const DEVICE_MAX_CHUNK_BYTES = 2 * 1024 * 1024;
 
     /**
+     * The name to put in Content-Disposition.
+     *
+     * Normally file_name, which for a website upload is the doctor's own
+     * original filename. Anything that came off the device, though, has
+     * file_name set to the generated "<uuid>.<ext>" the app stored it under,
+     * and saving that to someone's Downloads folder is useless. In that case
+     * fall back to the row's title, which is the label the UI already shows
+     * for the file.
+     */
+    private function displayFileName(?PatientFile $file, string $absolutePath): string
+    {
+        $fallback = $file?->file_name ?: basename($absolutePath);
+
+        if (!$file || !$file->title) {
+            return $fallback;
+        }
+
+        $base = pathinfo($fallback, PATHINFO_FILENAME);
+        $isGeneratedName = (bool) preg_match(
+            '/^\{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}?$/i',
+            $base
+        );
+
+        if (!$isGeneratedName) {
+            return $fallback;
+        }
+
+        $ext   = pathinfo($fallback, PATHINFO_EXTENSION);
+        $title = trim(preg_replace('#[/\\\\:*?"<>|]+#', '_', $file->title));
+
+        if ($title === '') {
+            return $fallback;
+        }
+
+        return $ext && !str_ends_with(strtolower($title), '.' . strtolower($ext))
+            ? $title . '.' . $ext
+            : $title;
+    }
+
+    /**
      * Hand the file to the SAPI as a real file instead of echoing bytes by
      * hand. BinaryFileResponse also implements Range/206/416 itself, which is
      * what makes video seeking work.
@@ -87,13 +134,19 @@ class FileAccessController extends Controller
     {
         $mime = $mimeOverride
             ?: ($file?->mime_type ?: (mime_content_type($absolutePath) ?: 'application/octet-stream'));
-        $name = $nameOverride ?: ($file?->file_name ?: basename($absolutePath));
+        $name = $nameOverride ?: $this->displayFileName($file, $absolutePath);
 
         // Non-ASCII original filenames (e.g. Arabic titles from website uploads)
         // must not be written raw into a header value — RFC 7230/6266 requires
         // ASCII, and clients that validate strictly can drop the response.
+        // inline by default — <img>/<video>/<iframe> all read through this
+        // same endpoint and must render, not download. ?download=1 flips it to
+        // attachment so an explicit Download button actually saves the file
+        // instead of handing the browser something it will happily display.
         $disposition = HeaderUtils::makeDisposition(
-            HeaderUtils::DISPOSITION_INLINE,
+            $request->boolean('download')
+                ? HeaderUtils::DISPOSITION_ATTACHMENT
+                : HeaderUtils::DISPOSITION_INLINE,
             $name,
             preg_replace('/[^\x20-\x7E]/', '_', $name)
         );

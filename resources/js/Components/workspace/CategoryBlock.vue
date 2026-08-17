@@ -195,6 +195,10 @@
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                       مسح
                     </button>
+                    <button v-if="canEdit" type="button" @click.stop="editNoteContent(item)" class="flex-1 py-1.5 text-center bg-teal-50 hover:bg-teal-100 text-teal-600 dark:bg-teal-950/30 dark:text-teal-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all">
+                      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                      {{ $t('common.edit') }}
+                    </button>
                     <button type="button" @click.stop="viewNoteContent(item)" class="flex-1 py-1.5 text-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1 transition-all">
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                       عرض
@@ -264,7 +268,7 @@
             :canDelete="canDelete"
             mode="sheet"
             :categories="allCategories"
-            @preview="openPreview"
+            @preview="handlePreviewClick"
             @file-updated="handleFileUpdated($event); activeSheetFile = null"
             @file-moved="handleFileUpdated($event); activeSheetFile = null"
             @file-deleted="handleFileDeleted($event); activeSheetFile = null"
@@ -363,12 +367,12 @@
     <Transition name="fade">
       <div v-if="showViewNoteModal && activeViewNote" class="fixed inset-0 z-[150] flex items-center justify-center p-4">
         <!-- Backdrop -->
-        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="showViewNoteModal = false"></div>
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="closeNoteModal"></div>
 
         <!-- Modal Box -->
         <div class="relative bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-lg p-8 flex flex-col border border-slate-100 dark:border-slate-800 animate-scale-up text-start">
           <!-- Close Button -->
-          <button @click="showViewNoteModal = false" class="absolute top-4 left-4 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+          <button @click="closeNoteModal" class="absolute top-4 left-4 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -381,14 +385,35 @@
           </div>
 
           <!-- Content -->
-          <div class="text-lg md:text-xl font-medium text-slate-700 dark:text-slate-300 leading-relaxed overflow-y-auto max-h-[60vh] py-2" v-html="activeViewNote.content">
+          <div v-if="!isEditingNote" class="text-lg md:text-xl font-medium text-slate-700 dark:text-slate-300 leading-relaxed overflow-y-auto max-h-[60vh] py-2 whitespace-pre-wrap break-words" v-html="activeViewNote.content">
           </div>
+          <textarea
+            v-else
+            v-model="noteDraft"
+            rows="8"
+            class="input-field w-full rounded-2xl border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 focus:ring-teal-500 focus:border-teal-500 text-base leading-relaxed"
+            :placeholder="$t('workspace.add_note')"
+          ></textarea>
 
           <!-- Footer -->
-          <div class="flex justify-end mt-6">
-            <button @click="showViewNoteModal = false" class="px-8 py-2.5 bg-teal-50 hover:bg-teal-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-teal-600 dark:text-teal-400 rounded-xl text-sm font-bold transition-all">
-              إغلاق
-            </button>
+          <div class="flex justify-end gap-3 mt-6">
+            <template v-if="isEditingNote">
+              <button :disabled="savingNote" @click="cancelEditNote" class="px-6 py-2.5 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 rounded-xl text-sm font-bold transition-all disabled:opacity-50">
+                {{ $t('common.cancel') }}
+              </button>
+              <button :disabled="savingNote || !noteDraft.trim()" @click="saveNoteEdit" class="px-8 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-bold transition-all disabled:opacity-50">
+                {{ savingNote ? '...' : $t('common.save') }}
+              </button>
+            </template>
+            <template v-else>
+              <button v-if="canEdit" @click="startEditNote" class="px-6 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-bold transition-all inline-flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                {{ $t('common.edit') }}
+              </button>
+              <button @click="showViewNoteModal = false" class="px-8 py-2.5 bg-teal-50 hover:bg-teal-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-teal-600 dark:text-teal-400 rounded-xl text-sm font-bold transition-all">
+                إغلاق
+              </button>
+            </template>
           </div>
         </div>
       </div>
@@ -419,7 +444,7 @@ import FileActions from './FileActions.vue'
 import { useNativeBridge } from '@/Composables/useNativeBridge'
 import { useOfflineUploads } from '@/Composables/useOfflineUploads'
 import { useSyncEngine } from '@/Composables/useSyncEngine'
-import { isNativeApp, apiUrl, getApiConfig } from '@/Utils/api'
+import { isNativeApp, apiUrl, getApiConfig, downloadInBrowser } from '@/Utils/api'
 
 const { isCameraAvailable, isFilePickerAvailable, takePhoto, pickFiles, detectNative } = useNativeBridge()
 
@@ -484,9 +509,20 @@ const uploadFile = (file, patientId, options) => {
   trace('[TRACE_F2c] NEITHER available - returning null!')
   return null;
 }
+// Siblings for the preview's prev/next arrows. This must be the list the
+// user is actually looking at — mergedCategoryItems, sorted newest-first and
+// including local-only files — not serverFiles, which is the raw current API
+// page in server order. Handing over serverFiles meant "next" jumped to
+// whatever the server happened to return next, and any file only present
+// locally wasn't found in the list at all (index -1), which hides BOTH arrows.
+function previewSiblingList() {
+  return mergedCategoryItems.value.filter(i => i.type === 'file')
+}
+
 function handlePreviewClick(item) {
   if (item.type === 'note') return
-  openPreview(item, serverFiles.value, (page) => loadMoreForPreview(page))
+  previewLoadedPage.value = currentPage.value
+  openPreview(item, previewSiblingList(), () => loadMoreForPreview())
 }
 
 const dialog = useDialog()
@@ -612,13 +648,21 @@ async function loadCategoryData(page = 1) {
   }
 }
 
-async function loadMoreForPreview(currentPageForPreview) {
+// Highest page already pulled into the preview's sibling list. Tracked here,
+// where perPage lives, instead of being guessed by the viewer from the list
+// length — the viewer's guess divided by 6 while perPage is 12, so it asked
+// for page 3 after page 1 and silently skipped a whole page of files.
+const previewLoadedPage = ref(1)
+
+async function loadMoreForPreview() {
   if (!selectedPatient.value?.uuid) return []
-  if (currentPageForPreview >= serverMeta.value.last_page) return []
+  if (previewLoadedPage.value >= serverMeta.value.last_page) return []
+
+  const nextPage = previewLoadedPage.value + 1
 
   try {
     const params = {
-      page: currentPageForPreview + 1,
+      page: nextPage,
       per_page: perPage,
       sort: sortBy.value
     }
@@ -629,6 +673,7 @@ async function loadMoreForPreview(currentPageForPreview) {
     if (timeFilter.value && customTimeTo.value) params.time_to = customTimeTo.value
 
     const response = await axios.get(`/api/v1/patients/${selectedPatient.value.uuid}/categories/${props.slug}/files`, { params })
+    previewLoadedPage.value = nextPage
     return response.data.data || []
   } catch (e) {
     console.error('Failed to load more for preview', e)
@@ -1088,6 +1133,9 @@ const showUploadArea = ref(false)
 const showAddRecordModal = ref(false)
 const showViewNoteModal = ref(false)
 const activeViewNote = ref(null)
+const isEditingNote = ref(false)
+const noteDraft = ref('')
+const savingNote = ref(false)
 const showCategoryMenu = ref(false)
 const dragging = ref(false)
 const fileInput = ref(null)
@@ -1385,7 +1433,77 @@ async function deleteNoteDirectly(note) {
 
 function viewNoteContent(note) {
   activeViewNote.value = note
+  isEditingNote.value = false
   showViewNoteModal.value = true
+}
+
+function editNoteContent(note) {
+  viewNoteContent(note)
+  startEditNote()
+}
+
+// The stored note is written by a plain <textarea> but rendered with v-html,
+// so a saved line break comes back as "<br>". Turn the markup back into real
+// newlines for editing, and let the browser re-escape on save — otherwise
+// every edit round-trip would show the reader literal "<br>" text.
+function noteContentToText(html) {
+  if (!html) return ''
+  const el = document.createElement('div')
+  el.innerHTML = String(html).replace(/<br\s*\/?>/gi, '\n')
+  return el.textContent || ''
+}
+
+function startEditNote() {
+  noteDraft.value = noteContentToText(activeViewNote.value?.content)
+  isEditingNote.value = true
+}
+
+function cancelEditNote() {
+  isEditingNote.value = false
+  noteDraft.value = ''
+}
+
+function closeNoteModal() {
+  showViewNoteModal.value = false
+  cancelEditNote()
+}
+
+async function saveNoteEdit() {
+  const note = activeViewNote.value
+  const content = noteDraft.value.trim()
+  if (!note?.uuid || !content || savingNote.value) return
+
+  savingNote.value = true
+  try {
+    // apiUrl() sends this to Api\NoteController on the website and to
+    // Api\Mobile\NoteController inside the app — the mobile one is what marks
+    // the row pending_update so the sync engine pushes the edit to production.
+    const res = await axios.put(
+      apiUrl(`/api/v1/mobile/patients/${selectedPatient.value.uuid}/notes/${note.uuid}`),
+      { content },
+      getApiConfig()
+    )
+
+    const saved = res.data && res.data.uuid ? res.data : { ...note, content }
+
+    // Patch the row in place instead of reloading: offline the sync_status is
+    // pending_update and a reload would race the server copy back over it.
+    const idx = serverNotes.value.findIndex(n => n.uuid === note.uuid)
+    if (idx !== -1) {
+      serverNotes.value[idx] = { ...serverNotes.value[idx], ...saved }
+      serverNotes.value = [...serverNotes.value]
+    }
+    activeViewNote.value = { ...note, ...saved }
+
+    isEditingNote.value = false
+    noteDraft.value = ''
+    toast.success('تم تعديل الملاحظة بنجاح')
+  } catch (e) {
+    console.error('Update note failed', e)
+    toast.error(e?.response?.data?.message || 'حدث خطأ أثناء تعديل الملاحظة')
+  } finally {
+    savingNote.value = false
+  }
 }
 
 function syncStatusBadgeClass(status) {
@@ -1436,7 +1554,10 @@ const downloadingUuid = ref(null)
 async function downloadFileItem(item) {
   if (!item?.url && !item?.uuid) return
   if (!detectNative()) {
-    window.open(item.url, '_blank')
+    // Not window.open(): images and videos are served inline so they can
+    // render in the viewer, so a new tab just displayed the file instead of
+    // saving it. downloadInBrowser() asks for it as an attachment.
+    downloadInBrowser(item.url || `/api/v1/files/${item.uuid}`, item.file_name || item.title)
     return
   }
   if (downloadingUuid.value === item.uuid) return
@@ -1452,7 +1573,12 @@ async function downloadFileItem(item) {
       toast.error(res.data?.error || 'فشل التحميل')
     }
   } catch (e) {
-    toast.error('فشل التحميل')
+    // The endpoint answers 404/500 with a JSON body explaining exactly why it
+    // could not resolve the file — but a non-2xx makes axios throw, so that
+    // body used to be discarded and every distinct cause surfaced as the same
+    // bare "فشل التحميل". Read it off the error response instead.
+    console.error('[download] failed', e?.response?.status, e?.response?.data)
+    toast.error(e?.response?.data?.error || e?.message || 'فشل التحميل')
   } finally {
     downloadingUuid.value = null
   }

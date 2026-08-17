@@ -628,7 +628,19 @@ async function handleDownloadFiles() {
             }
           } else {
             toast.success('Download started!')
-            window.location.href = statusRes.data.url
+            // A hidden anchor, not window.location.href. Assigning location
+            // is a real top-level navigation: if the zip URL answers with
+            // anything other than an attachment (a 404 JSON body, an error
+            // page) the browser leaves the workspace and renders it, so a
+            // failed export looked like the app broke. An <a download> click
+            // can only ever start a download or do nothing.
+            const a = document.createElement('a')
+            a.href = statusRes.data.url
+            a.download = ''
+            a.rel = 'noopener'
+            document.body.appendChild(a)
+            a.click()
+            a.remove()
           }
         } else if (statusRes.data.status === 'error') {
           clearInterval(interval)

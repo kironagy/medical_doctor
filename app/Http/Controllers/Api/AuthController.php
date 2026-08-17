@@ -38,6 +38,12 @@ class AuthController extends Controller
         return response()->json([
             'user' => $result['user'],
             'token' => $result['token'],
+            // Spatie role names, which are NOT part of the serialized user and
+            // are NOT the same thing as the users.role column — admin accounts
+            // carry 'super-admin' here while their column still says 'doctor'.
+            // The embedded app has its own (empty) roles tables, so this is the
+            // only way it can learn that the account signing in is an admin.
+            'roles' => $result['user']->getRoleNames(),
         ]);
     }
 

@@ -20,8 +20,9 @@
 
           <!-- Action Buttons Stack -->
           <div class="w-full space-y-3.5 mb-6">
-            <!-- Downloaded Patients (المرضى المحفوظين Offline) -->
+            <!-- Downloaded Patients (المرضى المحفوظين Offline) — app only -->
             <button
+              v-if="detectNative()"
               type="button"
               @click="openOfflinePackages"
               class="w-full flex items-center justify-between px-5 py-3 border border-teal-500/30 dark:border-teal-500/20 text-teal-700 dark:text-teal-400 bg-teal-50/10 hover:bg-teal-50/30 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
@@ -159,6 +160,7 @@ import { useToast } from '@/Composables/useToast'
 import axios from 'axios'
 import CategoryManagerModal from '@/Components/workspace/CategoryManagerModal.vue'
 import OfflinePackagesManager from '@/Components/workspace/OfflinePackagesManager.vue'
+import { useNativeBridge } from '@/Composables/useNativeBridge'
 
 defineProps({
   modelValue: Boolean
@@ -169,6 +171,7 @@ const emit = defineEmits(['update:modelValue'])
 const { theme } = useTheme()
 const { locale } = useLocale()
 const toast = useToast()
+const { detectNative } = useNativeBridge()
 
 const version = ref('v1.0.0')
 const downloadUrl = ref('')

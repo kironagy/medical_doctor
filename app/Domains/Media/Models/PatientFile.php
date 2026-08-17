@@ -140,6 +140,57 @@ class PatientFile extends Model
         return count($parts) > 1 ? strtolower(end($parts)) : null;
     }
 
+    /**
+     * Absolute path of this row's bytes on the `local` disk, or null.
+     *
+     * file_path is checked first and is the answer for every healthy row.
+     * The fallbacks exist because file_path and the name the bytes were
+     * actually written under have not always agreed: older upload paths
+     * wrote the bytes under the CLIENT's original filename (which, for
+     * anything that came off the device, is itself "<deviceUuid>.<ext>")
+     * while recording file_path as "<serverFileUuid>.<ext>" — so the row
+     * points at a name that was never created and every read of it 404s
+     * while the bytes sit in the same directory. 26 production rows are in
+     * exactly that state, including the video this was reported on.
+     *
+     * Probing costs one is_file() per candidate and only ever runs on a
+     * path that was already about to 404, so a healthy row is unaffected.
+     */
+    public function existingAbsolutePath(): ?string
+    {
+        if (!$this->file_path) {
+            return null;
+        }
+
+        $disk = Storage::disk('local');
+
+        $abs = $disk->path($this->file_path);
+        if (is_file($abs)) {
+            return $abs;
+        }
+
+        $dir = trim(dirname($this->file_path), '/.');
+        $ext = pathinfo($this->file_path, PATHINFO_EXTENSION);
+
+        $candidates = array_filter([
+            $this->file_name,
+            $ext && $this->uuid ? $this->uuid . '.' . $ext : null,
+            $ext && $this->remote_uuid ? $this->remote_uuid . '.' . $ext : null,
+        ]);
+
+        foreach (array_unique($candidates) as $candidate) {
+            // basename(): file_name is client-supplied and must never be
+            // able to walk out of the patient's directory.
+            $rel = ($dir !== '' ? $dir . '/' : '') . basename($candidate);
+            $abs = $disk->path($rel);
+            if (is_file($abs)) {
+                return $abs;
+            }
+        }
+
+        return null;
+    }
+
     protected static function booted()
     {
         static::addGlobalScope(new \App\Domains\Auth\Scopes\DoctorIsolationScope);

@@ -259,12 +259,14 @@ class FileController extends Controller
             Gate::authorize('view', $file->patient);
         }
 
-        $path = $file->file_path;
-        if (!Storage::disk('local')->exists($path)) {
+        // existingAbsolutePath() rather than file_path alone: some rows point
+        // at a filename that was never written while the bytes sit next to it
+        // under the row's other known names — see the model for the history.
+        $absolutePath = $file->existingAbsolutePath();
+        if (!$absolutePath) {
             abort(404, 'File not found on disk.');
         }
 
-        $absolutePath = Storage::disk('local')->path($path);
         $mime = $file->mime_type ?: (mime_content_type($absolutePath) ?: 'application/octet-stream');
         $size = filesize($absolutePath);
 

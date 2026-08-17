@@ -465,17 +465,66 @@ class WorkspaceController extends Controller
 
     public function downloadZip(string $uuid, string $jobId)
     {
-        $zipName = "patient_{$uuid}_files.zip";
-        $zipPath = \Illuminate\Support\Facades\Storage::disk('local')->path($zipName);
+        $zipPath = $this->exportZipPath($uuid, $jobId);
 
-        if (!file_exists($zipPath)) {
+        if (!$zipPath) {
             abort(404);
         }
 
         $patient = Patient::where('uuid', $uuid)->first();
-        $downloadName = $patient ? (str_replace(' ', '_', $patient->name) . '_' . $patient->code . '_files.zip') : $zipName;
+        $downloadName = $patient
+            ? (str_replace(' ', '_', $patient->name) . '_' . $patient->code . '_files.zip')
+            : basename($zipPath);
 
-        return response()->download($zipPath, $downloadName)->deleteFileAfterSend(true);
+        // NOT deleteFileAfterSend(). The archive used to be unlinked as soon
+        // as the first response finished, which is fine for exactly one
+        // uninterrupted GET and broken for everything else a browser actually
+        // does with a 200 MB attachment — opening a second connection, sending
+        // a Range request, retrying, resuming. The follow-up hit a file that
+        // no longer existed and the whole download failed, while
+        // checkDownloadStatus() went on advertising the URL as ready.
+        // Archives are swept by ExportPatientFilesJob on the next export.
+        return response()->download($zipPath, $downloadName);
+    }
+
+    /**
+     * Absolute path of the archive produced by $jobId, or null.
+     *
+     * Prefers the path the job recorded in its cache entry. The two fallbacks
+     * cover a job that completed before this change shipped (cache entry with
+     * no 'path') and the legacy shared filename it would have written.
+     */
+    private function exportZipPath(string $uuid, string $jobId): ?string
+    {
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+
+        $status = \Illuminate\Support\Facades\Cache::get("export_patient_files_{$jobId}");
+        $candidates = array_filter([
+            is_array($status) ? ($status['path'] ?? null) : null,
+            \App\Jobs\ExportPatientFilesJob::zipNameFor($uuid, $jobId),
+            "patient_{$uuid}_files.zip",
+        ]);
+
+        foreach ($candidates as $name) {
+            $path = $disk->path($name);
+            if (is_file($path)) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    /** Pull the trailing jobId out of a .../download-zip/{jobId} URL. */
+    private function jobIdFromUrl(string $url): ?string
+    {
+        if ($url === '') {
+            return null;
+        }
+
+        $path = parse_url($url, PHP_URL_PATH) ?: '';
+
+        return preg_match('#/download-zip/([^/?#]+)#', $path, $m) ? $m[1] : null;
     }
 
     /**
@@ -504,22 +553,32 @@ class WorkspaceController extends Controller
      */
     public function downloadZipNative(\Illuminate\Http\Request $request, string $uuid)
     {
-        $zipName = "patient_{$uuid}_files.zip";
-        $zipPath = \Illuminate\Support\Facades\Storage::disk('local')->path($zipName);
         $remoteUrl = (string) $request->input('url', '');
 
+        // Resolve through the same helper as the browser download so the app
+        // finds archives written under the per-job name too — the hardcoded
+        // legacy filename here stopped matching once exports became per-job.
+        $jobId   = (string) ($request->input('job_id') ?: $this->jobIdFromUrl($remoteUrl));
+        $zipPath = $jobId ? $this->exportZipPath($uuid, $jobId) : null;
+        if (!$zipPath) {
+            $legacy = \Illuminate\Support\Facades\Storage::disk('local')->path("patient_{$uuid}_files.zip");
+            $zipPath = is_file($legacy) ? $legacy : null;
+        }
+
         $patient = Patient::where('uuid', $uuid)->first();
-        $downloadName = $patient ? (str_replace(' ', '_', $patient->name) . '_' . $patient->code . '_files.zip') : $zipName;
+        $downloadName = $patient
+            ? (str_replace(' ', '_', $patient->name) . '_' . $patient->code . '_files.zip')
+            : "patient_{$uuid}_files.zip";
 
         $native = app(\MedicalPlus\NativeFiles\NativeFiles::class);
 
         \Illuminate\Support\Facades\Log::info('[downloadZipNative] request', [
             'uuid' => $uuid,
-            'zip_exists_locally' => file_exists($zipPath),
+            'zip_exists_locally' => $zipPath !== null,
             'remote_url' => $remoteUrl,
         ]);
 
-        if (file_exists($zipPath)) {
+        if ($zipPath !== null) {
             $served = $native->serve($zipPath, 'zip-' . $uuid);
 
             if (empty($served['success']) || empty($served['url'])) {

@@ -10,9 +10,9 @@ class AdminController extends Controller
 {
     public function index()
     {
-        $totalDoctors = User::role('doctor')->count();
-        $activeDoctors = User::role('doctor')->where('status', 'active')->count();
-        $recentDoctors = User::role('doctor')->latest()->take(5)->get(['id', 'name', 'email', 'specialization', 'status', 'created_at']);
+        $totalDoctors = User::havingRole('doctor')->count();
+        $activeDoctors = User::havingRole('doctor')->where('status', 'active')->count();
+        $recentDoctors = User::havingRole('doctor')->latest()->take(5)->get(['id', 'name', 'email', 'specialization', 'status', 'created_at']);
 
         return Inertia::render('Admin/Dashboard', [
             'stats' => [

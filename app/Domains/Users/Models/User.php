@@ -81,4 +81,33 @@ class User extends Authenticatable
     {
         return $this->hasMany(\App\Domains\Patients\Models\Patient::class, 'primary_doctor_id');
     }
+
+    /**
+     * Users holding $roleName — without exploding when the role row is absent.
+     *
+     * Spatie's role() scope resolves the name to a Role model and THROWS
+     * RoleDoesNotExist when there isn't one. That is fine on the server, whose
+     * roles table is seeded, but the embedded app ships with empty
+     * roles/model_has_roles tables and only ever gains the roles of accounts
+     * that have signed in on that device. So an admin who signed in on the
+     * phone reached /admin/doctors, User::role('doctor') threw, and — because
+     * RoleDoesNotExist is not an HttpException — the SQLite catch-all in
+     * bootstrap/app.php swallowed it and redirected to /workspace. From the
+     * outside that looked exactly like "it won't let me into the admin screen".
+     *
+     * Falls back to the users.role column, which is populated on both sides
+     * and is what the app's own super-admin checks already read.
+     */
+    public function scopeHavingRole($query, string $roleName)
+    {
+        $guard = config('auth.defaults.guard', 'web');
+
+        $roleExists = \Spatie\Permission\Models\Role::where('name', $roleName)
+            ->where('guard_name', $guard)
+            ->exists();
+
+        return $roleExists
+            ? $query->role($roleName)
+            : $query->where('role', $roleName);
+    }
 }

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "74f2462b22fc8df882ffacef4f9c22f2",
+    "content-hash": "0ee1e64dc5c419cc1e6071830698e141",
     "packages": [
         {
             "name": "bacon/bacon-qr-code",
@@ -2388,6 +2388,42 @@
                 }
             ],
             "time": "2026-03-08T20:05:35+00:00"
+        },
+        {
+            "name": "medicalplus/mobile-app-control",
+            "version": "1.0.0",
+            "dist": {
+                "type": "path",
+                "url": "packages/medicalplus/mobile-app-control",
+                "reference": "3e55d7925467477489ff4d6eb0dfe24579d807e1"
+            },
+            "require": {
+                "nativephp/mobile": "^3.0",
+                "php": "^8.2"
+            },
+            "type": "nativephp-plugin",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "MedicalPlus\\AppControl\\AppControlServiceProvider"
+                    ]
+                },
+                "nativephp": {
+                    "manifest": "nativephp.json"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "MedicalPlus\\AppControl\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Fully terminate the app process — used on logout so the next launch is a guaranteed cold boot",
+            "transport-options": {
+                "relative": true
+            }
         },
         {
             "name": "medicalplus/mobile-background-sync",

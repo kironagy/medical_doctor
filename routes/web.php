@@ -61,11 +61,24 @@ Route::post('/api/session/restore', function (\Illuminate\Http\Request $request)
 
 Route::get('/', function () {
     if (config('database.default') === 'sqlite') {
-        $user = \App\Domains\Users\Models\User::first();
-        if ($user) {
-            auth()->login($user);
+        // Same "just logged out" guard as AuthController::showLogin() — see
+        // its comment for why this can't just be dropped in favor of
+        // relying on the session alone.
+        // deviceSignedInUser(): resume the account that actually signed in on
+        // this device, or nobody. This used to be User::first() gated on "any
+        // user row exists" — two separate bugs. The shipped database carries a
+        // seeded doctor, so a fresh install auto-entered that account and the
+        // login form was unreachable; and after signing in as the admin, a
+        // relaunch resumed the doctor in row 1 instead of the admin. See
+        // AuthController::showLogin() for the full note.
+        if (!\Illuminate\Support\Facades\Cache::pull('device_logged_out')) {
+            $user = AuthController::deviceSignedInUser();
+            if ($user) {
+                auth()->login($user);
+                return redirect(AuthController::homeFor($user));
+            }
         }
-        return redirect()->route('workspace');
+        return redirect('/login');
     }
     if (auth()->check() && (auth()->user()->hasRole('super-admin') || auth()->user()->role === 'super-admin')) {
         return redirect()->route('admin.doctors.index');
@@ -353,19 +366,35 @@ Route::post('/_native/api/files/download', function (\Illuminate\Http\Request $r
         $native = app(\MedicalPlus\NativeFiles\NativeFiles::class);
         $mime = $file?->mime_type;
 
-        $absolutePath = null;
-        if ($file && $file->file_path) {
-            $candidate = \Illuminate\Support\Facades\Storage::disk('local')->path($file->file_path);
-            if (is_file($candidate)) {
-                $absolutePath = $candidate;
-            }
-        }
+        // Bytes live in one of three places and this endpoint used to look in
+        // only two of them, checking file_path literally and skipping the
+        // download cache entirely. A file pulled down from the website (bytes
+        // in file_cache, empty/stale file_path) therefore resolved nowhere and
+        // fell through to the remote branch below — which then refused it
+        // unless sync_status was exactly 'synced'. Net result: "فشل التحميل"
+        // for a file that was sitting on the device the whole time.
+        // existingAbsolutePath() also covers rows whose file_path names a file
+        // that was never written — see the model for that history.
+        $absolutePath = $file?->existingAbsolutePath();
+
         if (!$absolutePath) {
-            $offline = \Illuminate\Support\Facades\DB::table('offline_files')->where('uuid', $uuid)->first();
-            if ($offline) {
-                $candidate = app(\App\Services\OfflineUploadService::class)->absolutePath($offline->local_path);
-                if (is_file($candidate)) {
-                    $absolutePath = $candidate;
+            foreach (array_unique(array_filter([$uuid, $file?->uuid, $file?->remote_uuid])) as $key) {
+                $cached = \Illuminate\Support\Facades\DB::table('file_cache')->where('file_uuid', $key)->first();
+                if ($cached) {
+                    $candidate = app(\App\Services\Mobile\FileCacheService::class)->resolvePath($cached->local_path);
+                    if (is_file($candidate)) {
+                        $absolutePath = $candidate;
+                        break;
+                    }
+                }
+
+                $offline = \Illuminate\Support\Facades\DB::table('offline_files')->where('uuid', $key)->first();
+                if ($offline) {
+                    $candidate = app(\App\Services\OfflineUploadService::class)->absolutePath($offline->local_path);
+                    if (is_file($candidate)) {
+                        $absolutePath = $candidate;
+                        break;
+                    }
                 }
             }
         }
@@ -390,11 +419,43 @@ Route::post('/_native/api/files/download', function (\Illuminate\Http\Request $r
         }
 
         // Not on this device — let DownloadManager pull it from production.
-        if ($file && $file->sync_status === 'synced') {
-            return response()->json($native->save($file->url, $fileName, $mime));
+        //
+        // The gate used to be sync_status === 'synced' exactly, which is
+        // narrower than "the server has this file": a row can carry a
+        // remote_uuid (so production definitely holds the bytes) while its
+        // status still reads pending_update, pending_sync after a partial
+        // sync, or null. Every one of those answered 404 "file not found"
+        // even though the very same file downloads fine from the website.
+        // Anything with a remote id is worth asking production for; the
+        // download itself still fails loudly if production disagrees.
+        $remoteUuid = $file?->remote_uuid
+            ?: (($file && $file->sync_status === 'synced') ? $file->uuid : null);
+
+        if ($remoteUuid) {
+            $remoteBase = preg_replace('#/api/v1/mobile/?$#', '', (string) config('app.mobile_api_url'));
+            $remoteUrl  = rtrim($remoteBase, '/') . '/api/v1/files/' . $remoteUuid;
+
+            return response()->json($native->save($remoteUrl, $fileName, $mime));
         }
 
-        return response()->json(['success' => false, 'error' => 'file not found'], 404);
+        \Illuminate\Support\Facades\Log::error('[files.download] unresolved', [
+            'uuid'        => $uuid,
+            'row_found'   => (bool) $file,
+            'file_path'   => $file?->file_path,
+            'remote_uuid' => $file?->remote_uuid,
+            'sync_status' => $file?->sync_status,
+        ]);
+
+        return response()->json([
+            'success' => false,
+            // Say WHICH of the two situations this is. The old flat "file not
+            // found" covered both a missing row and a row whose bytes are
+            // nowhere yet, and the app surfaced neither — it showed its own
+            // generic "فشل التحميل" because a 404 makes axios throw.
+            'error' => $file
+                ? 'الملف لسه مترفعش على السيرفر ومش موجود على الجهاز'
+                : 'الملف غير موجود على هذا الجهاز',
+        ], 404);
     } catch (\Throwable $e) {
         \Illuminate\Support\Facades\Log::error('[files.download] ' . $e->getMessage(), ['uuid' => $uuid]);
 

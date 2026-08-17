@@ -133,6 +133,7 @@ import { useDialog } from '@/Composables/useDialog'
 import { useToast } from '@/Composables/useToast'
 import BaseButton from '@/Components/BaseButton.vue'
 import axios from 'axios'
+import { downloadInBrowser } from '@/Utils/api'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -142,6 +143,11 @@ const {
   showPreview: show,
   previewFile: file,
   previewSiblings,
+  // nextFile() reads loadMoreSiblings once the viewer nears the end of the
+  // loaded page. It was never destructured here, so that read hit an
+  // undeclared identifier and threw a ReferenceError instead of paging —
+  // which killed the click/keyboard/swipe handler that raised it.
+  loadMoreSiblings,
   closePreview: close,
   canDelete,
   removeFileLocally,
@@ -167,13 +173,27 @@ const hasPrev = computed(() => currentIndex.value > 0)
 const isLoadingMore = ref(false)
 
 async function nextFile() {
+  if (currentIndex.value === -1) return
+
+  // Near the end of what's loaded — pull the next page in first so the arrow
+  // keeps working past a page boundary. The owner of the list decides which
+  // page comes next; this used to pass a length/6 guess that skipped pages.
   if (currentIndex.value >= siblings.value.length - 2 && loadMoreSiblings.value && !isLoadingMore.value) {
     isLoadingMore.value = true
-    const newFiles = await loadMoreSiblings.value(Math.ceil(siblings.value.length / 6)) // approximate page
-    if (newFiles && newFiles.length > 0) {
-      previewSiblings.value = [...previewSiblings.value, ...newFiles]
+    try {
+      const newFiles = await loadMoreSiblings.value()
+      if (newFiles && newFiles.length > 0) {
+        const known = new Set(previewSiblings.value.map(f => f.uuid))
+        const unseen = newFiles.filter(f => f?.uuid && !known.has(f.uuid))
+        if (unseen.length > 0) {
+          previewSiblings.value = [...previewSiblings.value, ...unseen]
+        }
+      }
+    } catch (e) {
+      console.warn('[InlineFilePreview] failed to load more siblings', e)
+    } finally {
+      isLoadingMore.value = false
     }
-    isLoadingMore.value = false
   }
 
   if (hasNext.value) file.value = siblings.value[currentIndex.value + 1]
@@ -452,7 +472,10 @@ async function downloadFile() {
   const name = file.value.file_name || file.value.title || `file-${uuid}`;
 
   if (!detectNative()) {
-    window.open(file.value.url, '_blank');
+    // See downloadInBrowser(): the stream endpoint serves media inline (this
+    // very viewer depends on that), so opening a tab only re-displayed the
+    // file instead of saving it.
+    downloadInBrowser(file.value.url, name);
     return;
   }
 

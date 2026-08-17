@@ -1,0 +1,18 @@
+{
+    "namespace": "AppControl",
+    "bridge_functions": [
+        {
+            "name": "AppControl.Exit",
+            "android": "com.medicalplus.appcontrol.AppControlFunctions.Exit",
+            "description": "Finish the activity, remove it from recents, and kill the process — the next launch boots a fresh PHP runtime with no leftover state"
+        }
+    ],
+    "android": {
+        "min_version": 26,
+        "permissions": [],
+        "dependencies": {
+            "implementation": []
+        }
+    },
+    "events": []
+}

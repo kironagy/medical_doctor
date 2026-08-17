@@ -41,6 +41,7 @@ class NativeServiceProvider extends ServiceProvider
             \Native\Mobile\Providers\ShareServiceProvider::class,
             \MedicalPlus\BackgroundSync\BackgroundSyncServiceProvider::class,
             \MedicalPlus\NativeFiles\NativeFilesServiceProvider::class,
+            \MedicalPlus\AppControl\AppControlServiceProvider::class,
         ];
     }
 }

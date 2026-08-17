@@ -14,7 +14,7 @@ class DoctorController extends Controller
 {
     public function index(Request $request)
     {
-        $query = User::role('doctor')->withCount(['patients']); // Assuming patients relationship exists, actually it's primaryDoctor on patients table, but inverse may not exist. Let's fix that.
+        $query = User::havingRole('doctor')->withCount(['patients']); // Assuming patients relationship exists, actually it's primaryDoctor on patients table, but inverse may not exist. Let's fix that.
         
         if ($request->filled('search')) {
             $search = $request->search;

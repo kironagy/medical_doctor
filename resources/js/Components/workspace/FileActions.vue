@@ -227,6 +227,7 @@ import { useWorkspace } from '@/Composables/useWorkspace'
 import { useNativeBridge } from '@/Composables/useNativeBridge'
 import BaseButton from '@/Components/BaseButton.vue'
 import axios from 'axios'
+import { downloadInBrowser } from '@/Utils/api'
 
 const props = defineProps({
   file: { type: Object, default: null },
@@ -328,7 +329,9 @@ async function downloadFile() {
   if (downloading.value || !props.file?.url) return
 
   if (!detectNative()) {
-    window.open(props.file.url, '_blank')
+    // See downloadInBrowser(): the stream endpoint serves media inline, so
+    // opening a tab only displayed the file rather than downloading it.
+    downloadInBrowser(props.file.url, props.file.file_name || props.file.title)
     if (props.mode === 'sheet') emit('close')
     return
   }

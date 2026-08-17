@@ -12,6 +12,7 @@
         "laravel/prompts": "^0.3.21",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
+        "medicalplus/mobile-app-control": "*",
         "medicalplus/mobile-background-sync": "*",
         "medicalplus/mobile-native-files": "*",
         "nativephp/mobile": "^3.3",
@@ -81,6 +82,10 @@
         ]
     },
     "repositories": [
+        {
+            "type": "path",
+            "url": "packages/medicalplus/mobile-app-control"
+        },
         {
             "type": "path",
             "url": "packages/medicalplus/mobile-background-sync"

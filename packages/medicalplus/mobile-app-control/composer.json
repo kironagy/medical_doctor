@@ -1,0 +1,26 @@
+{
+    "name": "medicalplus/mobile-app-control",
+    "description": "Fully terminate the app process — used on logout so the next launch is a guaranteed cold boot",
+    "type": "nativephp-plugin",
+    "license": "MIT",
+    "version": "1.0.0",
+    "require": {
+        "php": "^8.2",
+        "nativephp/mobile": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "MedicalPlus\\AppControl\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "MedicalPlus\\AppControl\\AppControlServiceProvider"
+            ]
+        },
+        "nativephp": {
+            "manifest": "nativephp.json"
+        }
+    }
+}

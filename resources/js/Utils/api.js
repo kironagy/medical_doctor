@@ -68,6 +68,47 @@ export function getApiConfig() {
   return token ? { headers: { Authorization: 'Bearer ' + token } } : {}
 }
 
+/**
+ * Save a file to the user's Downloads folder from the BROWSER (website only —
+ * the app routes downloads through the NativeFiles bridge instead).
+ *
+ * Every website download used to be window.open(url, '_blank'), which is not
+ * a download at all: the stream endpoint serves images and videos with
+ * Content-Disposition: inline so <img>/<video> can render them, so the new tab
+ * simply displayed the picture and the user had to save it by hand.
+ *
+ * Two things make this an actual download:
+ *   - ?download=1 asks the endpoint for `attachment` instead of `inline`
+ *   - a synthetic <a download> click, which never opens a tab
+ *
+ * @param {string} url      the file's URL (absolute or relative)
+ * @param {string} [name]   preferred filename; the server's
+ *                          Content-Disposition wins when it sends one
+ */
+export function downloadInBrowser(url, name) {
+  if (!url) return
+
+  let href = url
+  try {
+    // Preserve any existing query string instead of assuming there is none.
+    const parsed = new URL(url, window.location.origin)
+    parsed.searchParams.set('download', '1')
+    href = parsed.pathname + parsed.search + parsed.hash
+    if (parsed.origin !== window.location.origin) href = parsed.toString()
+  } catch {
+    href = url + (url.includes('?') ? '&' : '?') + 'download=1'
+  }
+
+  const a = document.createElement('a')
+  a.href = href
+  a.download = name || ''
+  a.rel = 'noopener'
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
 export const LOCAL_ORIGIN = 'http://127.0.0.1'
 
 /**

@@ -27,6 +27,15 @@ class ApiService
         return $this->remoteApi->getToken();
     }
 
+    /**
+     * True once a real login has completed on this device — see
+     * RemoteApiService::hasStoredToken().
+     */
+    public static function hasStoredToken(): bool
+    {
+        return RemoteApiService::hasStoredToken();
+    }
+
     public function get(string $endpoint, array $query = []): array
     {
         return $this->remoteApi->get($endpoint, $query);

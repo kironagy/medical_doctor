@@ -168,7 +168,10 @@
                 <td class="px-6 py-4 whitespace-nowrap text-start text-slate-500 dark:text-slate-400">{{ new Date(file.created_at).toLocaleDateString() }}</td>
                 <td class="px-6 py-4 text-end whitespace-nowrap">
                   <button @click="activeMedia = file" class="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-medium text-sm me-3">{{ $t('common.preview') }}</button>
-                  <a :href="`/api/v1/files/${file.uuid}`" target="_blank" class="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-sm">{{ $t('common.download') }}</a>
+                  <!-- ?download=1 + download attribute: without them this
+                       endpoint serves media inline and the link only opened
+                       the image in a new tab instead of saving it. -->
+                  <a :href="`/api/v1/files/${file.uuid}?download=1`" download class="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-sm">{{ $t('common.download') }}</a>
                 </td>
               </tr>
               <tr v-if="files.length === 0 && !loadingFiles">

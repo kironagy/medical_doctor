@@ -69,8 +69,8 @@
               ⏳
             </span>
 
-            <!-- Available Offline Badge -->
-            <span v-if="readyPatientUuids.has(patient.uuid)" :title="$t('patient_summary.download_offline')" class="flex-shrink-0 me-1 text-emerald-600 dark:text-emerald-400">
+            <!-- Available Offline Badge — app only -->
+            <span v-if="isNative && readyPatientUuids.has(patient.uuid)" :title="$t('patient_summary.download_offline')" class="flex-shrink-0 me-1 text-emerald-600 dark:text-emerald-400">
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
             </span>
 
@@ -204,10 +204,13 @@ import { useSyncEngine } from '@/Composables/useSyncEngine'
 const { isOnline, isSyncing, pendingSummary, triggerSync, refreshFromServer } = useSyncEngine()
 const showSyncCenter = ref(false)
 
-// ── Offline Package availability (per-patient "available offline" badge) ──
+// ── Offline Package availability (per-patient "available offline" badge) — app only ──
 import { useOfflinePackages } from '@/Composables/useOfflinePackages'
+import { useNativeBridge } from '@/Composables/useNativeBridge'
 const { readyPatientUuids, fetchPackages } = useOfflinePackages()
-fetchPackages()
+const { detectNative } = useNativeBridge()
+const isNative = detectNative()
+if (isNative) fetchPackages()
 
 async function handleSyncNow() {
   const result = await triggerSync()

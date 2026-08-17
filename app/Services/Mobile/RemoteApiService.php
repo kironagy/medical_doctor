@@ -329,6 +329,19 @@ class RemoteApiService
         return $baseUrl . $endpoint;
     }
 
+    /**
+     * Has anyone actually completed a login on this device?
+     *
+     * The token file is written on every successful login and deleted on
+     * logout, which makes it the one durable "a real person signed in here"
+     * signal available before a session exists. Static so route closures can
+     * ask without resolving the service (and booting its session lookup).
+     */
+    public static function hasStoredToken(): bool
+    {
+        return file_exists(storage_path(self::TOKEN_FILE_PATH));
+    }
+
     private function loadTokenFromFile(): void
     {
         $path = storage_path(self::TOKEN_FILE_PATH);
